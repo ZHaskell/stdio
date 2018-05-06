@@ -31,7 +31,7 @@ You can also build libuv from source following the guide [here](https://github.c
 cabal install stdio
 ```
 
-Now you can fire GHCi and play around, or read the [design overview](), [haddock]() or [examples]().
+Now you can fire GHCi and play around, or read the [design overview](https://haskell-stdio.github.io/stdio), [haddock](https://haskell-stdio.github.io/stdio/haddock/) or [examples]().
 
 Contribution Guide
 ------------------
