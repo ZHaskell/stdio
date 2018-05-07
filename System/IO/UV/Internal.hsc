@@ -255,6 +255,8 @@ foreign import ccall unsafe uv_tty_init :: Ptr UVLoop -> Ptr UVHandle -> CInt ->
 
 --------------------------------------------------------------------------------
 
+foreign import ccall "uv_fs_req_cleanup" :: UVReq -> IO () 
+
 type UVFSCallBack = FunPtr (Ptr UVReq -> IO ())
 
 foreign import ccall "hs_uv.h &hs_uv_fs_callback" uvFSCallBack :: UVFSCallBack

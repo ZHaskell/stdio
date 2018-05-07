@@ -60,7 +60,6 @@ library
                             -- System.IO.Log
 
                             System.IO.FileSystem
-                            System.IO.FileSystem.Slow
 
                             System.IO.Net
                             System.IO.Net.SockAddr

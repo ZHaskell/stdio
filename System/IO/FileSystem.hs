@@ -1,6 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE ImplicitParams #-}
 
@@ -33,13 +33,37 @@ import Control.Concurrent
 import Foreign.Ptr
 import Foreign.C
 import Data.CBytes
+import GHC.Generics
 
-scandir :: CBytes -> IO [(CBytes, UVDirEntType)]
+data DirEntType
+    = DirEntUnknown
+    | DirEntFile
+    | DirEntDir
+    | DirEntLink
+    | DirEntFIFO
+    | DirEntSocket
+    | DirEntChar
+    | DirEntBlock
+  deriving (Read, Show, Eq, Ord, Generic)
+
+fromUVDirEntType :: UVDirEntType -> DirEntType
+fromUVDirEntType t
+    | t == uV_DIRENT_FILE   = DirEntFile
+    | t == uV_DIRENT_DIR    = DirEntDir
+    | t == uV_DIRENT_LINK   = DirEntLink
+    | t == uV_DIRENT_FIFO   = DirEntFIFO
+    | t == uV_DIRENT_SOCKET = DirEntSocket
+    | t == uV_DIRENT_CHAR   = DirEntChar
+    | t == uV_DIRENT_BLOCK  = DirEntBlock
+    | otherwise             = DirEntUnknown
+
+scandir :: CBytes -> IO [(CBytes, DirEntType)]
 scandir path = withCBytes path $ \ p ->
     withResource (initUVReq uV_FS) $ \ req -> do
         uvFSScandir nullPtr req p False
         loopScanDirReq req
 
+loopScanDirReq :: Ptr UVReq -> IO [(CBytes, DirEntType)]
 loopScanDirReq req = do
     withResource initUVDirEnt $ \ ent -> do
         r <- uv_fs_scandir_next req ent
@@ -51,11 +75,12 @@ loopScanDirReq req = do
                 return []
             else do
                 (path, typ) <- peekUVDirEnt ent
-                path' <- fromCString path
-                rest <- loopScanDirReq req
-                return ((path', typ) : rest)
+                let !typ' = fromUVDirEntType typ
+                !path' <- fromCString path
+                !rest <- loopScanDirReq req
+                return ((path', typ') : rest)
 
-scandirT :: CBytes -> IO [(CBytes, UVDirEntType)]
+scandirT :: CBytes -> IO [(CBytes, DirEntType)]
 scandirT path = do
     uvm <- getUVManager
     withCBytes path $ \ p ->
