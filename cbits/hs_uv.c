@@ -26,12 +26,13 @@ uv_loop_t* hs_uv_loop_init(size_t siz){
     ssize_t* buffer_size_table = malloc(siz*sizeof(ssize_t));
     size_t* slot_table = malloc(siz*sizeof(size_t));
 
-    if ((loop_data | event_queue | buffer_table | buffer_size_table | slot_table) == NULL){
+    if (loop_data == NULL || event_queue == NULL || buffer_table == NULL ||
+                buffer_size_table == NULL || slot_table == NULL){
         free(event_queue);
         free(loop_data);
         free(buffer_table);
         free(buffer_size_table);
-        free(slot);
+        free(slot_table);
 
         uv_loop_close(loop);
         free(loop);
@@ -39,14 +40,14 @@ uv_loop_t* hs_uv_loop_init(size_t siz){
         return NULL;    // before return NULL, free all structs
     } else {
         // initialize slot table
-        for (i = 0; i < size; i ++) {
+        for (i = 0; i < siz; i++) {
             slot_table[i] = i+1;
         }
-        loop_data->free_slot            = 0;
         loop_data->event_queue          = event_queue;
         loop_data->buffer_table         = buffer_table;
         loop_data->buffer_size_table    = buffer_size_table;
         loop_data->slot_table           = slot_table;
+        loop_data->free_slot            = 0;
         loop_data->size                 = siz;
         loop->data = loop_data;
         return loop;
@@ -57,7 +58,7 @@ uv_loop_t* hs_uv_loop_init(size_t siz){
 size_t alloc_slot(uv_loop_t* loop){
     hs_loop_data* loop_data = loop->data;
     size_t r = loop_data->free_slot;
-    loop_data->free_slot = loop_data->slot_table[loop_data->free_slot];
+    loop_data->free_slot = loop_data->slot_table[r];
     // the slot exceed range, we should resize
     if (r == loop_data->size - 1) {
          hs_uv_loop_resize(loop, (loop_data->size) * 2);
@@ -79,7 +80,8 @@ uv_loop_t* hs_uv_loop_resize(uv_loop_t* loop, size_t siz){
     ssize_t* buffer_size_table_new = realloc(loop_data->buffer_size_table, (siz*sizeof(ssize_t)));
     size_t* slot_table_new = realloc(loop_data->slot_table, (siz*sizeof(ssize_t)));
 
-    if ((event_queue_new | buffer_table_new | buffer_size_table_new | slot_table_new) == NULL){
+    if (event_queue_new == NULL || buffer_table_new == NULL ||
+            buffer_size_table_new == NULL || slot_table_new == NULL){
         // release new memory
         if (event_queue_new != loop_data->event_queue) free(event_queue_new);
         if (buffer_table_new != loop_data->buffer_table) free(buffer_table_new);
@@ -87,14 +89,14 @@ uv_loop_t* hs_uv_loop_resize(uv_loop_t* loop, size_t siz){
         if (slot_table_new != loop_data->slot_table) free(slot_table_new);
         return NULL;
     } else {
-        for (i = loop_data->size; i < siz ; i++) {
-            loop_data->slot_table[i] = i+1;
+        for (i = loop_data->size; i < siz; i++) {
+            slot_table_new[i] = i+1;
         }
-        loop_data->free_slot          = loop_data->size;
         loop_data->event_queue        = event_queue_new;
         loop_data->buffer_table       = buffer_table_new;
         loop_data->buffer_size_table  = buffer_size_table_new;
         loop_data->slot_table         = slot_table_new;
+        loop_data->free_slot          = loop_data->size;
         loop_data->size               = siz;
         return loop;
     }
@@ -119,6 +121,8 @@ void hs_uv_loop_close(uv_loop_t* loop){
     free(loop_data->event_queue);
     free(loop_data->buffer_table);
     free(loop_data->buffer_size_table);
+    free(loop_data->slot_table);
+    free(loop_data);
 }
 
 /********************************************************************************/
@@ -167,19 +171,6 @@ uv_req_t* hs_uv_req_alloc(uv_req_type typ, uv_loop_t* loop){
 // free uv_req_t's memory & slot
 void hs_uv_req_free(uv_req_t* req, uv_loop_t* loop){
     free_slot(loop, (size_t)req->data);
-    free(req);
-}
-
-// Initialize a uv_fs_t with give type, return NULL on fail.
-// no new slot will be allocated, if you need thread pooled
-// fs operation, you should still use hs_uv_req_alloc which 
-// gives you a slot for block/unlock
-uv_req_t* hs_uv_req_alloc_fs(){
-    return malloc(uv_req_size(UV_FS));
-}
-
-// free uv_fs_t's memory only
-void hs_uv_req_free_fs(uv_req_t* req){
     free(req);
 }
 
@@ -393,9 +384,19 @@ void hs_listen_cb(uv_stream_t* server, int status){
             loop_data->buffer_size_table[slot] = accepted_number + 1;
         } else {
 #if defined(_WIN32)
-            closesocket(hs_uv_accept(server));  // this should not happen since simultaneous_accepts is small
+            // we have no way to deal with this situation on windows, since 
+            // we can't stop accepting after request has been inserted
+            // but this should not happen on windows anyway,
+            // since on windows simultaneous_accepts is small, e.g. pending accept
+            // requests' number is small.
+            // It must takes many uv_run without copying accept buffer on haskell side
+            // which is very unlikely to happen.
+            closesocket(hs_uv_accept(server)); 
 #else
-            // do last accept
+            // on unix, we can stop accepting using uv__io_stop
+            //
+            // do last accept without clearing server->accepted_fd
+            // libuv will take this as a no accepting, thus call uv__io_stop for us.
             accept_buf[accepted_number] = (int32_t)hs_uv_accept(server);       
             // set back accepted_fd so that libuv break from accept loop
             // upon next resuming, we clear this accepted_fd with -1 and call uv__io_start
@@ -414,6 +415,7 @@ int hs_uv_listen(uv_stream_t* stream, int backlog){
     return uv_listen(stream, backlog, hs_listen_cb);
 }
 
+// on windows we don't need to do anything, since we didn't and can't stopped. 
 void hs_uv_listen_resume(uv_stream_t* server){
 #if !defined(_WIN32)
     server->accepted_fd = -1;
@@ -459,6 +461,18 @@ int hs_uv_async_wake_init(uv_loop_t* loop, uv_async_t* async){
 
 /********************************************************************************/
 
+// Initialize a uv_fs_t with give type, return NULL on fail.
+// no new slot will be allocated, if you need thread pooled
+// fs operation, you should still use hs_uv_req_alloc which 
+// gives you a slot for block/unlock
+uv_req_t* hs_uv_req_alloc_fs(){
+    return malloc(uv_req_size(UV_FS));
+}
+
+// free uv_fs_t's memory only
+void hs_uv_req_free_fs(uv_req_t* req){
+    free(req);
+}
 uv_dirent_t* hs_uv_dirent_alloc(){
     return malloc(sizeof(uv_dirent_t));
 }

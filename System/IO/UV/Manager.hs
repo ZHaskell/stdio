@@ -29,14 +29,18 @@ Check "System.IO.Socket.TCP" as an example.
 
 module System.IO.UV.Manager
   ( UVManager
+  , uvmBlockTable
   , getUVManager
   , getBlockMVar
   , peekBufferTable
   , pokeBufferTable
   , withUVManager
   , withUVManager'
-  , initUVSlot
   , initUVHandle
+  , initUVReq
+  , initUVFS
+  , initUVFST
+  , doubleBlockTable
   , forkBa
   ) where
 
@@ -328,33 +332,39 @@ initUVHandle :: HasCallStack
              -> UVManager
              -> Resource (Ptr UVHandle)
 initUVHandle typ init uvm = initResource
-        (do handle <- throwOOMIfNull (hs_uv_handle_alloc typ)
-            withUVManager uvm (\ loop -> init loop handle) `onException` (hs_uv_handle_free handle)
-            return handle)
-        (withUVManager' uvm . hs_uv_handle_close) -- handle is free in uv_close callback
+    (withUVManager uvm $ \ loop -> do
+        handle <- throwOOMIfNull $ hs_uv_handle_alloc typ loop
+        slot <- peekUVHandleData handle
+        doubleBlockTable (uvmBlockTable uvm) slot
+        init loop handle `onException` hs_uv_handle_free handle
+        return handle)
+    (withUVManager' uvm . hs_uv_handle_close) -- handle is free in uv_close callback
 
-
+{-
 initUVReq :: HasCallStack => UVReqType -> UVManager -> Resource (Ptr UVReq)
 initUVReq typ uvm = initResource
     (throwOOMIfNull . withUVManager uvm $ hs_uv_req_alloc typ)
     (\ req -> withUVManager uvm $ \ loop -> hs_uv_req_free req loop)
+-}
 
 initUVReq :: HasCallStack
           => UVReqType
-          -> (Ptr UVLoop -> Ptr Req -> IO ())
+          -> (Ptr UVLoop -> Ptr UVReq -> IO ())
           -> UVManager
           -> Resource (Ptr UVReq)
 initUVReq typ init uvm = initResource
     (withUVManager uvm $ \ loop -> do
         req <- throwOOMIfNull $ hs_uv_req_alloc typ loop
+        slot <- peekUVReqData req
+        doubleBlockTable (uvmBlockTable uvm) slot
         init loop req `onException` hs_uv_req_free req loop
         return req)
     (\ req -> withUVManager uvm $ \ loop -> hs_uv_req_free req loop)
 
 
 initUVFS :: HasCallStack
-         -> (Ptr UVLoop -> Ptr Req -> UVFSCallBack -> IO ())
-         -> Resource (Ptr Req)
+         => (Ptr UVLoop -> Ptr UVReq -> UVFSCallBack -> IO ())
+         -> Resource (Ptr UVReq)
 initUVFS fs = initResource
     (do req <- throwOOMIfNull hs_uv_req_alloc_fs
         fs nullPtr req nullFunPtr `onException` hs_uv_req_free_fs req
@@ -362,18 +372,34 @@ initUVFS fs = initResource
     (\ req -> uv_fs_req_cleanup req >> hs_uv_req_free_fs req)
 
 initUVFST :: HasCallStack
-         -> (Ptr UVLoop -> Ptr Req -> UVFSCallBack -> IO ())
+         => (Ptr UVLoop -> Ptr UVReq -> UVFSCallBack -> IO ())
          -> UVManager
-         -> Resource (Ptr Req)
+         -> Resource (Ptr UVReq)
 initUVFST fs uvm = initResource
     (withUVManager uvm $ \ loop -> do
         req <- throwOOMIfNull $ hs_uv_req_alloc uV_FS loop
-        init loop req `onException` hs_uv_req_free req loop
+        slot <- peekUVReqData req
+        doubleBlockTable (uvmBlockTable uvm) slot
+        fs loop req uvFSCallBack `onException` hs_uv_req_free req loop
         return req)
     (\ req -> do
         uv_fs_req_cleanup req
         withUVManager uvm $ \ loop -> hs_uv_req_free req loop)
 
+doubleBlockTable :: IORef (UnliftedArray (MVar ())) -> Int -> IO ()
+doubleBlockTable blockTableRef slot = do
+    blockTable <- readIORef blockTableRef
+    let oldSiz = sizeofArr blockTable
+        newSiz = oldSiz `shiftL` 2
+    when (slot == oldSiz - 1) $ do
+        blockTable' <- newArr newSiz
+        copyArr blockTable' 0 blockTable 0 oldSiz
+
+        forM_ [oldSiz..newSiz-1] $ \ i ->
+            writeArr blockTable' i =<< newEmptyMVar
+        !iBlockTable' <- unsafeFreezeArr blockTable'
+
+        writeIORef blockTableRef iBlockTable'
 
 -- | Fork a new GHC thread with active load-balancing.
 --

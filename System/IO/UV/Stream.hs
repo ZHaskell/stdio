@@ -24,29 +24,38 @@ data UVStream = UVStream
     , uvsManager    :: UVManager
     }
 
-initUVStream :: HasCallStack => (UVManager -> Resource (Ptr UVHandle)) -> Resource UVStream
-initUVStream handleRes = do
-    uvm    <- liftIO getUVManager
-    rslot  <- initUVSlot uvm
-    wslot  <- initUVSlot uvm
-    handle <- handleRes uvm
-    req    <- initUVReq uV_WRITE
-    liftIO $ do
-        pokeUVHandleData handle rslot
-        pokeUVReqData req wslot
-        return (UVStream handle rslot req wslot uvm)
+initUVStream :: HasCallStack
+             => UVHandleType
+             -> (Ptr UVLoop -> Ptr UVHandle -> IO ())
+             -> Resource UVStream
+initUVStream typ init = do
+    uvm <- liftIO getUVManager
+    initResource
+        (do withUVManager uvm $ \ loop -> do
+                handle <- throwOOMIfNull (hs_uv_handle_alloc typ loop)
+                req <- throwOOMIfNull (hs_uv_req_alloc uV_WRITE loop)
+                        `onException` (hs_uv_handle_free handle)
+                init loop handle
+                    `onException` (hs_uv_handle_free handle >> hs_uv_req_free req loop)
+
+                rslot <- peekUVHandleData handle
+                wslot <- peekUVReqData req
+                doubleBlockTable (uvmBlockTable uvm) rslot
+                doubleBlockTable (uvmBlockTable uvm) wslot
+                return (UVStream handle rslot req wslot uvm))
+        (\ (UVStream handle _ req  _ uvm) ->
+            withUVManager uvm $ \ loop -> do
+                hs_uv_handle_close handle -- handle is free in uv_close callback
+                hs_uv_req_free req loop)
 
 initTCPStream :: HasCallStack => Resource UVStream
-initTCPStream = initUVStream $
-    initUVHandle uV_TCP (\ loop handle -> uvTCPInit loop handle >> return handle)
+initTCPStream = initUVStream uV_TCP uvTCPInit
 
 initPipeStream :: HasCallStack => Resource UVStream
-initPipeStream = initUVStream $
-    initUVHandle uV_NAMED_PIPE (\ loop handle -> uvPipeInit loop handle >> return handle)
+initPipeStream = initUVStream uV_NAMED_PIPE uvPipeInit
 
 initTTYStream :: HasCallStack => UVFD -> Resource UVStream
-initTTYStream fd = initUVStream $
-    initUVHandle uV_TTY (\ loop handle -> uvTTYInit loop handle fd >> return handle)
+initTTYStream fd = initUVStream uV_TTY (uvTTYInit fd)
 
 instance Input UVStream where
     -- readInput :: HasCallStack => UVStream -> Ptr Word8 ->  Int -> IO Int

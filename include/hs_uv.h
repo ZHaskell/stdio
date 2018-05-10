@@ -28,14 +28,14 @@ void hs_uv_loop_close(uv_loop_t* loop);
 
 ////////////////////////////////////////////////////////////////////////////////
 // handle
-uv_handle_t* hs_uv_handle_alloc(uv_handle_type typ, uv_loop_t loop);
+uv_handle_t* hs_uv_handle_alloc(uv_handle_type typ, uv_loop_t* loop);
 void hs_uv_handle_free(uv_handle_t* handle);
 void hs_uv_handle_close(uv_handle_t* handle);
 
 ////////////////////////////////////////////////////////////////////////////////
 // request
-uv_handle_t* hs_uv_req_alloc(uv_req_type typ, uv_loop_t loop);
-void hs_uv_req_free(uv_req_t* req, uv_loop_t loop);
+uv_req_t* hs_uv_req_alloc(uv_req_type typ, uv_loop_t* loop);
+void hs_uv_req_free(uv_req_t* req, uv_loop_t* loop);
 
 ////////////////////////////////////////////////////////////////////////////////
 // stream
