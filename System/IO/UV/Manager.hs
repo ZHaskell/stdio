@@ -347,13 +347,11 @@ initUVFST fs uvm = initResource
 
 autoResizeUVM :: UVManager -> Int -> IO ()
 autoResizeUVM (UVManager blockTableRef _ loopDataPtr _ _ _ _) slot = do
-    siz <- peekUVLoopSize loopDataPtr
-    when (slot == siz - 1) $ do
+    blockTable <- readIORef blockTableRef
+    let oldSiz = sizeofArr blockTable
+    when (slot == oldSiz) $ do
 
-        blockTable <- readIORef blockTableRef
-        let oldSiz = sizeofArr blockTable
-            newSiz = oldSiz `shiftL` 2
-
+        let newSiz = oldSiz `shiftL` 2
         blockTable' <- newArr newSiz
         copyArr blockTable' 0 blockTable 0 oldSiz
 
