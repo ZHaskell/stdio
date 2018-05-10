@@ -112,11 +112,10 @@ startServer ServerConfig{..} =
         serverManager = uvsManager server
         serverSlot = uvsReadSlot server
 
-    withResource (initUVHandle
+    withResource (initUVHandleNoSlot
         uV_CHECK
         (\ loop handle -> throwUVIfMinus_ $ hs_uv_accept_check_init loop handle serverHandle)
-        serverManager) $ \ _ ->
-            withSockAddr serverAddr $ \ addrPtr -> do
+        serverManager) $ \ _ -> withSockAddr serverAddr $ \ addrPtr -> do
 
         m <- getBlockMVar serverManager serverSlot
         acceptBuf <- newPinnedPrimArray (fromIntegral aCCEPT_BUFFER_SIZE)

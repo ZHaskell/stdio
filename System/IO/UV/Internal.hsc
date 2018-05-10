@@ -103,6 +103,9 @@ foreign import ccall unsafe hs_uv_fileno :: Ptr UVHandle -> IO UVFD
 foreign import ccall unsafe hs_uv_handle_alloc  :: UVHandleType -> Ptr UVLoop -> IO (Ptr UVHandle)
 foreign import ccall unsafe hs_uv_handle_free :: Ptr UVHandle -> IO ()
 foreign import ccall unsafe hs_uv_handle_close :: Ptr UVHandle -> IO ()
+foreign import ccall unsafe hs_uv_handle_alloc_no_slot  :: UVHandleType -> IO (Ptr UVHandle)
+foreign import ccall unsafe hs_uv_handle_free_no_slot :: Ptr UVHandle -> IO ()
+foreign import ccall unsafe hs_uv_handle_close_no_slot :: Ptr UVHandle -> IO ()
 
 newtype UVHandleType = UVHandleType CInt 
     deriving (Bounded, Enum, Eq, Integral, Num, Ord, Read, Real, Show, FiniteBits, Bits, Storable)

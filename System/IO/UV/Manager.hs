@@ -37,6 +37,7 @@ module System.IO.UV.Manager
   , withUVManager
   , withUVManager'
   , initUVHandle
+  , initUVHandleNoSlot
   , initUVReq
   , initUVFS
   , initUVFST
@@ -187,7 +188,7 @@ initUVManager siz cap = do
         forM_ [0..siz-1] $ \ i -> writeArr mblockTable i =<< newEmptyMVar
         blockTable <- unsafeFreezeArr mblockTable
         blockTableRef <- newIORef blockTable
-        freeSlotList <- newMVar [0 .. siz-1]
+        freeSlotList <- newMVar [] -- TODO removed later
         loopData <- peekUVLoopData loop
         running <- newMVar False
         return (UVManager blockTableRef freeSlotList loop loopData running async timer cap)
@@ -339,6 +340,18 @@ initUVHandle typ init uvm = initResource
         init loop handle `onException` hs_uv_handle_free handle
         return handle)
     (withUVManager' uvm . hs_uv_handle_close) -- handle is free in uv_close callback
+
+initUVHandleNoSlot :: HasCallStack
+                   => UVHandleType
+                   -> (Ptr UVLoop -> Ptr UVHandle -> IO ())
+                   -> UVManager
+                   -> Resource (Ptr UVHandle)
+initUVHandleNoSlot typ init uvm = initResource
+    (do handle <- throwOOMIfNull $ hs_uv_handle_alloc_no_slot typ
+        withUVManager uvm $ \ loop ->
+            init loop handle `onException` hs_uv_handle_free handle
+        return handle)
+    (withUVManager' uvm . hs_uv_handle_close_no_slot) -- handle is free in uv_close callback
 
 {-
 initUVReq :: HasCallStack => UVReqType -> UVManager -> Resource (Ptr UVReq)

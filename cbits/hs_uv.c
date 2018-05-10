@@ -67,11 +67,9 @@ size_t alloc_slot(uv_loop_t* loop){
 }
 void free_slot(uv_loop_t* loop, size_t slot){
     hs_loop_data* loop_data = loop->data;
-    // TODO find out why slot is exceeding size limit
-    if (slot < loop_data->size) {
-        loop_data->slot_table[slot] = loop_data->free_slot;
-        loop_data->free_slot = slot;
-    }
+    assert(slot < loop_data->size);
+    loop_data->slot_table[slot] = loop_data->free_slot;
+    loop_data->free_slot = slot;
 }
 
 // resize a loop's data to given slot size, return NULL on fail.
@@ -144,9 +142,14 @@ uv_handle_t* hs_uv_handle_alloc(uv_handle_type typ, uv_loop_t* loop){
     uv_handle_t* handle = malloc(uv_handle_size(typ));
     if (handle == NULL) { return NULL; }
     else {
+        handle->loop = loop;
         handle->data = (void*)alloc_slot(loop);
         return handle;
     }
+}
+
+uv_handle_t* hs_uv_handle_alloc_no_slot(uv_handle_type typ){
+    return malloc(uv_handle_size(typ));
 }
 
 // Free uv_handle_t 's memory only
@@ -155,9 +158,17 @@ void hs_uv_handle_free(uv_handle_t* handle){
     free(handle);
 }
 
+void hs_uv_handle_free_no_slot(uv_handle_t* handle){
+    free(handle);
+}
+
 // Close a uv_handle_t, free its memory & slot
 void hs_uv_handle_close(uv_handle_t* handle){
     uv_close(handle, hs_uv_handle_free);
+}
+
+void hs_uv_handle_close_no_slot(uv_handle_t* handle){
+    uv_close(handle, hs_uv_handle_free_no_slot);
 }
 
 // Initialize a uv_req_t with give type, return NULL on fail.
