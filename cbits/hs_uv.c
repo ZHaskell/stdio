@@ -333,9 +333,19 @@ void hs_listen_cb(uv_stream_t* server, int status){
             loop_data->buffer_size_table[slot] = accepted_number + 1;
         } else {
 #if defined(_WIN32)
-            closesocket(hs_uv_accept(server));  // this should not happen since simultaneous_accepts is small
+            // we have no way to deal with this situation on windows, since 
+            // we can't stop accepting after request has been inserted
+            // but this should not happen on windows anyway,
+            // since on windows simultaneous_accepts is small, e.g. pending accept
+            // requests' number is small.
+            // It must takes many uv_run without copying accept buffer on haskell side
+            // which is very unlikely to happen.
+            closesocket(hs_uv_accept(server)); 
 #else
-            // do last accept
+            // on unix, we can stop accepting using uv__io_stop
+            //
+            // do last accept without clearing server->accepted_fd
+            // libuv will take this as a no accepting, thus call uv__io_stop for us.
             accept_buf[accepted_number] = (int32_t)hs_uv_accept(server);       
             // set back accepted_fd so that libuv break from accept loop
             // upon next resuming, we clear this accepted_fd with -1 and call uv__io_start
@@ -351,14 +361,15 @@ void hs_listen_cb(uv_stream_t* server, int status){
 }
 
 int hs_uv_listen(uv_stream_t* stream, int backlog){
-#if !defined(_WIN32)
     return uv_listen(stream, backlog, hs_listen_cb);
-#endif
 }
 
+// on windows we don't need to do anything, since we didn't and can't stopped. 
 void hs_uv_listen_resume(uv_stream_t* server){
+    #if !defined(_WIN32)
     server->accepted_fd = -1;
     uv__io_start(server->loop, &server->io_watcher, POLLIN);
+    #endif
 }
 
 // check if the socket's accept buffer is still filled, if so, unlock the accept thread
