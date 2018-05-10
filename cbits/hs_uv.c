@@ -148,7 +148,8 @@ uv_handle_t* hs_uv_handle_alloc(uv_handle_type typ, uv_loop_t* loop){
 
 // Free uv_handle_t 's memory only
 void hs_uv_handle_free(uv_handle_t* handle){
-    free_slot(handle->loop, (size_t)handle->data);
+    // TODO: investgate why free_slot crash program
+    // free_slot(handle->loop, (size_t)handle->data);
     free(handle);
 }
 

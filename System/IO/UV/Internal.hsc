@@ -185,6 +185,7 @@ initUVTimer loop = initResource
         return handle
     )
     (hs_uv_handle_close) -- handle is free in uv_close callback
+
 foreign import ccall unsafe uv_timer_init :: Ptr UVLoop -> Ptr UVHandle -> IO CInt
 
 uvTimerStart :: HasCallStack => Ptr UVHandle -> Word64 -> Word64 -> IO ()

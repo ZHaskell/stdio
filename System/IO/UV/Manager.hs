@@ -391,7 +391,7 @@ doubleBlockTable blockTableRef slot = do
     blockTable <- readIORef blockTableRef
     let oldSiz = sizeofArr blockTable
         newSiz = oldSiz `shiftL` 2
-    when (slot == oldSiz - 1) $ do
+    when (slot == oldSiz) $ do
         blockTable' <- newArr newSiz
         copyArr blockTable' 0 blockTable 0 oldSiz
 
