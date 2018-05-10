@@ -67,8 +67,11 @@ size_t alloc_slot(uv_loop_t* loop){
 }
 void free_slot(uv_loop_t* loop, size_t slot){
     hs_loop_data* loop_data = loop->data;
-    loop_data->slot_table[slot] = loop_data->free_slot;
-    loop_data->free_slot = slot;
+    // TODO find out why slot is exceeding size limit
+    if (slot < loop_data->size) {
+        loop_data->slot_table[slot] = loop_data->free_slot;
+        loop_data->free_slot = slot;
+    }
 }
 
 // resize a loop's data to given slot size, return NULL on fail.
@@ -148,8 +151,7 @@ uv_handle_t* hs_uv_handle_alloc(uv_handle_type typ, uv_loop_t* loop){
 
 // Free uv_handle_t 's memory only
 void hs_uv_handle_free(uv_handle_t* handle){
-    // TODO: investgate why free_slot crash program
-    // free_slot(handle->loop, (size_t)handle->data);
+    free_slot(handle->loop, (size_t)handle->data);
     free(handle);
 }
 
