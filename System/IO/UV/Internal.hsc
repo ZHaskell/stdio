@@ -60,6 +60,9 @@ newtype UVRunMode = UVRunMode CInt
 peekUVLoopData :: Ptr UVLoop -> IO (Ptr UVLoopData)
 peekUVLoopData p = #{peek uv_loop_t, data} p
 
+peekUVLoopSize :: Ptr UVLoopData -> IO Int
+peekUVLoopSize p = fromIntegral <$> (#{peek hs_loop_data, size} p :: IO CSize)
+
 -- | An uv loop initResource with given slot size.
 initUVLoop :: HasCallStack => Int -> Resource (Ptr UVLoop)
 initUVLoop siz = initResource 

@@ -40,8 +40,8 @@ initUVStream typ init = do
 
                 rslot <- peekUVHandleData handle
                 wslot <- peekUVReqData req
-                doubleBlockTable (uvmBlockTable uvm) rslot
-                doubleBlockTable (uvmBlockTable uvm) wslot
+                autoResizeUVM uvm rslot
+                autoResizeUVM uvm wslot
                 return (UVStream handle rslot req wslot uvm))
         (\ (UVStream handle _ req  _ uvm) ->
             withUVManager uvm $ \ loop -> do
