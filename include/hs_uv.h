@@ -1,41 +1,57 @@
 #include <uv.h>
 
+////////////////////////////////////////////////////////////////////////////////
+// CONSTANT
 #ifndef ACCEPT_BUFFER_SIZE
 #define ACCEPT_BUFFER_SIZE 1024
 #endif
 
+////////////////////////////////////////////////////////////////////////////////
+// error handling
 int uv_translate_sys_error(int sys_errno);
 
+////////////////////////////////////////////////////////////////////////////////
+// loop
 typedef struct {
    size_t    event_counter;
    size_t*   event_queue;
    char**    buffer_table;
-   ssize_t*   buffer_size_table;
+   ssize_t*  buffer_size_table;
+   size_t*   slot_table;
+   size_t    free_slot;
+   size_t    size;  
 } hs_loop_data;
 
 uv_loop_t* hs_uv_loop_init(size_t siz);
 uv_loop_t* hs_uv_loop_resize(uv_loop_t* loop, size_t siz);
 void hs_uv_loop_close(uv_loop_t* loop);
 
-uv_handle_t* hs_uv_handle_alloc(uv_handle_type typ);
+////////////////////////////////////////////////////////////////////////////////
+// handle
+uv_handle_t* hs_uv_handle_alloc(uv_handle_type typ, uv_loop_t loop);
 void hs_uv_handle_free(uv_handle_t* handle);
 void hs_uv_handle_close(uv_handle_t* handle);
 
-uv_handle_t* hs_uv_req_alloc(uv_req_type typ);
-void hs_uv_req_free(uv_req_t* req);
+////////////////////////////////////////////////////////////////////////////////
+// request
+uv_handle_t* hs_uv_req_alloc(uv_req_type typ, uv_loop_t loop);
+void hs_uv_req_free(uv_req_t* req, uv_loop_t loop);
 
+////////////////////////////////////////////////////////////////////////////////
+// stream
 int hs_uv_read_start(uv_stream_t* stream);
 int hs_uv_write(uv_write_t* req, uv_stream_t* handle);
 
 
-int hs_uv_tcp_open(uv_tcp_t* handle, int sock);
-int hs_uv_tcp_connect(uv_connect_t* req, uv_tcp_t* handle, const struct sockaddr* addr);
-
-
+////////////////////////////////////////////////////////////////////////////////
+// thread-safe wake up
 int hs_uv_timer_wake_start(uv_timer_t* handle, uint64_t timeout);
 int hs_uv_async_wake_init(uv_loop_t* loop, uv_async_t* async);
 
-
+////////////////////////////////////////////////////////////////////////////////
+// tcp 
+int hs_uv_tcp_open(uv_tcp_t* handle, int sock);
+int hs_uv_tcp_connect(uv_connect_t* req, uv_tcp_t* handle, const struct sockaddr* addr);
 
 #if defined(_WIN32)
 enum {
@@ -57,7 +73,6 @@ int uv__close(int fd); /* preserves errno */
 int uv__stream_open(uv_stream_t* stream, int fd, int flags);
 typedef struct uv__stream_queued_fds_s uv__stream_queued_fds_t;
 void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events);
-void uv__io_stop(uv_loop_t* loop, uv__io_t* w, unsigned int events);
 struct uv__stream_queued_fds_s {
   unsigned int size;
   unsigned int offset;
@@ -101,5 +116,7 @@ enum {
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
-
+// fs
+uv_req_t* hs_uv_req_alloc_fs();
+void hs_uv_req_free_fs(uv_req_t* req);
 void hs_uv_fs_callback(uv_fs_t* req);

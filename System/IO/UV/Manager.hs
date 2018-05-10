@@ -323,16 +323,57 @@ freeSlot (UVManager _ freeSlotList _ _ _ _ _ _) slot =
 -- and provide a custom initialization function.
 --
 initUVHandle :: HasCallStack
-         => UVHandleType
-         -> (Ptr UVLoop -> Ptr UVHandle -> IO (Ptr UVHandle))
-         -> UVManager
-         -> Resource (Ptr UVHandle)
+             => UVHandleType
+             -> (Ptr UVLoop -> Ptr UVHandle -> IO ())
+             -> UVManager
+             -> Resource (Ptr UVHandle)
 initUVHandle typ init uvm = initResource
-        (do handle <- hs_uv_handle_alloc typ
+        (do handle <- throwOOMIfNull (hs_uv_handle_alloc typ)
             withUVManager uvm (\ loop -> init loop handle) `onException` (hs_uv_handle_free handle)
-            return handle
-        )
+            return handle)
         (withUVManager' uvm . hs_uv_handle_close) -- handle is free in uv_close callback
+
+
+initUVReq :: HasCallStack => UVReqType -> UVManager -> Resource (Ptr UVReq)
+initUVReq typ uvm = initResource
+    (throwOOMIfNull . withUVManager uvm $ hs_uv_req_alloc typ)
+    (\ req -> withUVManager uvm $ \ loop -> hs_uv_req_free req loop)
+
+initUVReq :: HasCallStack
+          => UVReqType
+          -> (Ptr UVLoop -> Ptr Req -> IO ())
+          -> UVManager
+          -> Resource (Ptr UVReq)
+initUVReq typ init uvm = initResource
+    (withUVManager uvm $ \ loop -> do
+        req <- throwOOMIfNull $ hs_uv_req_alloc typ loop
+        init loop req `onException` hs_uv_req_free req loop
+        return req)
+    (\ req -> withUVManager uvm $ \ loop -> hs_uv_req_free req loop)
+
+
+initUVFS :: HasCallStack
+         -> (Ptr UVLoop -> Ptr Req -> UVFSCallBack -> IO ())
+         -> Resource (Ptr Req)
+initUVFS fs = initResource
+    (do req <- throwOOMIfNull hs_uv_req_alloc_fs
+        fs nullPtr req nullFunPtr `onException` hs_uv_req_free_fs req
+        return req)
+    (\ req -> uv_fs_req_cleanup req >> hs_uv_req_free_fs req)
+
+initUVFST :: HasCallStack
+         -> (Ptr UVLoop -> Ptr Req -> UVFSCallBack -> IO ())
+         -> UVManager
+         -> Resource (Ptr Req)
+initUVFST fs uvm = initResource
+    (withUVManager uvm $ \ loop -> do
+        req <- throwOOMIfNull $ hs_uv_req_alloc uV_FS loop
+        init loop req `onException` hs_uv_req_free req loop
+        return req)
+    (\ req -> do
+        uv_fs_req_cleanup req
+        withUVManager uvm $ \ loop -> hs_uv_req_free req loop)
+
 
 -- | Fork a new GHC thread with active load-balancing.
 --
