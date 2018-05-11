@@ -36,7 +36,6 @@ import System.IO.Net.SockAddr
 import System.IO.Exception
 import System.IO.Buffered
 import System.IO.UV.Manager
-import System.IO.UV.Stream
 import System.IO.UV.Internal
 import Control.Concurrent.MVar
 import Foreign.Ptr
@@ -86,6 +85,9 @@ data ServerConfig = forall e. Exception e => ServerConfig
     , serverWorker     :: UVStream -> IO ()
     , serverWorkerNoDelay :: Bool
     , serverWorkerHandler :: e -> IO ()
+    , serverReusePortIfAvailable :: Bool    -- If this flag is enable and we're on linux >= 3.9
+                                            -- We'll open multiple listening socket, otherwise
+                                            -- this flag have no effects.
     }
 
 -- | A default hello world server on localhost:8888
@@ -99,6 +101,7 @@ defaultServerConfig = ServerConfig
     (\ uvs -> writeOutput uvs (Ptr "hello world"#) 11)
     True
     (print :: SomeException -> IO())
+    True
 
 -- | Start a server
 --
@@ -106,56 +109,124 @@ defaultServerConfig = ServerConfig
 --
 startServer :: ServerConfig -> IO ()
 startServer ServerConfig{..} =
-    withResource initTCPStream $ \ server -> do
+    if (serverReusePortIfAvailable && sO_REUSEPORT_LOAD_BALANCE == 1)
+    then multipleAcceptLoop
+    else singleAcceptLoop
+  where
+    singleAcceptLoop = do
+        serverManager <- getUVManager
+        withResource (initTCPStream serverManager) $ \ server -> do
 
-    let serverHandle = uvsHandle server
-        serverManager = uvsManager server
-        serverSlot = uvsReadSlot server
+            let serverHandle  = uvsHandle server
+                serverSlot    = uvsReadSlot server
 
-    withResource (initUVHandleNoSlot
-        uV_CHECK
-        (\ loop handle -> throwUVIfMinus_ $ hs_uv_accept_check_init loop handle serverHandle)
-        serverManager) $ \ _ -> withSockAddr serverAddr $ \ addrPtr -> do
+            withResource (initUVHandleNoSlot
+                uV_CHECK
+                (\ loop handle -> throwUVIfMinus_ $ hs_uv_accept_check_init loop handle serverHandle)
+                serverManager) $ \ _ -> withSockAddr serverAddr $ \ addrPtr -> do
 
-        m <- getBlockMVar serverManager serverSlot
-        acceptBuf <- newPinnedPrimArray (fromIntegral aCCEPT_BUFFER_SIZE)
-        let acceptBufPtr = (coerce (mutablePrimArrayContents acceptBuf :: Ptr UVFD))
+                m <- getBlockMVar serverManager serverSlot
+                acceptBuf <- newPinnedPrimArray (fromIntegral aCCEPT_BUFFER_SIZE)
+                let acceptBufPtr = (coerce (mutablePrimArrayContents acceptBuf :: Ptr UVFD))
 
-        withUVManager' serverManager $ do
-            tryTakeMVar m
-            uvTCPBind serverHandle addrPtr False
-            pokeBufferTable serverManager serverSlot acceptBufPtr 0
-            uvListen serverHandle (fromIntegral serverBackLog)
+                withUVManager' serverManager $ do
+                    tryTakeMVar m
+                    uvTCPBind serverHandle addrPtr False
+                    pokeBufferTable serverManager serverSlot acceptBufPtr 0
+                    uvListen serverHandle (fromIntegral serverBackLog)
 
-        forever $ do
-            takeMVar m
+                forever $ do
+                    takeMVar m
 
-            -- we lock uv manager here in case of next uv_run overwrite current accept buffer
-            acceptBufCopy <- withUVManager' serverManager $ do
-                tryTakeMVar m
-                accepted <- peekBufferTable serverManager serverSlot
-                acceptBuf' <- newPrimArray accepted
-                copyMutablePrimArray acceptBuf' 0 acceptBuf 0 accepted
-                pokeBufferTable serverManager serverSlot acceptBufPtr 0
-                unsafeFreezePrimArray acceptBuf'
+                    -- we lock uv manager here in case of next uv_run overwrite current accept buffer
+                    acceptBufCopy <- withUVManager' serverManager $ do
+                        tryTakeMVar m
+                        accepted <- peekBufferTable serverManager serverSlot
+                        acceptBuf' <- newPrimArray accepted
+                        copyMutablePrimArray acceptBuf' 0 acceptBuf 0 accepted
+                        pokeBufferTable serverManager serverSlot acceptBufPtr 0
+                        unsafeFreezePrimArray acceptBuf'
 
-            let accepted = sizeofPrimArray acceptBufCopy
+                    let accepted = sizeofPrimArray acceptBufCopy
 
-            forM_ [0..accepted-1] $ \ i -> do
-                let fd = indexPrimArray acceptBufCopy i
-                if fd < 0
-                then throwUVIfMinus_ (return fd)    -- minus fd indicate a server error and we should close server
-                else do
-                    void . forkBa . withResource initTCPStream $ \ client -> do
-                        handle serverWorkerHandler $ do
-                            withUVManager' (uvsManager client) $ do
-                                uvTCPOpen (uvsHandle client) (fromIntegral fd)
-                                when serverWorkerNoDelay $
-                                    uvTCPNodelay (uvsHandle client) True
-                            serverWorker client
+                    forM_ [0..accepted-1] $ \ i -> do
+                        let fd = indexPrimArray acceptBufCopy i
+                        if fd < 0
+                        then throwUVIfMinus_ (return fd)    -- minus fd indicate a server error and we should close server
+                        else do
+                            uvm <- getUVManager
+                            void . forkBa . withResource (initTCPStream uvm) $ \ client -> do
+                                handle serverWorkerHandler $ do
+                                    withUVManager' (uvsManager client) $ do
+                                        uvTCPOpen (uvsHandle client) (fromIntegral fd)
+                                        when serverWorkerNoDelay $
+                                            uvTCPNodelay (uvsHandle client) True
+                                    serverWorker client
 
-            when (accepted == fromIntegral aCCEPT_BUFFER_SIZE) $
-                withUVManager' serverManager $ uvListenResume serverHandle
+                    when (accepted == fromIntegral aCCEPT_BUFFER_SIZE) $
+                        withUVManager' serverManager $ uvListenResume serverHandle
+
+    multipleAcceptLoop = do
+        let (SocketFamily family) = sockAddrFamily serverAddr
+        serverLock <- newEmptyMVar
+        numCaps <- getNumCapabilities
+        forM_ [0..numCaps-1] $ \ serverIndex -> forkOn serverIndex $ do
+            serverManager <- getUVManager
+            withResource (initTCPExStream
+                (fromIntegral $ family) serverManager) $ \ server -> do
+
+                let serverHandle  = uvsHandle server
+                    serverSlot    = uvsReadSlot server
+
+                withResource (initUVHandleNoSlot
+                    uV_CHECK
+                    (\ loop handle -> throwUVIfMinus_ $ hs_uv_accept_check_init loop handle serverHandle)
+                    serverManager) $ \ _ -> withSockAddr serverAddr $ \ addrPtr -> do
+
+                    m <- getBlockMVar serverManager serverSlot
+                    acceptBuf <- newPinnedPrimArray (fromIntegral aCCEPT_BUFFER_SIZE)
+                    let acceptBufPtr = (coerce (mutablePrimArrayContents acceptBuf :: Ptr UVFD))
+
+                    withUVManager' serverManager $ do
+                        tryTakeMVar m
+                        hsSetSocketReuse serverHandle
+                        uvTCPBind serverHandle addrPtr False
+                        pokeBufferTable serverManager serverSlot acceptBufPtr 0
+                        uvListen serverHandle (fromIntegral serverBackLog)
+
+                    forever $ do
+                        takeMVar m
+
+                        -- we lock uv manager here in case of next uv_run overwrite current accept buffer
+                        acceptBufCopy <- withUVManager' serverManager $ do
+                            tryTakeMVar m
+                            accepted <- peekBufferTable serverManager serverSlot
+                            acceptBuf' <- newPrimArray accepted
+                            copyMutablePrimArray acceptBuf' 0 acceptBuf 0 accepted
+                            pokeBufferTable serverManager serverSlot acceptBufPtr 0
+                            unsafeFreezePrimArray acceptBuf'
+
+                        let accepted = sizeofPrimArray acceptBufCopy
+
+                        forM_ [0..accepted-1] $ \ i -> do
+                            let fd = indexPrimArray acceptBufCopy i
+                            if fd < 0
+                            then throwUVIfMinus_ (return fd)    -- minus fd indicate a server error and we should close server
+                            else do
+                                uvm <- getUVManager
+                                void . forkOn serverIndex . withResource (initTCPStream uvm) $ \ client -> do
+                                    handle serverWorkerHandler $ do
+                                        withUVManager' (uvsManager client) $ do
+                                            uvTCPOpen (uvsHandle client) (fromIntegral fd)
+                                            when serverWorkerNoDelay $
+                                                uvTCPNodelay (uvsHandle client) True
+                                        serverWorker client
+
+                        when (accepted == fromIntegral aCCEPT_BUFFER_SIZE) $
+                            withUVManager' serverManager $ uvListenResume serverHandle
+
+                    putMVar serverLock ()
+        takeMVar serverLock
 
 --------------------------------------------------------------------------------
 

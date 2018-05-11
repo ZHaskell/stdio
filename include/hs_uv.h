@@ -1,9 +1,44 @@
+/*
+ * Copyright (c) 2017-2018 Dong Han
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ * 3. Neither the names of the authors or the names of any contributors
+ *    may be used to endorse or promote products derived from this software
+ *    without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE AUTHORS OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
 #include <uv.h>
 
 ////////////////////////////////////////////////////////////////////////////////
 // CONSTANT
-#ifndef ACCEPT_BUFFER_SIZE
 #define ACCEPT_BUFFER_SIZE 1024
+
+#if defined(__linux__) && defined(SO_REUSEPORT)
+#define SO_REUSEPORT_LOAD_BALANCE 1
+#else
+#define SO_REUSEPORT_LOAD_BALANCE 0
+void hs_set_socket_reuse(uv_handle_t* server);
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -31,11 +66,16 @@ void hs_uv_loop_close(uv_loop_t* loop);
 uv_handle_t* hs_uv_handle_alloc(uv_handle_type typ, uv_loop_t* loop);
 void hs_uv_handle_free(uv_handle_t* handle);
 void hs_uv_handle_close(uv_handle_t* handle);
+uv_handle_t* hs_uv_handle_alloc_no_slot(uv_handle_type typ);
+void hs_uv_handle_free_no_slot(uv_handle_t* handle);
+void hs_uv_handle_close_no_slot(uv_handle_t* handle);
 
 ////////////////////////////////////////////////////////////////////////////////
 // request
 uv_req_t* hs_uv_req_alloc(uv_req_type typ, uv_loop_t* loop);
 void hs_uv_req_free(uv_req_t* req, uv_loop_t* loop);
+uv_req_t* hs_uv_req_alloc_no_slot(uv_req_type typ);
+void hs_uv_req_free_no_slot(uv_req_t* req);
 
 ////////////////////////////////////////////////////////////////////////////////
 // stream
@@ -54,6 +94,13 @@ int hs_uv_tcp_open(uv_tcp_t* handle, int sock);
 int hs_uv_tcp_connect(uv_connect_t* req, uv_tcp_t* handle, const struct sockaddr* addr);
 
 #if defined(_WIN32)
+#define UV_HANDLE_READING                       0x00000100
+#define UV_HANDLE_BOUND                         0x00000200
+#define UV_HANDLE_LISTENING                     0x00000800
+#define UV_HANDLE_CONNECTION                    0x00001000
+#define UV_HANDLE_READABLE                      0x00008000
+#define UV_HANDLE_WRITABLE                      0x00010000
+
 enum {
   UV__SIGNAL_ONE_SHOT = 0x80000,  /* On signal reception remove sighandler */
   UV__HANDLE_INTERNAL = 0x8000,
@@ -117,6 +164,4 @@ enum {
 
 ////////////////////////////////////////////////////////////////////////////////
 // fs
-uv_req_t* hs_uv_req_alloc_fs();
-void hs_uv_req_free_fs(uv_req_t* req);
 void hs_uv_fs_callback(uv_fs_t* req);

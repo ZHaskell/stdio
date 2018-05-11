@@ -16,6 +16,7 @@ This module provides necessary types and constant for low level socket operation
 module System.IO.Net.SockAddr
   ( -- * name to address
     SockAddr(..)
+  , sockAddrFamily
   , peekSockAddr
   , withSockAddr
    -- ** IPv4 address
@@ -111,6 +112,10 @@ data SockAddr
         {-# UNPACK #-} !Inet6Addr   -- sin6_addr (ditto)
         {-# UNPACK #-} !ScopeID     -- sin6_scope_id (ditto)
   deriving (Show, Eq, Ord)
+
+sockAddrFamily :: SockAddr -> SocketFamily
+sockAddrFamily (SockAddrInet _ _) = aF_INET
+sockAddrFamily (SockAddrInet6 _ _ _ _) = aF_INET6
 
 type FlowInfo = Word32
 type ScopeID = Word32

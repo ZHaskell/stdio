@@ -12,7 +12,6 @@ import qualified Data.ByteString.Internal as B
 import GHC.ForeignPtr
 import Control.Monad
 import System.IO.Exception
-import System.IO.UV.Stream
 import System.IO
 import Data.IORef.Unboxed
 import System.Environment
@@ -22,15 +21,12 @@ main :: IO ()
 main = do
     portStr <- lookupEnv "PORT"
     let port = maybe 8888 id (readMaybe =<< portStr)
-    let conf = ServerConfig
-            (SockAddrInet port inetAny)
-            128
-            (\ uvs -> do
+    let conf = defaultServerConfig{
+            serverWorker = \ uvs ->  do
                 recvbuf <- mallocPlainForeignPtrBytes 2048  -- we reuse buffer as golang does,
                                                             -- since node use slab, which is in face a memory pool
-                echo uvs recvbuf)
-            True
-            (print :: SomeException -> IO())
+                echo uvs recvbuf
+        }
 
     startServer conf
   where

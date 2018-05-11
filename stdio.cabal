@@ -52,7 +52,6 @@ library
 
                             
                             System.IO.UV.Exception 
-                            System.IO.UV.Stream
                             System.IO.UV.Internal
                             System.IO.UV.Manager
 

@@ -1,6 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiWayIf #-}
 
 {-|
 Module      : System.IO.UV.Manager
@@ -35,19 +35,25 @@ module System.IO.UV.Manager
   , pokeBufferTable
   , withUVManager
   , withUVManager'
+  -- * handle/request resources
   , initUVHandle
   , initUVHandleNoSlot
   , initUVReq
+  , initUVReqNoSlot
   , initUVFS
-  , initUVFST
-  , autoResizeUVM
+  , initUVFSNoSlot
+  , UVStream(..)
+  , initUVStream
+  , initTCPStream
+  , initTCPExStream
+  , initTTYStream
+  , initPipeStream
+  -- * concurrent helpers
   , forkBa
   ) where
 
 import GHC.Stack.Compat
 import GHC.Conc.Sync (labelThread)
-import qualified System.IO.Exception as E
-import qualified System.IO.UV.Exception as E
 import Data.Array
 import Data.Primitive.PrimArray
 import Data.Word
@@ -62,9 +68,10 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Data.Primitive.Addr
 import System.IO.Unsafe
-import System.Posix.Types (CSsize(..))
 import System.IO.Exception
+import System.IO.UV.Exception
 import System.IO.UV.Internal
+import System.IO.Buffered
 
 #define IDLE_LIMIT 20
 
@@ -111,7 +118,7 @@ uvManagerArray = unsafePerformIO $ do
     numCaps <- getNumCapabilities
     uvmArray <- newArr numCaps
     s <- newQSemN 0
-    forM [0..numCaps-1] $ \ i -> do
+    forM_ [0..numCaps-1] $ \ i -> do
         -- fork uv manager thread
         forkOn i . withResource (initUVManager initTableSize i) $ \ m -> do
             myThreadId >>= (`labelThread` ("uv manager on " ++ show i))
@@ -287,6 +294,10 @@ initUVHandle typ init uvm = initResource
         return handle)
     (withUVManager' uvm . hs_uv_handle_close) -- handle is free in uv_close callback
 
+-- | Safely lock an uv manager and perform uv_handle initialization without allocating a slot.
+--
+-- This function allocate a handle without pre-allocated slot(data field), then perform initialization.
+--
 initUVHandleNoSlot :: HasCallStack
                    => UVHandleType
                    -> (Ptr UVLoop -> Ptr UVHandle -> IO ())
@@ -299,13 +310,8 @@ initUVHandleNoSlot typ init uvm = initResource
         return handle)
     (withUVManager' uvm . hs_uv_handle_close_no_slot) -- handle is free in uv_close callback
 
-{-
-initUVReq :: HasCallStack => UVReqType -> UVManager -> Resource (Ptr UVReq)
-initUVReq typ uvm = initResource
-    (throwOOMIfNull . withUVManager uvm $ hs_uv_req_alloc typ)
-    (\ req -> withUVManager uvm $ \ loop -> hs_uv_req_free req loop)
--}
-
+-- | Safely lock an uv manager and perform uv_req initialization.
+--
 initUVReq :: HasCallStack
           => UVReqType
           -> (Ptr UVLoop -> Ptr UVReq -> IO ())
@@ -320,21 +326,26 @@ initUVReq typ init uvm = initResource
         return req)
     (\ req -> withUVManager uvm $ \ loop -> hs_uv_req_free req loop)
 
+-- | Safely lock an uv manager without allocating a slot.
+--
+initUVReqNoSlot :: HasCallStack
+                => UVReqType
+                -> Resource (Ptr UVReq)
+initUVReqNoSlot typ = initResource
+    (throwOOMIfNull $ hs_uv_req_alloc_no_slot typ)
+    hs_uv_req_free_no_slot
 
+-- | Safely lock an uv manager and perform fs operation.
+--
+-- The `uv_fs_t` request has one more extra clean up step: `uv_fs_req_cleanup`, thus
+-- for perform fs operation with `uv_fs_t` you should use this function instead of
+-- `initUVReq`.
+--
 initUVFS :: HasCallStack
-         => (Ptr UVLoop -> Ptr UVReq -> UVFSCallBack -> IO ())
-         -> Resource (Ptr UVReq)
-initUVFS fs = initResource
-    (do req <- throwOOMIfNull hs_uv_req_alloc_fs
-        fs nullPtr req nullFunPtr `onException` hs_uv_req_free_fs req
-        return req)
-    (\ req -> uv_fs_req_cleanup req >> hs_uv_req_free_fs req)
-
-initUVFST :: HasCallStack
          => (Ptr UVLoop -> Ptr UVReq -> UVFSCallBack -> IO ())
          -> UVManager
          -> Resource (Ptr UVReq)
-initUVFST fs uvm = initResource
+initUVFS fs uvm = initResource
     (withUVManager uvm $ \ loop -> do
         req <- throwOOMIfNull $ hs_uv_req_alloc uV_FS loop
         slot <- peekUVReqData req
@@ -345,7 +356,21 @@ initUVFST fs uvm = initResource
         uv_fs_req_cleanup req
         withUVManager uvm $ \ loop -> hs_uv_req_free req loop)
 
+-- | Safely lock an uv manager and perform fs operation without allocating a slot.
+--
+-- This function will pass `nullPtr` as `Ptr UVLoop`, `nullFunPtr` as `UVFSCallBack`.
+--
+initUVFSNoSlot :: HasCallStack
+               => (Ptr UVLoop -> Ptr UVReq -> UVFSCallBack -> IO ())
+               -> Resource (Ptr UVReq)
+initUVFSNoSlot fs = initResource
+    (do req <- throwOOMIfNull $ hs_uv_req_alloc_no_slot uV_FS
+        fs nullPtr req nullFunPtr `onException` hs_uv_req_free_no_slot req
+        return req)
+    (\ req -> uv_fs_req_cleanup req >> hs_uv_req_free_no_slot req)
+
 autoResizeUVM :: UVManager -> Int -> IO ()
+{-# INLINE autoResizeUVM #-}
 autoResizeUVM (UVManager blockTableRef _ loopDataPtr _ _ _ _) slot = do
     blockTable <- readIORef blockTableRef
     let oldSiz = sizeofArr blockTable
@@ -360,6 +385,92 @@ autoResizeUVM (UVManager blockTableRef _ loopDataPtr _ _ _ _) slot = do
         !iBlockTable' <- unsafeFreezeArr blockTable'
 
         writeIORef blockTableRef iBlockTable'
+
+--------------------------------------------------------------------------------
+
+-- | A higher level wrappe for uv_stream_t
+--
+--
+data UVStream = UVStream
+    { uvsHandle     :: {-# UNPACK #-} !(Ptr UVHandle)
+    , uvsReadSlot   :: {-# UNPACK #-} !UVSlot
+    , uvsWriteReq   :: {-# UNPACK #-} !(Ptr UVReq)
+    , uvsWriteSlot  :: {-# UNPACK #-} !UVSlot
+    , uvsManager    :: UVManager
+    }
+
+initUVStream :: HasCallStack
+             => UVHandleType
+             -> (Ptr UVLoop -> Ptr UVHandle -> IO ())
+             -> UVManager
+             -> Resource UVStream
+initUVStream typ init uvm =
+    initResource
+        (do withUVManager uvm $ \ loop -> do
+                handle <- throwOOMIfNull (hs_uv_handle_alloc typ loop)
+                req <- throwOOMIfNull (hs_uv_req_alloc uV_WRITE loop)
+                        `onException` (hs_uv_handle_free handle)
+                init loop handle
+                    `onException` (hs_uv_handle_free handle >> hs_uv_req_free req loop)
+
+                rslot <- peekUVHandleData handle
+                wslot <- peekUVReqData req
+                autoResizeUVM uvm rslot
+                autoResizeUVM uvm wslot
+                return (UVStream handle rslot req wslot uvm))
+        (\ (UVStream handle _ req  _ uvm) ->
+            withUVManager uvm $ \ loop -> do
+                hs_uv_handle_close handle -- handle is free in uv_close callback
+                hs_uv_req_free req loop)
+
+initTCPStream :: HasCallStack => UVManager -> Resource UVStream
+initTCPStream = initUVStream uV_TCP uvTCPInit
+
+initTCPExStream :: HasCallStack => CUInt -> UVManager -> Resource UVStream
+initTCPExStream family = initUVStream uV_TCP (uvTCPInitEx family)
+
+initPipeStream :: HasCallStack => UVManager -> Resource UVStream
+initPipeStream = initUVStream uV_NAMED_PIPE uvPipeInit
+
+initTTYStream :: HasCallStack => UVFD -> UVManager -> Resource UVStream
+initTTYStream fd = initUVStream uV_TTY (uvTTYInit fd)
+
+instance Input UVStream where
+    -- readInput :: HasCallStack => UVStream -> Ptr Word8 ->  Int -> IO Int
+    readInput uvs@(UVStream handle rslot _ _ uvm) buf len = do
+        m <- getBlockMVar uvm rslot
+        withUVManager' uvm $ do
+            tryTakeMVar m
+            pokeBufferTable uvm rslot buf len
+            uvReadStart handle
+        takeMVar m
+        r <- peekBufferTable uvm rslot
+        if  | r > 0  -> return r
+            -- r == 0 should be impossible, since we guard this situation in c side, but we handle it anyway
+            -- nread might be 0, which does not indicate an error or EOF. This is equivalent to EAGAIN or EWOULDBLOCK under read(2)
+            | r == fromIntegral uV_EOF -> return 0
+            | r < 0 ->  throwUVIfMinus (return r)
+
+uvReadStart :: Ptr UVHandle -> IO ()
+uvReadStart = throwUVIfMinus_ . hs_uv_read_start
+foreign import ccall unsafe hs_uv_read_start :: Ptr UVHandle -> IO CInt
+
+instance Output UVStream where
+    -- writeOutput :: HasCallStack => UVStream -> Ptr Word8 -> Int -> IO ()
+    writeOutput (UVStream handle _ req wslot uvm) buf len = do
+        m <- getBlockMVar uvm wslot
+        withUVManager' uvm $ do
+            tryTakeMVar m
+            pokeBufferTable uvm wslot buf len
+            uvWrite req handle
+        takeMVar m
+        throwUVIfMinus_ $ peekBufferTable uvm wslot
+
+uvWrite :: Ptr UVReq -> Ptr UVHandle -> IO ()
+uvWrite req handle = throwUVIfMinus_ $ hs_uv_write req handle
+foreign import ccall unsafe hs_uv_write :: Ptr UVReq -> Ptr UVHandle -> IO CInt
+
+--------------------------------------------------------------------------------
 
 -- | Fork a new GHC thread with active load-balancing.
 --

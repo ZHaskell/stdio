@@ -1,11 +1,42 @@
+/*
+ * Copyright (c) 2017-2018 Dong Han
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ * 3. Neither the names of the authors or the names of any contributors
+ *    may be used to endorse or promote products derived from this software
+ *    without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE AUTHORS OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
 #include <uv.h>
-#include "hs_uv.h"
+#include <hs_uv.h>
 #include <assert.h>
 #include <stdlib.h>
 #include <stdio.h>
 
-/********************************************************************************/
-
+////////////////////////////////////////////////////////////////////////////////
+// loop
+//
 // initialize a loop with its data to give slot size. return NULL on fail.
 uv_loop_t* hs_uv_loop_init(size_t siz){
     int r; 
@@ -65,6 +96,7 @@ size_t alloc_slot(uv_loop_t* loop){
     }
     return r;
 }
+
 void free_slot(uv_loop_t* loop, size_t slot){
     hs_loop_data* loop_data = loop->data;
     assert(slot < loop_data->size);
@@ -109,6 +141,7 @@ void hs_uv_walk_close_cb(uv_handle_t* handle, void* arg){
 
 // This function close all the handles live on that loop and the loop itself,
 // then release all the memory.
+//
 // https://stackoverflow.com/questions/25615340/closing-libuv-handles-correctly
 //
 void hs_uv_loop_close(uv_loop_t* loop){
@@ -126,8 +159,9 @@ void hs_uv_loop_close(uv_loop_t* loop){
     free(loop_data);
 }
 
-/********************************************************************************/
-
+////////////////////////////////////////////////////////////////////////////////
+// handle
+//
 // Get handle's OS file
 int32_t hs_uv_fileno(uv_handle_t* handle){
     uv_os_fd_t fd;
@@ -148,16 +182,19 @@ uv_handle_t* hs_uv_handle_alloc(uv_handle_type typ, uv_loop_t* loop){
     }
 }
 
+// Initialize a uv_handle_t with give type, return NULL on fail.
+// No new slot will be allocated, thus the data field is uninitialized.
 uv_handle_t* hs_uv_handle_alloc_no_slot(uv_handle_type typ){
     return malloc(uv_handle_size(typ));
 }
 
-// Free uv_handle_t 's memory only
+// Free uv_handle_t 's memory & slot
 void hs_uv_handle_free(uv_handle_t* handle){
     free_slot(handle->loop, (size_t)handle->data);
     free(handle);
 }
 
+// Free uv_handle_t 's memory only
 void hs_uv_handle_free_no_slot(uv_handle_t* handle){
     free(handle);
 }
@@ -171,6 +208,9 @@ void hs_uv_handle_close_no_slot(uv_handle_t* handle){
     uv_close(handle, hs_uv_handle_free_no_slot);
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// request
+//
 // Initialize a uv_req_t with give type, return NULL on fail.
 // the returned request's data field is a new allocated slot
 uv_req_t* hs_uv_req_alloc(uv_req_type typ, uv_loop_t* loop){
@@ -188,8 +228,25 @@ void hs_uv_req_free(uv_req_t* req, uv_loop_t* loop){
     free(req);
 }
 
-/********************************************************************************/
+// Initialize a uv_fs_t with give type, return NULL on fail.
+// no new slot will be allocated
+uv_req_t* hs_uv_req_alloc_no_slot(uv_req_type typ){
+    return malloc(uv_req_size(typ));
+}
 
+// free uv_req_t's memory without its slot
+void hs_uv_req_free_no_slot(uv_req_t* req){
+    free(req);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+// stream
+//
+// We reuse buffer_size_table as the result table, i.e. after haskell threads
+// are unblocked, they should peek result(length, errcode..) from buffer_size_table
+
+// This callback simply copy buffer from buffer table and buffer size table
 void hs_alloc_cb(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf){
     size_t slot = (size_t)handle->data;
     hs_loop_data* loop_data = handle->loop->data;
@@ -197,6 +254,7 @@ void hs_alloc_cb(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf){
     buf->len = loop_data->buffer_size_table[slot];  // we ignore suggested_size completely
 }
 
+// We only do single read per uv_run with uv_read_stop
 void hs_read_cb (uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf){
     size_t slot = (size_t)stream->data;
     hs_loop_data* loop_data = stream->loop->data;
@@ -240,7 +298,9 @@ int hs_uv_write(uv_write_t* req, uv_stream_t* handle){
                                                            // user-space buffering in haskell.
 }
 
-/********************************************************************************/
+////////////////////////////////////////////////////////////////////////////////
+//
+// tcp
 
 /* on windows uv_tcp_open doesn't work propery for sockets that are not
  * connected or accepted by libuv because the lack of some state initialization,
@@ -250,14 +310,7 @@ int hs_uv_write(uv_write_t* req, uv_stream_t* handle){
  *              https://github.com/libuv/libuv/pull/1150
  */
 #if defined(_WIN32)
-#define UV_HANDLE_READING                       0x00000100
-#define UV_HANDLE_BOUND                         0x00000200
-#define UV_HANDLE_LISTENING                     0x00000800
-#define UV_HANDLE_CONNECTION                    0x00001000
-#define UV_HANDLE_READABLE                      0x00008000
-#define UV_HANDLE_WRITABLE                      0x00010000
-
-void uv_connection_init(uv_stream_t* handle){
+void hs_uv_connection_init(uv_stream_t* handle){
   handle->flags |= UV_HANDLE_CONNECTION;
   handle->stream.conn.write_reqs_pending = 0;
   (&handle->read_req)->type = UV_READ;                                                        \
@@ -271,7 +324,7 @@ void uv_connection_init(uv_stream_t* handle){
 int hs_uv_tcp_open(uv_tcp_t* handle, int32_t sock) {
   int r = uv_tcp_open(handle, (uv_os_sock_t)sock);
   if (r == 0) {
-    uv_connection_init((uv_stream_t*)handle);
+    hs_uv_connection_init((uv_stream_t*)handle);
     handle->flags |= UV_HANDLE_BOUND | UV_HANDLE_READABLE | UV_HANDLE_WRITABLE;
   }
   return r;
@@ -295,6 +348,12 @@ int hs_uv_tcp_connect(uv_connect_t* req, uv_tcp_t* handle, const struct sockaddr
     return uv_tcp_connect(req, handle, addr, hs_connect_cb);
 }
 
+// When libuv listen's callback is called, client is actually already accepted, 
+// so our customized accept function just return the fd directly, Following code
+// doesn't support IPC for now.
+//
+// TODO research on accepting fds sent by IPC pipes.
+//
 #if defined(_WIN32)
 int32_t hs_uv_accept(uv_tcp_t* server) {
     int fd;
@@ -377,7 +436,6 @@ int hs_uv_pipe_accept(uv_pipe_t* server) {
     return fd;
 }
 #else
-// we don't consider ipc case in stdio
 int32_t hs_uv_accept(uv_stream_t* server) {
     int32_t fd = (int32_t)server->accepted_fd;
     server->accepted_fd = -1;
@@ -407,7 +465,15 @@ void hs_listen_cb(uv_stream_t* server, int status){
             // which is very unlikely to happen.
             closesocket(hs_uv_accept(server)); 
 #else
-            // on unix, we can stop accepting using uv__io_stop
+            // on unix, we can stop accepting using uv__io_stop, this is
+            // important because libuv will loop accepting until EAGAIN/EWOULDBLOCK,
+            // If we return to accept thread too slow in haskell side, the 
+            // accept buffer may not be able to hold all the clients queued in backlog.
+            // And this is very likely to happen under high load. Thus we
+            // must stop accepting when the buffer is full.
+            //
+            // Limit this number may also be good for stop a non-block uv_run from
+            // running too long, which will affect haskell's GC.
             //
             // do last accept without clearing server->accepted_fd
             // libuv will take this as a no accepting, thus call uv__io_stop for us.
@@ -437,7 +503,8 @@ void hs_uv_listen_resume(uv_stream_t* server){
 #endif
 }
 
-// check if the socket's accept buffer is still filled, if so, unlock the accept thread
+// Check if the socket's accept buffer is still filled, if so, unlock the accept thread
+//
 void hs_accept_check_cb(uv_check_t* check){
     uv_stream_t* server=(uv_stream_t*)check->data;
     size_t slot = (size_t)server->data;
@@ -449,6 +516,8 @@ void hs_accept_check_cb(uv_check_t* check){
     }
 }
 
+// It's hard to arrange accepting notification without check handler, we can't
+// do it in listen's callback, since it'll be called multiple times during uv_run.
 int hs_uv_accept_check_init(uv_loop_t* loop, uv_check_t* check, uv_stream_t* server){
     int r = uv_check_init(loop, check);
     check->data = (void*)server;    // we link server to the buffer field
@@ -456,37 +525,43 @@ int hs_uv_accept_check_init(uv_loop_t* loop, uv_check_t* check, uv_stream_t* ser
     return uv_check_start(check, hs_accept_check_cb);
 }
 
-/********************************************************************************/
+int hs_set_socket_reuse(uv_handle_t* server) {
+#ifdef SO_REUSEPORT_LOAD_BALANCE
+    int fd;
+    int yes = 1;
+    int r = uv_fileno(server, &fd);
 
-// a empty callback for wake up uv_run
+    if (r < 0) return r;
+    if (setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &yes, sizeof(yes)))
+        return uv_translate_sys_error(errno);
+    return 0;
+#else
+    return 0;
+#endif
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+// thread-safe wake up
+//
+// A empty callback for wake up uv_run, since timer is not allowed to have NULL callback.
 void uv_timer_wake_cb(uv_timer_t* handle){}
 
-// a timer handler whose sole purpose is to break current uv_run from other thread
+// A timer handler whose sole purpose is to break current uv_run from other threads,
 // this is used with none-threaded GHC rts.
 int hs_uv_timer_wake_start(uv_timer_t* handle, uint64_t timeout){
     return uv_timer_start(handle, uv_timer_wake_cb, timeout, timeout);
 }
 
-// a async handler whose sole purpose is to break current uv_run from other thread
+// A async handler whose sole purpose is to break current uv_run from other threads,
 // this is used with multi-threaded GHC rts.
 int hs_uv_async_wake_init(uv_loop_t* loop, uv_async_t* async){
     return uv_async_init(loop, async, NULL);
 }
 
-/********************************************************************************/
-
-// Initialize a uv_fs_t with give type, return NULL on fail.
-// no new slot will be allocated, if you need thread pooled
-// fs operation, you should still use hs_uv_req_alloc which 
-// gives you a slot for block/unlock
-uv_req_t* hs_uv_req_alloc_fs(){
-    return malloc(uv_req_size(UV_FS));
-}
-
-// free uv_fs_t's memory only
-void hs_uv_req_free_fs(uv_req_t* req){
-    free(req);
-}
+////////////////////////////////////////////////////////////////////////////////
+// fs
+//
 uv_dirent_t* hs_uv_dirent_alloc(){
     return malloc(sizeof(uv_dirent_t));
 }

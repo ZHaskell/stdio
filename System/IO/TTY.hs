@@ -24,24 +24,27 @@ module System.IO.TTY(
   , stderr
   ) where
 
-import System.IO.UV.Stream
+import System.IO.UV.Manager
 import System.IO.Exception
 import System.IO.Unsafe
 
 stdin :: UVStream
 {-# NOINLINE stdin #-}
 stdin = unsafePerformIO $ do
-    (stdin, _ ) <- acquire (initTTYStream 0)    -- well, stdin live across whole program
-    return stdin                                -- so we give up resource management
+    uvm <- getUVManager
+    (stdin, _ ) <- acquire (initTTYStream 0 uvm)    -- well, stdin live across whole program
+    return stdin                                    -- so we give up resource management
 
 stdout :: UVStream
 {-# NOINLINE stdout #-}
 stdout = unsafePerformIO $ do
-    (stdin, _ ) <- acquire (initTTYStream 1)
+    uvm <- getUVManager
+    (stdin, _ ) <- acquire (initTTYStream 1 uvm)
     return stdin
 
 stderr :: UVStream
 {-# NOINLINE stderr #-}
 stderr = unsafePerformIO $ do
-    (stdin, _ ) <- acquire (initTTYStream 2)
+    uvm <- getUVManager
+    (stdin, _ ) <- acquire (initTTYStream 2 uvm)
     return stdin

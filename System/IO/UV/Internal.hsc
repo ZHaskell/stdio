@@ -28,6 +28,7 @@ type UVFD = Int32
 --------------------------------------------------------------------------------
 -- CONSTANT
 aCCEPT_BUFFER_SIZE = #const ACCEPT_BUFFER_SIZE
+sO_REUSEPORT_LOAD_BALANCE = #const SO_REUSEPORT_LOAD_BALANCE
 
 --------------------------------------------------------------------------------
 -- loop
@@ -141,6 +142,8 @@ peekUVReqData p = fromIntegral <$> (#{peek uv_req_t, data} p :: IO CSize)
 
 foreign import ccall unsafe hs_uv_req_alloc :: UVReqType -> Ptr UVLoop -> IO (Ptr UVReq)
 foreign import ccall unsafe hs_uv_req_free :: Ptr UVReq -> Ptr UVLoop -> IO ()
+foreign import ccall unsafe hs_uv_req_alloc_no_slot :: UVReqType -> IO (Ptr UVReq)
+foreign import ccall unsafe hs_uv_req_free_no_slot :: Ptr UVReq -> IO ()
 
 newtype UVReqType = UVReqType CInt
     deriving (Bounded, Enum, Eq, Integral, Num, Ord, Read, Real, Show, FiniteBits, Bits, Storable)
@@ -217,6 +220,8 @@ uvTCPInit :: HasCallStack => Ptr UVLoop -> Ptr UVHandle -> IO ()
 uvTCPInit loop handle = throwUVIfMinus_ $ uv_tcp_init loop handle
 foreign import ccall unsafe uv_tcp_init :: Ptr UVLoop -> Ptr UVHandle -> IO CInt
 
+uvTCPInitEx :: HasCallStack => CUInt -> Ptr UVLoop -> Ptr UVHandle -> IO ()
+uvTCPInitEx family loop handle = throwUVIfMinus_ $ uv_tcp_init_ex loop handle family
 foreign import ccall unsafe uv_tcp_init_ex :: Ptr UVLoop -> Ptr UVHandle -> CUInt -> IO CInt
 
 uvTCPNodelay :: HasCallStack => Ptr UVHandle -> Bool -> IO ()
@@ -236,6 +241,10 @@ foreign import ccall unsafe uv_tcp_bind :: Ptr UVHandle -> Ptr SockAddr -> CUInt
 uvTCPConnect :: HasCallStack => Ptr UVReq -> Ptr UVHandle -> Ptr SockAddr -> IO ()
 uvTCPConnect req handle addr = throwUVIfMinus_ $ hs_uv_tcp_connect req handle addr
 foreign import ccall unsafe hs_uv_tcp_connect :: Ptr UVReq -> Ptr UVHandle -> Ptr SockAddr -> IO CInt
+
+hsSetSocketReuse :: HasCallStack => Ptr UVHandle -> IO ()
+hsSetSocketReuse = throwUVIfMinus_ . hs_set_socket_reuse
+foreign import ccall unsafe hs_set_socket_reuse :: Ptr UVHandle -> IO CInt
 
 --------------------------------------------------------------------------------
 -- pipe
@@ -260,9 +269,6 @@ foreign import ccall unsafe uv_tty_init :: Ptr UVLoop -> Ptr UVHandle -> CInt ->
 --------------------------------------------------------------------------------
 -- fs
 foreign import ccall uv_fs_req_cleanup :: Ptr UVReq -> IO () 
-foreign import ccall unsafe hs_uv_req_alloc_fs :: IO (Ptr UVReq)
-foreign import ccall unsafe hs_uv_req_free_fs :: Ptr UVReq -> IO ()
-
 
 type UVFSCallBack = FunPtr (Ptr UVReq -> IO ())
 
