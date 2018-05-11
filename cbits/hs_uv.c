@@ -8,7 +8,8 @@
 
 // initialize a loop with its data to give slot size. return NULL on fail.
 uv_loop_t* hs_uv_loop_init(size_t siz){
-    int r;
+    int r; 
+    size_t i;
 
     uv_loop_t* loop = malloc(sizeof(uv_loop_t));
     r = uv_loop_init(loop);
@@ -23,45 +24,81 @@ uv_loop_t* hs_uv_loop_init(size_t siz){
     size_t* event_queue = malloc(siz*sizeof(size_t));
     char** buffer_table = malloc(siz*sizeof(char*));
     ssize_t* buffer_size_table = malloc(siz*sizeof(ssize_t));
+    size_t* slot_table = malloc(siz*sizeof(size_t));
 
-    if (loop_data == NULL || event_queue == NULL || buffer_table == NULL || buffer_size_table == NULL){
+    if (loop_data == NULL || event_queue == NULL || buffer_table == NULL ||
+                buffer_size_table == NULL || slot_table == NULL){
         free(event_queue);
         free(loop_data);
         free(buffer_table);
         free(buffer_size_table);
+        free(slot_table);
 
         uv_loop_close(loop);
         free(loop);
         free(loop_data);
         return NULL;    // before return NULL, free all structs
     } else {
-
-        loop_data->event_queue             = event_queue;
-        loop_data->buffer_table            = buffer_table;
-        loop_data->buffer_size_table       = buffer_size_table;
+        // initialize slot table
+        for (i = 0; i < siz; i++) {
+            slot_table[i] = i+1;
+        }
+        loop_data->event_queue          = event_queue;
+        loop_data->buffer_table         = buffer_table;
+        loop_data->buffer_size_table    = buffer_size_table;
+        loop_data->slot_table           = slot_table;
+        loop_data->free_slot            = 0;
+        loop_data->size                 = siz;
         loop->data = loop_data;
         return loop;
     }
 }
 
+// allocate free slot, resize loop data if neccessary
+size_t alloc_slot(uv_loop_t* loop){
+    hs_loop_data* loop_data = loop->data;
+    size_t r = loop_data->free_slot;
+    loop_data->free_slot = loop_data->slot_table[r];
+    // the slot exceed range, we should resize
+    if (r == loop_data->size - 1) {
+         hs_uv_loop_resize(loop, (loop_data->size) * 2);
+    }
+    return r;
+}
+void free_slot(uv_loop_t* loop, size_t slot){
+    hs_loop_data* loop_data = loop->data;
+    assert(slot < loop_data->size);
+    loop_data->slot_table[slot] = loop_data->free_slot;
+    loop_data->free_slot = slot;
+}
+
 // resize a loop's data to given slot size, return NULL on fail.
 uv_loop_t* hs_uv_loop_resize(uv_loop_t* loop, size_t siz){
-
+    size_t i;
     hs_loop_data* loop_data = loop->data;
     size_t* event_queue_new       = realloc(loop_data->event_queue, (siz*sizeof(size_t)));
     char** buffer_table_new       = realloc(loop_data->buffer_table, (siz*sizeof(char*)));
     ssize_t* buffer_size_table_new = realloc(loop_data->buffer_size_table, (siz*sizeof(ssize_t)));
+    size_t* slot_table_new = realloc(loop_data->slot_table, (siz*sizeof(ssize_t)));
 
-    if (event_queue_new == NULL || buffer_table_new == NULL || buffer_size_table_new == NULL){
+    if (event_queue_new == NULL || buffer_table_new == NULL ||
+            buffer_size_table_new == NULL || slot_table_new == NULL){
         // release new memory
         if (event_queue_new != loop_data->event_queue) free(event_queue_new);
         if (buffer_table_new != loop_data->buffer_table) free(buffer_table_new);
         if (buffer_size_table_new != loop_data->buffer_size_table) free(buffer_size_table_new);
+        if (slot_table_new != loop_data->slot_table) free(slot_table_new);
         return NULL;
     } else {
-        loop_data->event_queue             = event_queue_new;
-        loop_data->buffer_table            = buffer_table_new;
-        loop_data->buffer_size_table       = buffer_size_table_new;
+        for (i = loop_data->size; i < siz; i++) {
+            slot_table_new[i] = i+1;
+        }
+        loop_data->event_queue        = event_queue_new;
+        loop_data->buffer_table       = buffer_table_new;
+        loop_data->buffer_size_table  = buffer_size_table_new;
+        loop_data->slot_table         = slot_table_new;
+        loop_data->free_slot          = loop_data->size;
+        loop_data->size               = siz;
         return loop;
     }
 }
@@ -85,24 +122,11 @@ void hs_uv_loop_close(uv_loop_t* loop){
     free(loop_data->event_queue);
     free(loop_data->buffer_table);
     free(loop_data->buffer_size_table);
+    free(loop_data->slot_table);
+    free(loop_data);
 }
 
 /********************************************************************************/
-
-// Initialize a uv_handle_t with give type, return NULL on fail.
-uv_handle_t* hs_uv_handle_alloc(uv_handle_type typ){
-    return malloc(uv_handle_size(typ));
-}
-
-// Free uv_handle_t 's memory
-void hs_uv_handle_free(uv_handle_t* handle){
-    free(handle);
-}
-
-// Close a uv_handle_t, free its memory.
-void hs_uv_handle_close(uv_handle_t* handle){
-    uv_close(handle, hs_uv_handle_free);
-}
 
 // Get handle's OS file
 int32_t hs_uv_fileno(uv_handle_t* handle){
@@ -112,16 +136,57 @@ int32_t hs_uv_fileno(uv_handle_t* handle){
     if (r < 0) { return (int32_t)r; } else { return (int32_t)fd; }
 }
 
-// Initialize a uv_req_t with give type, return NULL on fail.
-uv_handle_t* hs_uv_req_alloc(uv_req_type typ){
-    return malloc(uv_req_size(typ));
+// Initialize a uv_handle_t with give type, return NULL on fail.
+// the returned handle's data field is a new allocated slot
+uv_handle_t* hs_uv_handle_alloc(uv_handle_type typ, uv_loop_t* loop){
+    uv_handle_t* handle = malloc(uv_handle_size(typ));
+    if (handle == NULL) { return NULL; }
+    else {
+        handle->loop = loop;
+        handle->data = (void*)alloc_slot(loop);
+        return handle;
+    }
 }
 
-// free uv_req_t's memory.
-void hs_uv_req_free(uv_req_t* req){
+uv_handle_t* hs_uv_handle_alloc_no_slot(uv_handle_type typ){
+    return malloc(uv_handle_size(typ));
+}
+
+// Free uv_handle_t 's memory only
+void hs_uv_handle_free(uv_handle_t* handle){
+    free_slot(handle->loop, (size_t)handle->data);
+    free(handle);
+}
+
+void hs_uv_handle_free_no_slot(uv_handle_t* handle){
+    free(handle);
+}
+
+// Close a uv_handle_t, free its memory & slot
+void hs_uv_handle_close(uv_handle_t* handle){
+    uv_close(handle, hs_uv_handle_free);
+}
+
+void hs_uv_handle_close_no_slot(uv_handle_t* handle){
+    uv_close(handle, hs_uv_handle_free_no_slot);
+}
+
+// Initialize a uv_req_t with give type, return NULL on fail.
+// the returned request's data field is a new allocated slot
+uv_req_t* hs_uv_req_alloc(uv_req_type typ, uv_loop_t* loop){
+    uv_req_t* req = malloc(uv_req_size(typ));
+    if (req == NULL) { return NULL; }
+    else {
+        req->data = (void*)alloc_slot(loop);
+        return req;
+    }
+}
+
+// free uv_req_t's memory & slot
+void hs_uv_req_free(uv_req_t* req, uv_loop_t* loop){
+    free_slot(loop, (size_t)req->data);
     free(req);
 }
-
 
 /********************************************************************************/
 
@@ -366,10 +431,10 @@ int hs_uv_listen(uv_stream_t* stream, int backlog){
 
 // on windows we don't need to do anything, since we didn't and can't stopped. 
 void hs_uv_listen_resume(uv_stream_t* server){
-    #if !defined(_WIN32)
+#if !defined(_WIN32)
     server->accepted_fd = -1;
     uv__io_start(server->loop, &server->io_watcher, POLLIN);
-    #endif
+#endif
 }
 
 // check if the socket's accept buffer is still filled, if so, unlock the accept thread
@@ -410,6 +475,18 @@ int hs_uv_async_wake_init(uv_loop_t* loop, uv_async_t* async){
 
 /********************************************************************************/
 
+// Initialize a uv_fs_t with give type, return NULL on fail.
+// no new slot will be allocated, if you need thread pooled
+// fs operation, you should still use hs_uv_req_alloc which 
+// gives you a slot for block/unlock
+uv_req_t* hs_uv_req_alloc_fs(){
+    return malloc(uv_req_size(UV_FS));
+}
+
+// free uv_fs_t's memory only
+void hs_uv_req_free_fs(uv_req_t* req){
+    free(req);
+}
 uv_dirent_t* hs_uv_dirent_alloc(){
     return malloc(sizeof(uv_dirent_t));
 }

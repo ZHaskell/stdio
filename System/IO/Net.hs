@@ -25,13 +25,12 @@ net.createServer().listen(
 -}
 
 module System.IO.Net (
-    initTCPConnection
-  , ServerConfig(..)
+  -- initTCPConnection
+    ServerConfig(..)
   , defaultServerConfig
   , startServer
   , module System.IO.Net.SockAddr
   ) where
-
 
 import System.IO.Net.SockAddr
 import System.IO.Exception
@@ -54,6 +53,7 @@ import Control.Monad.Primitive
 import Data.Primitive.PrimArray
 import Foreign.PrimArray
 
+{-
 initTCPConnection :: HasCallStack
         => SockAddr
         -> Maybe SockAddr
@@ -62,20 +62,21 @@ initTCPConnection target local = do
     conn <- initTCPStream
     let uvm = uvsManager conn
         handle = uvsHandle conn
-    connSlot <- initUVSlot uvm
-    connReq <- initUVReq uV_CONNECT
-    liftIO $ do
-        forM_ local $ \ local' -> withSockAddr local' $ \ localPtr ->
-            uvTCPBind handle localPtr False
 
-        withSockAddr target $ \ target' -> do
-            m <- getBlockMVar uvm connSlot
+    withSockAddr target $ \ targetPtr -> do
+    withUVManager uvm $ \ loop -> do
+        connReq <- initUVReq uV_CONNECT loop
+        liftIO $ do
+            forM_ local $ \ local' -> withSockAddr local' $ \ localPtr ->
+                uvTCPBind handle localPtr False
             tryTakeMVar m
-            pokeUVReqData connReq connSlot
-            withUVManager' uvm $ uvTCPConnect connReq handle target'
-            takeMVar m
-            throwUVIfMinus_ $ peekBufferTable uvm connSlot
+            uvTCPConnect connReq handle targetPtr
+
+    m <- getBlockMVar uvm connSlot
+    takeMVar m
+    throwUVIfMinus_ $ peekBufferTable uvm connSlot
     return conn
+-}
 
 -- | A TCP/Pipe server configuration
 --
@@ -111,9 +112,10 @@ startServer ServerConfig{..} =
         serverManager = uvsManager server
         serverSlot = uvsReadSlot server
 
-    withResource (initUVHandle uV_CHECK
-        (\ loop handle -> hs_uv_accept_check_init loop handle serverHandle >> return handle) serverManager) $ \ _ ->
-            withSockAddr serverAddr $ \ addrPtr -> do
+    withResource (initUVHandleNoSlot
+        uV_CHECK
+        (\ loop handle -> throwUVIfMinus_ $ hs_uv_accept_check_init loop handle serverHandle)
+        serverManager) $ \ _ -> withSockAddr serverAddr $ \ addrPtr -> do
 
         m <- getBlockMVar serverManager serverSlot
         acceptBuf <- newPinnedPrimArray (fromIntegral aCCEPT_BUFFER_SIZE)
