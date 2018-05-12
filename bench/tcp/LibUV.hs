@@ -22,10 +22,13 @@ main = do
     portStr <- lookupEnv "PORT"
     let port = maybe 8888 id (readMaybe =<< portStr)
     let conf = defaultServerConfig{
-            serverWorker = \ uvs ->  do
+            serverAddr = SockAddrInet port inetAny
+        ,   serverWorker = \ uvs ->  do
                 recvbuf <- mallocPlainForeignPtrBytes 2048  -- we reuse buffer as golang does,
-                                                            -- since node use slab, which is in face a memory pool
+                                                            -- since node use slab, which is in fact a memory pool
+                                                            -- this is more fair
                 echo uvs recvbuf
+        ,   serverReusePortIfAvailable = False
         }
 
     startServer conf

@@ -108,11 +108,12 @@ defaultServerConfig = ServerConfig
 -- Fork new worker thread upon a new connection.
 --
 startServer :: ServerConfig -> IO ()
-startServer ServerConfig{..} =
+startServer ServerConfig{..} = do
     if (serverReusePortIfAvailable && sO_REUSEPORT_LOAD_BALANCE == 1)
     then multipleAcceptLoop
     else singleAcceptLoop
   where
+    -- TODO find out the reason singleAcceptLoop regress
     singleAcceptLoop = do
         serverManager <- getUVManager
         withResource (initTCPStream serverManager) $ \ server -> do
@@ -170,7 +171,7 @@ startServer ServerConfig{..} =
         let (SocketFamily family) = sockAddrFamily serverAddr
         serverLock <- newEmptyMVar
         numCaps <- getNumCapabilities
-        forM_ [0..numCaps-1] $ \ serverIndex -> forkOn serverIndex $ do
+        forM_ [0..numCaps-1] $ \ serverIndex -> forkOn serverIndex $ (`finally` tryPutMVar serverLock ()) $  do
             serverManager <- getUVManager
             withResource (initTCPExStream
                 (fromIntegral $ family) serverManager) $ \ server -> do
@@ -225,7 +226,6 @@ startServer ServerConfig{..} =
                         when (accepted == fromIntegral aCCEPT_BUFFER_SIZE) $
                             withUVManager' serverManager $ uvListenResume serverHandle
 
-                    putMVar serverLock ()
         takeMVar serverLock
 
 --------------------------------------------------------------------------------

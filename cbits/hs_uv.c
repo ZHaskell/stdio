@@ -525,14 +525,10 @@ int hs_uv_accept_check_init(uv_loop_t* loop, uv_check_t* check, uv_stream_t* ser
     return uv_check_start(check, hs_accept_check_cb);
 }
 
-int hs_set_socket_reuse(uv_handle_t* server) {
-#ifdef SO_REUSEPORT_LOAD_BALANCE
-    int fd;
+int hs_set_socket_reuse(uv_stream_t* server) {
+#if (SO_REUSEPORT_LOAD_BALANCE == 1)
     int yes = 1;
-    int r = uv_fileno(server, &fd);
-
-    if (r < 0) return r;
-    if (setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &yes, sizeof(yes)))
+    if (setsockopt(server->io_watcher.fd, SOL_SOCKET, SO_REUSEPORT, &yes, sizeof(yes)))
         return uv_translate_sys_error(errno);
     return 0;
 #else

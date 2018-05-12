@@ -38,8 +38,10 @@
 #define SO_REUSEPORT_LOAD_BALANCE 1
 #else
 #define SO_REUSEPORT_LOAD_BALANCE 0
-void hs_set_socket_reuse(uv_handle_t* server);
 #endif
+
+// this function will be a noop when SO_REUSEPORT_LOAD_BALANCE == 0
+int hs_set_socket_reuse(uv_stream_t* server);
 
 ////////////////////////////////////////////////////////////////////////////////
 // error handling
