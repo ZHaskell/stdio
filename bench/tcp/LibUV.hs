@@ -20,7 +20,9 @@ import Text.Read                        (readMaybe)
 main :: IO ()
 main = do
     portStr <- lookupEnv "PORT"
+    reuseStr <- lookupEnv "REUSEPORT"
     let port = maybe 8888 id (readMaybe =<< portStr)
+        reuse = maybe False id (readMaybe =<< reuseStr)
     let conf = defaultServerConfig{
             serverAddr = SockAddrInet port inetAny
         ,   serverWorker = \ uvs ->  do
@@ -28,7 +30,7 @@ main = do
                                                             -- since node use slab, which is in fact a memory pool
                                                             -- this is more fair
                 echo uvs recvbuf
-        ,   serverReusePortIfAvailable = False
+        ,   serverReusePortIfAvailable = reuse
         }
 
     startServer conf

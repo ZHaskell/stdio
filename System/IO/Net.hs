@@ -86,8 +86,11 @@ data ServerConfig = forall e. Exception e => ServerConfig
     , serverWorkerNoDelay :: Bool
     , serverWorkerHandler :: e -> IO ()
     , serverReusePortIfAvailable :: Bool    -- If this flag is enable and we're on linux >= 3.9
-                                            -- We'll open multiple listening socket, otherwise
-                                            -- this flag have no effects.
+                                            -- We'll open multiple listening socket using SO_REUSEPORT
+                                            -- otherwise this flag have no effects.
+                                            --
+                                            -- Depend on your workload, this option may have or not have
+                                            -- improvement, it's OFF in 'defaultServerConfig'.
     }
 
 -- | A default hello world server on localhost:8888
@@ -101,7 +104,7 @@ defaultServerConfig = ServerConfig
     (\ uvs -> writeOutput uvs (Ptr "hello world"#) 11)
     True
     (print :: SomeException -> IO())
-    True
+    False
 
 -- | Start a server
 --
@@ -113,7 +116,6 @@ startServer ServerConfig{..} = do
     then multipleAcceptLoop
     else singleAcceptLoop
   where
-    -- TODO find out the reason singleAcceptLoop regress
     singleAcceptLoop = do
         serverManager <- getUVManager
         withResource (initTCPStream serverManager) $ \ server -> do
@@ -154,9 +156,10 @@ startServer ServerConfig{..} = do
                         let fd = indexPrimArray acceptBufCopy i
                         if fd < 0
                         then throwUVIfMinus_ (return fd)    -- minus fd indicate a server error and we should close server
-                        else do
+                        else void . forkBa $ do
+                            -- It's important to use the worker thread's mananger instead of server's one!
                             uvm <- getUVManager
-                            void . forkBa . withResource (initTCPStream uvm) $ \ client -> do
+                            withResource (initTCPStream uvm) $ \ client -> do
                                 handle serverWorkerHandler $ do
                                     withUVManager' (uvsManager client) $ do
                                         uvTCPOpen (uvsHandle client) (fromIntegral fd)
@@ -213,9 +216,9 @@ startServer ServerConfig{..} = do
                             let fd = indexPrimArray acceptBufCopy i
                             if fd < 0
                             then throwUVIfMinus_ (return fd)    -- minus fd indicate a server error and we should close server
-                            else do
-                                uvm <- getUVManager
-                                void . forkOn serverIndex . withResource (initTCPStream uvm) $ \ client -> do
+                            else void . forkOn serverIndex  $ do
+                                -- Since the worker thread is on with same capability with server thread, just use server's manager
+                                withResource (initTCPStream serverManager) $ \ client -> do
                                     handle serverWorkerHandler $ do
                                         withUVManager' (uvsManager client) $ do
                                             uvTCPOpen (uvsHandle client) (fromIntegral fd)
