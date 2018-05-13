@@ -79,12 +79,11 @@ initTCPConnection target local = do
 
 -- | A TCP/Pipe server configuration
 --
-data ServerConfig = forall e. Exception e => ServerConfig
+data ServerConfig = ServerConfig
     { serverAddr       :: SockAddr
     , serverBackLog    :: Int
     , serverWorker     :: UVStream -> IO ()
     , serverWorkerNoDelay :: Bool
-    , serverWorkerHandler :: e -> IO ()
     , serverReusePortIfAvailable :: Bool    -- If this flag is enable and we're on linux >= 3.9
                                             -- We'll open multiple listening socket using SO_REUSEPORT
                                             -- otherwise this flag have no effects.
@@ -103,7 +102,6 @@ defaultServerConfig = ServerConfig
     128
     (\ uvs -> writeOutput uvs (Ptr "hello world"#) 11)
     True
-    (print :: SomeException -> IO())
     False
 
 -- | Start a server
@@ -155,17 +153,17 @@ startServer ServerConfig{..} = do
                     forM_ [0..accepted-1] $ \ i -> do
                         let fd = indexPrimArray acceptBufCopy i
                         if fd < 0
-                        then throwUVIfMinus_ (return fd)    -- minus fd indicate a server error and we should close server
+                        -- minus fd indicate a server error and we should close server
+                        then throwUVIfMinus_ (return fd)
+                        -- It's important to use the worker thread's mananger instead of server's one!
                         else void . forkBa $ do
-                            -- It's important to use the worker thread's mananger instead of server's one!
                             uvm <- getUVManager
                             withResource (initTCPStream uvm) $ \ client -> do
-                                handle serverWorkerHandler $ do
-                                    withUVManager' (uvsManager client) $ do
-                                        uvTCPOpen (uvsHandle client) (fromIntegral fd)
-                                        when serverWorkerNoDelay $
-                                            uvTCPNodelay (uvsHandle client) True
-                                    serverWorker client
+                                withUVManager' (uvsManager client) $ do
+                                    uvTCPOpen (uvsHandle client) (fromIntegral fd)
+                                    when serverWorkerNoDelay $
+                                        uvTCPNodelay (uvsHandle client) True
+                                serverWorker client
 
                     when (accepted == fromIntegral aCCEPT_BUFFER_SIZE) $
                         withUVManager' serverManager $ uvListenResume serverHandle
@@ -215,16 +213,17 @@ startServer ServerConfig{..} = do
                         forM_ [0..accepted-1] $ \ i -> do
                             let fd = indexPrimArray acceptBufCopy i
                             if fd < 0
-                            then throwUVIfMinus_ (return fd)    -- minus fd indicate a server error and we should close server
+                            -- minus fd indicate a server error and we should close server
+                            then throwUVIfMinus_ (return fd)
+                            -- Since the worker thread is on with same capability with server thread,
+                            -- just use server's manager
                             else void . forkOn serverIndex  $ do
-                                -- Since the worker thread is on with same capability with server thread, just use server's manager
                                 withResource (initTCPStream serverManager) $ \ client -> do
-                                    handle serverWorkerHandler $ do
-                                        withUVManager' (uvsManager client) $ do
-                                            uvTCPOpen (uvsHandle client) (fromIntegral fd)
-                                            when serverWorkerNoDelay $
-                                                uvTCPNodelay (uvsHandle client) True
-                                        serverWorker client
+                                    withUVManager' (uvsManager client) $ do
+                                        uvTCPOpen (uvsHandle client) (fromIntegral fd)
+                                        when serverWorkerNoDelay $
+                                            uvTCPNodelay (uvsHandle client) True
+                                    serverWorker client
 
                         when (accepted == fromIntegral aCCEPT_BUFFER_SIZE) $
                             withUVManager' serverManager $ uvListenResume serverHandle

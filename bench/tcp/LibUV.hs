@@ -29,7 +29,9 @@ main = do
                 recvbuf <- mallocPlainForeignPtrBytes 2048  -- we reuse buffer as golang does,
                                                             -- since node use slab, which is in fact a memory pool
                                                             -- this is more fair
-                echo uvs recvbuf
+
+                -- do not print ECONNRESET for fairness
+                catch (echo uvs recvbuf) (\ (e::SomeException) -> return ())
         ,   serverReusePortIfAvailable = reuse
         }
 
