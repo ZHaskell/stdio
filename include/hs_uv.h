@@ -50,13 +50,20 @@ int uv_translate_sys_error(int sys_errno);
 ////////////////////////////////////////////////////////////////////////////////
 // loop
 typedef struct {
-   size_t    event_counter;
-   size_t*   event_queue;
-   char**    buffer_table;
-   ssize_t*  buffer_size_table;
-   size_t*   slot_table;
-   size_t    free_slot;
-   size_t    size;  
+    // following two fields record events during uv_run, inside callback which
+    // wants to record a event, push the handler's slot into the queue 
+    size_t    event_counter;
+    size_t*   event_queue;
+    // following two fields provide buffers allocated in haskell to uv_alloc_cb,
+    // the buffer_size_table are also used to record operation's result
+    char**    buffer_table;
+    ssize_t*  buffer_size_table;
+    // following fields are used to implemented a stable slot allocator, we used
+    // to do slot allocation in haskell, but doing it in C allow us to free slot
+    // in the right place, e.g. uv_close_cb.
+    size_t*   slot_table;
+    size_t    free_slot;
+    size_t    size;  
 } hs_loop_data;
 
 uv_loop_t* hs_uv_loop_init(size_t siz);

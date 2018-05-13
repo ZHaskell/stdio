@@ -144,7 +144,7 @@ getBlockMVar :: UVManager -> UVSlot -> IO (MVar ())
 {-# INLINABLE getBlockMVar #-}
 getBlockMVar uvm slot = do
     blockTable <- readIORef (uvmBlockTable uvm)
-    indexArrM blockTable (fromIntegral slot)
+    indexArrM blockTable slot
 
 -- | Poke a prepared buffer and size into loop data under given slot.
 --
@@ -163,14 +163,14 @@ pokeBufferTable :: UVManager -> UVSlot -> Ptr Word8 -> Int -> IO ()
 {-# INLINABLE pokeBufferTable #-}
 pokeBufferTable uvm slot buf bufSiz = do
     (bufTable, bufSizTable) <- peekUVBufferTable (uvmLoopData uvm)
-    pokeElemOff bufTable (fromIntegral slot) buf
-    pokeElemOff bufSizTable (fromIntegral slot) (fromIntegral bufSiz)
+    pokeElemOff bufTable slot buf
+    pokeElemOff bufSizTable slot (fromIntegral bufSiz)
 
 peekBufferTable :: UVManager -> UVSlot -> IO Int
 {-# INLINABLE peekBufferTable #-}
 peekBufferTable uvm slot = do
     (bufTable, bufSizTable) <- peekUVBufferTable (uvmLoopData uvm)
-    fromIntegral <$> peekElemOff bufSizTable (fromIntegral slot)
+    fromIntegral <$> peekElemOff bufSizTable slot
 
 initUVManager :: HasCallStack => Int -> Int -> Resource UVManager
 initUVManager siz cap = do
@@ -247,18 +247,12 @@ startUVManager uvm@(UVManager _ _ _ running _ _ _) = loop -- use a closure captu
 
             if block
             then if rtsSupportsBoundThreads
-                then do
-                    uvTimerStop timer
-                    void $ uvRunSafe loop uV_RUN_ONCE
+                then uvRunSafe loop uV_RUN_ONCE
                 else do
                     -- use a 2ms timeout blocking poll on non-threaded rts
                     uvTimerWakeStart timer 2
-                    void $ uvRun loop uV_RUN_ONCE
-            else do
-                -- we use uV_RUN_ONCE with 1ms timeout instead of uV_RUN_NOWAIT
-                -- because we don't want to spin CPU cycles on GHC scheduler too much
-                -- and 1ms is the shortest timeout we can achieve with libuv's timer
-                void $ uvRun loop uV_RUN_NOWAIT
+                    uvRun loop uV_RUN_ONCE
+            else uvRun loop uV_RUN_NOWAIT
 
             (c, q) <- peekUVEventQueue loopData
             forM_ [0..(fromIntegral c-1)] $ \ i -> do
