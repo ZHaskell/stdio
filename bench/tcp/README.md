@@ -24,7 +24,7 @@ A result run by me on large core server can be find [here](https://github.com/ha
 Run test
 --------
 
-This benchmark will start a server on your localhost's 8888 port(or use PORT environment varible if available), read some input(and ignore them), them servering 500 bytes of zeros in HTTP protocal, so that you can use HTTP benchmark tools such as `siege` or `wrk` to bench. A small respond size is choosen to highlight overhead each multiplexer added.
+This benchmark will start a server on your localhost's 8888 port(or use PORT environment varible if available), read some input(and ignore them), then servering 500 bytes of zeros in HTTP protocal, so that you can use HTTP benchmark tools such as `siege` or `wrk` to bench. A small respond size is choosen to highlight overhead each multiplexer added.
 
 You should adjust your system's fd limit before running benchmark in case of running out of fd.
 
@@ -34,7 +34,7 @@ cabal build
 # Adding a proper heap size hint is important for haskell programs because
 # the way GHC's GC works.
 # You should use a -Hx parammeter if the concurrent level go beyong ~1k.
-# Quick formula: concurrent level(in K) * 10M, for example use -H128M for C10K.
+# Quick formula: concurrent level(in K) * 128M, for example use -H128M for C1K.
 
 # mio, if you know your CPU's core number x, append a -Nx
 ./dist/build/mio/mio +RTS -s
