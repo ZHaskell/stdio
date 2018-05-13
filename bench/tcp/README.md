@@ -19,6 +19,7 @@ This is an M:N multiplexers, but golang rts only start one extra thread doing I/
 
 This is a single threaded multiplexers, but use multiples process to take advantage of multiple CPU.
 
+A result run by me on large core server can be find [here](https://github.com/haskell-stdio/stdio/blob/master/bench/tcp/result.md), with [summary here](https://github.com/haskell-stdio/stdio/blob/master/bench/tcp/summary.pdf).
 
 Run test
 --------
