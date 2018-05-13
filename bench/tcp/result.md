@@ -3,7 +3,7 @@ Benchmark machine
 
 Thanks @treevivi for sharing his machines (and my company @bytedance of course).
 
-The load generator have more cores(64) than server(48) to guarantee we can generate enough load.
+The load generator have more cores(64) than server(48) to guarantee we can generate enough load. I also made some summary charts [here](https://github.com/haskell-stdio/stdio/blob/master/bench/tcp/result-summary.pdf), only throughput data are covered.
 
 + workload generator
 
