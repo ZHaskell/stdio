@@ -30,7 +30,7 @@ main = do
         forkOn c $ do
             setSocketOption sock' NoDelay 1
             recvbuf <- mallocPlainForeignPtrBytes 2048  -- we reuse buffer as golang does,
-                                                        -- since node use slab, which is in face a memory pool
+                                                        -- since node use slab, which is in fact a memory pool
             -- do not print ECONNRESET for fairness
             catch (echo sock' recvbuf) (\ (e::SomeException) -> return ()))
         (close sock)
