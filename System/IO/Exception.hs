@@ -73,6 +73,7 @@ module System.IO.Exception
   , throwOOMIfNull
   , throwUVIfMinus
   , throwUVIfMinus_
+  , throwUVError
     -- * Resource management
   , Resource(..)
   , initResource

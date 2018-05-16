@@ -284,6 +284,7 @@ initUVHandle typ init uvm = initResource
         handle <- throwOOMIfNull $ hs_uv_handle_alloc typ loop
         slot <- peekUVHandleData handle
         autoResizeUVM uvm slot
+        tryTakeMVar =<< getBlockMVar uvm slot   -- clear the parking spot
         init loop handle `onException` hs_uv_handle_free handle
         return handle)
     (withUVManager' uvm . hs_uv_handle_close) -- handle is free in uv_close callback
@@ -316,6 +317,7 @@ initUVReq typ init uvm = initResource
         req <- throwOOMIfNull $ hs_uv_req_alloc typ loop
         slot <- peekUVReqData req
         autoResizeUVM uvm slot
+        tryTakeMVar =<< getBlockMVar uvm slot   -- clear the parking spot
         init loop req `onException` hs_uv_req_free req loop
         return req)
     (\ req -> withUVManager uvm $ \ loop -> hs_uv_req_free req loop)
@@ -344,6 +346,7 @@ initUVFS fs uvm = initResource
         req <- throwOOMIfNull $ hs_uv_req_alloc uV_FS loop
         slot <- peekUVReqData req
         autoResizeUVM uvm slot
+        tryTakeMVar =<< getBlockMVar uvm slot   -- clear the parking spot
         fs loop req uvFSCallBack `onException` hs_uv_req_free req loop
         return req)
     (\ req -> do

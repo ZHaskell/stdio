@@ -60,7 +60,7 @@ library
 
                             -- System.IO.FileSystem
 
-                            System.IO.Net
+                            System.IO.TCP
                             System.IO.Net.SockAddr
 
                             -- System.IO.Socket

@@ -5,8 +5,8 @@
 {-# LANGUAGE ExistentialQuantification #-}
 
 {-|
-Module      : System.IO.Net
-Description : TCP or IPC servers and clients
+Module      : System.IO.TCP
+Description : TCP servers and clients
 Copyright   : (c) Winterland, 2018
 License     : BSD
 Maintainer  : drkoster@qq.com
@@ -24,9 +24,11 @@ net.createServer().listen(
 
 -}
 
-module System.IO.Net (
-  -- initTCPConnection
-    ServerConfig(..)
+module System.IO.TCP (
+    ClientConfig(..)
+  , defaultClientConfig
+  , initClient
+  , ServerConfig(..)
   , defaultServerConfig
   , startServer
   , module System.IO.Net.SockAddr
@@ -52,30 +54,38 @@ import Control.Monad.Primitive
 import Data.Primitive.PrimArray
 import Foreign.PrimArray
 
-{-
-initTCPConnection :: HasCallStack
-        => SockAddr
-        -> Maybe SockAddr
-        -> Resource UVStream
-initTCPConnection target local = do
-    conn <- initTCPStream
-    let uvm = uvsManager conn
-        handle = uvsHandle conn
+--------------------------------------------------------------------------------
 
-    withSockAddr target $ \ targetPtr -> do
-    withUVManager uvm $ \ loop -> do
-        connReq <- initUVReq uV_CONNECT loop
-        liftIO $ do
-            forM_ local $ \ local' -> withSockAddr local' $ \ localPtr ->
-                uvTCPBind handle localPtr False
-            tryTakeMVar m
-            uvTCPConnect connReq handle targetPtr
 
-    m <- getBlockMVar uvm connSlot
-    takeMVar m
-    throwUVIfMinus_ $ peekBufferTable uvm connSlot
-    return conn
--}
+data ClientConfig = ClientConfig
+    { clientLocalAddr :: Maybe SockAddr
+    , clientTargetAddr :: SockAddr
+    , clientNoDelay :: Bool
+    }
+
+defaultClientConfig :: ClientConfig
+defaultClientConfig = ClientConfig Nothing (SockAddrInet 8888 inetLoopback) True
+
+initClient :: HasCallStack => ClientConfig -> Resource UVStream
+initClient ClientConfig{..} = do
+    uvm <- liftIO getUVManager
+    client <- initTCPStream uvm
+    targetPtr <- initSockAddr clientTargetAddr
+    req <- initUVReq uV_CONNECT
+            (connect clientNoDelay (uvsHandle client) clientLocalAddr targetPtr)  uvm
+    liftIO $ do
+        slot <- peekUVReqData req
+        takeMVar =<< getBlockMVar uvm slot
+        throwUVIfMinus_ $ peekBufferTable uvm slot
+        return client
+  where
+    connect nodelay handle local targetPtr loop req = do
+        forM_ local $ \ local' -> withSockAddr local' $ \ localPtr ->
+            uvTCPBind handle localPtr False
+        uvTCPConnect req handle targetPtr
+        when nodelay $ uvTCPNodelay handle True
+
+--------------------------------------------------------------------------------
 
 -- | A TCP/Pipe server configuration
 --
@@ -131,7 +141,6 @@ startServer ServerConfig{..} = do
                 let acceptBufPtr = (coerce (mutablePrimArrayContents acceptBuf :: Ptr UVFD))
 
                 withUVManager' serverManager $ do
-                    tryTakeMVar m
                     uvTCPBind serverHandle addrPtr False
                     pokeBufferTable serverManager serverSlot acceptBufPtr 0
                     uvListen serverHandle (fromIntegral serverBackLog)
@@ -190,7 +199,6 @@ startServer ServerConfig{..} = do
                     let acceptBufPtr = (coerce (mutablePrimArrayContents acceptBuf :: Ptr UVFD))
 
                     withUVManager' serverManager $ do
-                        tryTakeMVar m
                         hsSetSocketReuse serverHandle
                         uvTCPBind serverHandle addrPtr False
                         pokeBufferTable serverManager serverSlot acceptBufPtr 0

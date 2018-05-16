@@ -156,13 +156,13 @@ mutablePrimArrayContents (MutablePrimArray mba) =
 -- This operation is only safe on /pinned/ primitive arrays allocated by 'newPinnedPrimArray' or
 -- 'newAlignedPinnedPrimArray'.
 --
-withPrimArrayContents :: PrimMonad m => PrimArray a -> (Ptr a -> m b) -> m b
+withPrimArrayContents :: PrimArray a -> (Ptr a -> IO b) -> IO b
 {-# INLINE withPrimArrayContents #-}
-withPrimArrayContents (PrimArray ba) f = do
+withPrimArrayContents (PrimArray ba@(ByteArray ba#)) f = do
     let !(Addr addr#) = byteArrayContents ba
         ptr = Ptr addr#
     b <- f ptr
-    touch ba
+    primitive_ (touch# ba#)
     return b
 
 -- | Yield a pointer to the array's data and do computation with it.
@@ -170,13 +170,13 @@ withPrimArrayContents (PrimArray ba) f = do
 -- This operation is only safe on /pinned/ primitive arrays allocated by 'newPinnedPrimArray' or
 -- 'newAlignedPinnedPrimArray'.
 --
-withMutablePrimArrayContents :: PrimMonad m => MutablePrimArray (PrimState m) a -> (Ptr a -> m b) -> m b
+withMutablePrimArrayContents :: MutablePrimArray RealWorld a -> (Ptr a -> IO b) -> IO b
 {-# INLINE withMutablePrimArrayContents #-}
-withMutablePrimArrayContents (MutablePrimArray mba) f = do
+withMutablePrimArrayContents (MutablePrimArray mba@(MutableByteArray mba#)) f = do
     let !(Addr addr#) = mutableByteArrayContents mba
         ptr = Ptr addr#
     b <- f ptr
-    touch mba
+    primitive_ (touch# mba#)
     return b
 
 -- | Check if the two arrays refer to the same memory block.

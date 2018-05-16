@@ -19,6 +19,7 @@ module System.IO.Net.SockAddr
   , sockAddrFamily
   , peekSockAddr
   , withSockAddr
+  , initSockAddr
    -- ** IPv4 address
   , InetAddr
   , inetAny
@@ -64,6 +65,7 @@ module System.IO.Net.SockAddr
 import Foreign
 import Foreign.C
 import System.IO.Exception
+import System.IO.UV.Exception
 import GHC.Stack.Compat
 import GHC.ForeignPtr (mallocPlainForeignPtrAlignedBytes)
 import qualified Data.List as List
@@ -74,9 +76,10 @@ import Data.Ratio
 import System.IO.Unsafe (unsafeDupablePerformIO)
 import qualified Data.Vector as V
 import Data.CBytes
-import Foreign.Marshal.Utils (copyBytes)
+import Foreign.PrimArray
 import Data.Primitive.PrimArray
 import Control.Monad.Primitive
+import Control.Monad.IO.Class
 
 #include "hs_uv.h" 
 
@@ -263,35 +266,56 @@ peekSockAddr p = do
             scope <- (#peek struct sockaddr_in6, sin6_scope_id) p
             return (SockAddrInet6 (PortNum port) flow addr scope)
 
-        _ -> throwIO $ OtherError (IOEInfo "" "Unsupported net family" callStack)
+        _ -> do let errno = uV_EAI_ADDRFAMILY
+                name <- uvErrName errno
+                desc <- uvStdError errno
+                throwUVError errno (IOEInfo name desc callStack)
+
+pokeSockAddr :: HasCallStack => Ptr SockAddr -> SockAddr -> IO ()
+pokeSockAddr p (SockAddrInet (PortNum port) addr) =  do
+#if defined(darwin_HOST_OS)
+    clearPtr p (#const sizeof(struct sockaddr_in))
+#endif
+#if defined(HAVE_STRUCT_SOCKADDR_SA_LEN)
+    (#poke struct sockaddr_in, sin_len) p ((#const sizeof(struct sockaddr_in)) :: Word8)
+#endif
+    (#poke struct sockaddr_in, sin_family) p ((#const AF_INET) :: CSaFamily)
+    (#poke struct sockaddr_in, sin_port) p port
+    (#poke struct sockaddr_in, sin_addr) p addr
+pokeSockAddr p (SockAddrInet6 (PortNum port) flow addr scope) =  do
+#if defined(darwin_HOST_OS)
+    clearPtr p (#const sizeof(struct sockaddr_in6))
+#endif
+#if defined(HAVE_STRUCT_SOCKADDR_SA_LEN)
+    (#poke struct sockaddr_in6, sin6_len) p ((#const sizeof(struct sockaddr_in6)) :: Word8)
+#endif
+    (#poke struct sockaddr_in6, sin6_family) p ((#const AF_INET6) :: CSaFamily)
+    (#poke struct sockaddr_in6, sin6_port) p port
+    (#poke struct sockaddr_in6, sin6_flowinfo) p flow
+    (#poke struct sockaddr_in6, sin6_addr) p (addr)
+    (#poke struct sockaddr_in6, sin6_scope_id) p scope
 
 withSockAddr :: SockAddr -> (Ptr SockAddr -> IO a) -> IO a
-withSockAddr sa@(SockAddrInet (PortNum port) addr) f = do
-    allocaBytesAligned (#size struct sockaddr_in) (#alignment struct sockaddr_in) $ \ p -> do
-#if defined(darwin_HOST_OS)
-        -- zeroMemory p (#const sizeof(struct sockaddr_in))
-#endif
-#if defined(HAVE_STRUCT_SOCKADDR_SA_LEN)
-        (#poke struct sockaddr_in, sin_len) p ((#const sizeof(struct sockaddr_in)) :: Word8)
-#endif
-        (#poke struct sockaddr_in, sin_family) p ((#const AF_INET) :: CSaFamily)
-        (#poke struct sockaddr_in, sin_port) p port
-        (#poke struct sockaddr_in, sin_addr) p addr
-        f p
-withSockAddr sa@(SockAddrInet6 (PortNum port) flow addr scope) f = do
-    allocaBytesAligned (#size struct sockaddr_in6) (#alignment struct sockaddr_in) $ \ p -> do
-#if defined(darwin_HOST_OS)
-        -- zeroMemory p (#const sizeof(struct sockaddr_in6))
-#endif
-#if defined(HAVE_STRUCT_SOCKADDR_SA_LEN)
-        (#poke struct sockaddr_in6, sin6_len) p ((#const sizeof(struct sockaddr_in6)) :: Word8)
-#endif
-        (#poke struct sockaddr_in6, sin6_family) p ((#const AF_INET6) :: CSaFamily)
-        (#poke struct sockaddr_in6, sin6_port) p port
-        (#poke struct sockaddr_in6, sin6_flowinfo) p flow
-        (#poke struct sockaddr_in6, sin6_addr) p (addr)
-        (#poke struct sockaddr_in6, sin6_scope_id) p scope
-        f p
+withSockAddr sa@(SockAddrInet _ _) f = do
+    allocaBytesAligned
+        (#size struct sockaddr_in)
+        (#alignment struct sockaddr_in) $ \ p -> pokeSockAddr p sa >> f p
+withSockAddr sa@(SockAddrInet6 _ _ _ _) f = do
+    allocaBytesAligned 
+        (#size struct sockaddr_in6) 
+        (#alignment struct sockaddr_in6) $ \ p -> pokeSockAddr p sa >> f p
+
+initSockAddr :: SockAddr -> Resource (Ptr SockAddr)
+initSockAddr sa@(SockAddrInet _ _) = do
+    p <- initBytesAligned 
+        (#size struct sockaddr_in) (#alignment struct sockaddr_in)
+    liftIO $ pokeSockAddr p sa
+    return p
+initSockAddr sa@(SockAddrInet6 _ _ _ _) = do
+    p <- initBytesAligned 
+            (#size struct sockaddr_in6) (#alignment struct sockaddr_in6)
+    liftIO $ pokeSockAddr p sa
+    return p
 
 -- The peek32 and poke32 functions work around the fact that the RFCs
 -- don't require 32-bit-wide address fields to be present.  We can
