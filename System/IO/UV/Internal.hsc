@@ -274,6 +274,34 @@ type UVFSCallBack = FunPtr (Ptr UVReq -> IO ())
 
 foreign import ccall "hs_uv.h &hs_uv_fs_callback" uvFSCallBack :: UVFSCallBack
 
+
+
+newtype UVFileFlag = UVFileFlag CInt
+    deriving (Bounded, Enum, Eq, Integral, Num, Ord, Read, Real, Show, FiniteBits, Bits, Storable)
+
+#{enum UVFileFlag, UVFileFlag,
+    uV_FS_O_APPEND       = UV_FS_O_APPEND
+  , uV_FS_O_CREAT        = UV_FS_O_CREAT
+  , uV_FS_O_DIRECT       = UV_FS_O_DIRECT
+  , uV_FS_O_DIRECTORY    = UV_FS_O_DIRECTORY
+  , uV_FS_O_DSYNC        = UV_FS_O_DSYNC
+  , uV_FS_O_EXCL         = UV_FS_O_EXCL
+  , uV_FS_O_EXLOCK       = UV_FS_O_EXLOCK
+  , uV_FS_O_NOATIME      = UV_FS_O_NOATIME
+  , uV_FS_O_NOCTTY       = UV_FS_O_NOCTTY
+  , uV_FS_O_NOFOLLOW     = UV_FS_O_NOFOLLOW
+  , uV_FS_O_NONBLOCK     = UV_FS_O_NONBLOCK
+  , uV_FS_O_RDONLY       = UV_FS_O_RDONLY
+  , uV_FS_O_RDWR         = UV_FS_O_RDWR
+  , uV_FS_O_SYMLINK      = UV_FS_O_SYMLINK
+  , uV_FS_O_SYNC         = UV_FS_O_SYNC
+  , uV_FS_O_TRUNC        = UV_FS_O_TRUNC
+  , uV_FS_O_WRONLY       = UV_FS_O_WRONLY
+  , uV_FS_O_RANDOM       = UV_FS_O_RANDOM
+  , uV_FS_O_SHORT_LIVED  = UV_FS_O_SHORT_LIVED
+  , uV_FS_O_SEQUENTIAL   = UV_FS_O_SEQUENTIAL
+  , uV_FS_O_TEMPORARY    = UV_FS_O_TEMPORARY}
+
 newtype UVDirEntType = UVDirEntType CInt
     deriving (Bounded, Enum, Eq, Integral, Num, Ord, Read, Real, Show, FiniteBits, Bits, Storable)
 
@@ -299,8 +327,9 @@ peekUVDirEnt p = (,)
     <$> (#{peek struct uv_dirent_s, name          } p)
     <*> (#{peek struct uv_dirent_s, type          } p)
 
-uvFSScandir :: Ptr UVLoop -> Ptr UVReq -> CString -> Bool -> IO ()
-uvFSScandir loop req path block = 
+uvFSScandir :: CString -> Bool -> Ptr UVLoop -> Ptr UVReq -> IO ()
+uvFSScandir path block loop req  = 
     throwUVIfMinus_ $ uv_fs_scandir loop req path 0 (if block then uvFSCallBack else nullFunPtr)
+
 foreign import ccall unsafe uv_fs_scandir :: Ptr UVLoop -> Ptr UVReq -> CString -> CInt -> UVFSCallBack -> IO CInt
 foreign import ccall unsafe uv_fs_scandir_next :: Ptr UVReq -> Ptr UVDirEnt -> IO CInt
