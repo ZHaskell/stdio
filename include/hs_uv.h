@@ -123,6 +123,77 @@ extern unsigned int uv_simultaneous_server_accepts;
 extern void uv_tcp_queue_accept(uv_tcp_t* handle, uv_tcp_accept_t* req);
 int32_t hs_uv_tcp_accept(uv_tcp_t* server);
 int32_t hs_uv_pipe_accept(uv_pipe_t* server);
+
+// we define file open flag here for compatibility on libuv < v1.16
+// see https://github.com/libuv/libuv/commit/4b666bd2d82a51f1c809b2703a91679789c1ec01#diff-a5e63f9b16ca783355e2d83941c3eafb
+
+/* fs open() flags supported on this platform: */
+#ifndef UV_FS_O_APPEND
+#define UV_FS_O_APPEND       _O_APPEND
+#endif
+#ifndef UV_FS_O_CREAT
+#define UV_FS_O_CREAT        _O_CREAT
+#endif
+#ifndef UV_FS_O_EXCL
+#define UV_FS_O_EXCL         _O_EXCL
+#endif
+#ifndef UV_FS_O_RANDOM
+#define UV_FS_O_RANDOM       _O_RANDOM
+#endif
+#ifndef UV_FS_O_RDONLY
+#define UV_FS_O_RDONLY       _O_RDONLY
+#endif
+#ifndef UV_FS_O_RDWR
+#define UV_FS_O_RDWR         _O_RDWR
+#endif
+#ifndef UV_FS_O_SEQUENTIAL
+#define UV_FS_O_SEQUENTIAL   _O_SEQUENTIAL
+#endif
+#ifndef UV_FS_O_SHORT_LIVED
+#define UV_FS_O_SHORT_LIVED  _O_SHORT_LIVED
+#endif
+#ifndef UV_FS_O_TEMPORARY
+#define UV_FS_O_TEMPORARY    _O_TEMPORARY
+#endif
+#ifndef UV_FS_O_TRUNC
+#define UV_FS_O_TRUNC        _O_TRUNC
+#endif
+#ifndef UV_FS_O_WRONLY
+#define UV_FS_O_WRONLY       _O_WRONLY
+#endif
+
+/* fs open() flags supported on other platforms (or mapped on this platform): */
+#ifndef UV_FS_O_DIRECT
+#define UV_FS_O_DIRECT       0x2000000 /* FILE_FLAG_NO_BUFFERING */
+#endif
+#ifndef UV_FS_O_DIRECTORY
+#define UV_FS_O_DIRECTORY    0
+#endif
+#ifndef UV_FS_O_DSYNC
+#define UV_FS_O_DSYNC        0x4000000 /* FILE_FLAG_WRITE_THROUGH */
+#endif
+#ifndef UV_FS_O_EXLOCK
+#define UV_FS_O_EXLOCK       0
+#endif
+#ifndef UV_FS_O_NOATIME
+#define UV_FS_O_NOATIME      0
+#endif
+#ifndef UV_FS_O_NOCTTY
+#define UV_FS_O_NOCTTY       0
+#endif
+#ifndef UV_FS_O_NOFOLLOW
+#define UV_FS_O_NOFOLLOW     0
+#endif
+#ifndef UV_FS_O_NONBLOCK
+#define UV_FS_O_NONBLOCK     0
+#endif
+#ifndef UV_FS_O_SYMLINK
+#define UV_FS_O_SYMLINK      0
+#endif
+#ifndef UV_FS_O_SYNC
+#define UV_FS_O_SYNC         0x8000000 /* FILE_FLAG_WRITE_THROUGH */
+#endif
+
 #else
 ssize_t read(int fd, void *buf, size_t count); 
 int uv__close(int fd); /* preserves errno */
@@ -168,6 +239,144 @@ enum {
 #else
 # include <poll.h>
 #endif /* _AIX */
+
+// we define file open flag here for compatibility on libuv < v1.16
+// see https://github.com/libuv/libuv/commit/4b666bd2d82a51f1c809b2703a91679789c1ec01#diff-a5e63f9b16ca783355e2d83941c3eafb
+
+/* fs open() flags supported on this platform: */
+#ifndef UV_FS_O_APPEND
+#if defined(O_APPEND)
+# define UV_FS_O_APPEND       O_APPEND
+#else
+# define UV_FS_O_APPEND       0
+#endif
+#endif
+#ifndef UV_FS_O_CREAT
+#if defined(O_CREAT)
+# define UV_FS_O_CREAT        O_CREAT
+#else
+# define UV_FS_O_CREAT        0
+#endif
+#endif
+#ifndef UV_FS_O_DIRECT
+#if defined(O_DIRECT)
+# define UV_FS_O_DIRECT       O_DIRECT
+#else
+# define UV_FS_O_DIRECT       0
+#endif
+#endif
+#ifndef UV_FS_O_DIRECTORY
+#if defined(O_DIRECTORY)
+# define UV_FS_O_DIRECTORY    O_DIRECTORY
+#else
+# define UV_FS_O_DIRECTORY    0
+#endif
+#endif
+#ifndef UV_FS_O_DSYNC
+#if defined(O_DSYNC)
+# define UV_FS_O_DSYNC        O_DSYNC
+#else
+# define UV_FS_O_DSYNC        0
+#endif
+#endif
+#ifndef UV_FS_O_EXCL
+#if defined(O_EXCL)
+# define UV_FS_O_EXCL         O_EXCL
+#else
+# define UV_FS_O_EXCL         0
+#endif
+#endif
+#ifndef UV_FS_O_EXLOCK
+#if defined(O_EXLOCK)
+# define UV_FS_O_EXLOCK       O_EXLOCK
+#else
+# define UV_FS_O_EXLOCK       0
+#endif
+#endif
+#ifndef UV_FS_O_NOATIME
+#if defined(O_NOATIME)
+# define UV_FS_O_NOATIME      O_NOATIME
+#else
+# define UV_FS_O_NOATIME      0
+#endif
+#endif
+#ifndef UV_FS_O_NOCTTY
+#if defined(O_NOCTTY)
+# define UV_FS_O_NOCTTY       O_NOCTTY
+#else
+# define UV_FS_O_NOCTTY       0
+#endif
+#endif
+#ifndef UV_FS_O_NOFOLLOW
+#if defined(O_NOFOLLOW)
+# define UV_FS_O_NOFOLLOW     O_NOFOLLOW
+#else
+# define UV_FS_O_NOFOLLOW     0
+#endif
+#endif
+#ifndef UV_FS_O_NONBLOCK
+#if defined(O_NONBLOCK)
+# define UV_FS_O_NONBLOCK     O_NONBLOCK
+#else
+# define UV_FS_O_NONBLOCK     0
+#endif
+#endif
+#ifndef UV_FS_O_RDONLY
+#if defined(O_RDONLY)
+# define UV_FS_O_RDONLY       O_RDONLY
+#else
+# define UV_FS_O_RDONLY       0
+#endif
+#endif
+#ifndef UV_FS_O_RDWR
+#if defined(O_RDWR)
+# define UV_FS_O_RDWR         O_RDWR
+#else
+# define UV_FS_O_RDWR         0
+#endif
+#endif
+#ifndef UV_FS_O_SYMLINK
+#if defined(O_SYMLINK)
+# define UV_FS_O_SYMLINK      O_SYMLINK
+#else
+# define UV_FS_O_SYMLINK      0
+#endif
+#endif
+#ifndef UV_FS_O_SYNC
+#if defined(O_SYNC)
+# define UV_FS_O_SYNC         O_SYNC
+#else
+# define UV_FS_O_SYNC         0
+#endif
+#endif
+#ifndef UV_FS_O_TRUNC
+#if defined(O_TRUNC)
+# define UV_FS_O_TRUNC        O_TRUNC
+#else
+# define UV_FS_O_TRUNC        0
+#endif
+#endif
+#ifndef UV_FS_O_WRONLY
+#if defined(O_WRONLY)
+# define UV_FS_O_WRONLY       O_WRONLY
+#else
+# define UV_FS_O_WRONLY       0
+#endif
+#endif
+
+/* fs open() flags supported on other platforms: */
+#ifndef UV_FS_O_RANDOM
+#define UV_FS_O_RANDOM        0
+#endif
+#ifndef UV_FS_O_SHORT_LIVED
+#define UV_FS_O_SHORT_LIVED   0
+#endif
+#ifndef UV_FS_O_SEQUENTIAL
+#define UV_FS_O_SEQUENTIAL    0
+#endif
+#ifndef UV_FS_O_TEMPORARY
+#define UV_FS_O_TEMPORARY     0
+#endif
 
 #endif
 
