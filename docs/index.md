@@ -7,8 +7,8 @@ This video is recorded @shenzhen chinese haskell meeting by @winterland1989, it 
 
 Haskell-stdio combine GHC's lightweight thread with libuv's event loop, it use one I/O manager thread per capability, blow is the thread structures(style borrowed from [ghc-illustrated](https://github.com/takenobu-hs/haskell-ghc-illustrated)).
 
-![haskell-stdio thread structures](./docs/io-manager-thread-structure.png)
+![haskell-stdio thread structures](./io-manager-thread-structure.png)
 
 And the program control flow:
 
-![haskell-stdio control flow](./docs/io-manager-flow.png)
+![haskell-stdio control flow](./io-manager-flow.png)
