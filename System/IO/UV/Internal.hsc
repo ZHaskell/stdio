@@ -61,33 +61,15 @@ newtype UVRunMode = UVRunMode CInt
 peekUVLoopData :: Ptr UVLoop -> IO (Ptr UVLoopData)
 peekUVLoopData p = #{peek uv_loop_t, data} p
 
--- | An uv loop initResource with given slot size.
-initUVLoop :: HasCallStack => Int -> Resource (Ptr UVLoop)
-initUVLoop siz = initResource 
-    (throwOOMIfNull $ hs_uv_loop_init (fromIntegral siz :: CSize))
-    hs_uv_loop_close
-
 foreign import ccall unsafe hs_uv_loop_init      :: CSize -> IO (Ptr UVLoop)
 foreign import ccall unsafe hs_uv_loop_close     :: Ptr UVLoop -> IO ()
 
--- | Resize the uv loop to given slot size, throwOOMIfNull if fail.
-uvLoopResize :: HasCallStack => Ptr UVLoop -> Int -> IO (Ptr UVLoop)
-uvLoopResize loop newsiz = throwOOMIfNull $ hs_uv_loop_resize loop (fromIntegral newsiz :: CSize)
-foreign import ccall unsafe hs_uv_loop_resize    :: Ptr UVLoop -> CSize -> IO (Ptr UVLoop)
-
 -- | uv_run with usafe FFI.
-uvRun :: HasCallStack => Ptr UVLoop -> UVRunMode -> IO CInt
-uvRun loop mode = throwUVIfMinus $ uv_run loop mode
 foreign import ccall unsafe uv_run            :: Ptr UVLoop -> UVRunMode -> IO CInt
 
 -- | uv_run with safe FFI.
-uvRunSafe :: HasCallStack => Ptr UVLoop -> UVRunMode -> IO CInt
-uvRunSafe loop mode = throwUVIfMinus $ uv_run_safe loop mode
 foreign import ccall safe "uv_run" uv_run_safe :: Ptr UVLoop -> UVRunMode -> IO CInt
 
--- | uv_run with usafe FFI.
-uvAlive :: HasCallStack => Ptr UVLoop -> IO CInt
-uvAlive loop = throwUVIfMinus $ uv_loop_alive loop
 foreign import ccall unsafe uv_loop_alive :: Ptr UVLoop -> IO CInt
 
 --------------------------------------------------------------------------------
@@ -97,10 +79,7 @@ data UVHandle
 peekUVHandleData :: Ptr UVHandle -> IO UVSlot
 peekUVHandleData p =  fromIntegral <$> (#{peek uv_handle_t, data} p :: IO CSize)
 
-uvFileno :: HasCallStack => Ptr UVHandle -> IO UVFD
-uvFileno = throwUVIfMinus . hs_uv_fileno
 foreign import ccall unsafe hs_uv_fileno :: Ptr UVHandle -> IO UVFD
-
 foreign import ccall unsafe hs_uv_handle_alloc  :: UVHandleType -> Ptr UVLoop -> IO (Ptr UVHandle)
 foreign import ccall unsafe hs_uv_handle_free :: Ptr UVHandle -> IO ()
 foreign import ccall unsafe hs_uv_handle_close :: Ptr UVHandle -> IO ()
@@ -164,86 +143,35 @@ newtype UVReqType = UVReqType CInt
 --------------------------------------------------------------------------------
 -- thread safe wake up
 
-initUVAsyncWake :: HasCallStack => Ptr UVLoop -> Resource (Ptr UVHandle)
-initUVAsyncWake loop = initResource 
-    (do handle <- throwOOMIfNull (hs_uv_handle_alloc uV_ASYNC loop)
-        throwUVIfMinus_ (hs_uv_async_wake_init loop handle) `onException` (hs_uv_handle_free handle)
-        return handle
-    )
-    (hs_uv_handle_close) -- handle is free in uv_close callback
-
 foreign import ccall unsafe hs_uv_async_wake_init :: Ptr UVLoop -> Ptr UVHandle -> IO CInt
-
-uvAsyncSend :: HasCallStack => Ptr UVHandle -> IO ()
-uvAsyncSend = throwUVIfMinus_ . uv_async_send
 foreign import ccall unsafe uv_async_send :: Ptr UVHandle -> IO CInt
-
-uvTimerWakeStart :: HasCallStack => Ptr UVHandle -> Word64 -> IO ()
-uvTimerWakeStart handle timeo = throwUVIfMinus_ $ hs_uv_timer_wake_start handle timeo
 foreign import ccall unsafe hs_uv_timer_wake_start :: Ptr UVHandle -> Word64 -> IO CInt
 
 --------------------------------------------------------------------------------
 -- timer 
-initUVTimer :: HasCallStack => Ptr UVLoop -> Resource (Ptr UVHandle)
-initUVTimer loop = initResource 
-    (do handle <- throwOOMIfNull (hs_uv_handle_alloc uV_TIMER loop)
-        throwUVIfMinus_ (uv_timer_init loop handle) `onException` (hs_uv_handle_free handle)
-        return handle
-    )
-    (hs_uv_handle_close) -- handle is free in uv_close callback
 
 foreign import ccall unsafe uv_timer_init :: Ptr UVLoop -> Ptr UVHandle -> IO CInt
-
-uvTimerStart :: HasCallStack => Ptr UVHandle -> Word64 -> Word64 -> IO ()
-uvTimerStart handle timeo repeat = throwUVIfMinus_ $ uv_timer_start handle timeo repeat
 foreign import ccall unsafe uv_timer_start :: Ptr UVHandle -> Word64 -> Word64 -> IO CInt
-
-uvTimerAgain :: HasCallStack => Ptr UVHandle -> IO ()
-uvTimerAgain = throwUVIfMinus_ . uv_timer_again
 foreign import ccall unsafe uv_timer_again :: Ptr UVHandle -> IO CInt
-
-uvTimerSetRepeat :: HasCallStack => Ptr UVHandle -> Word64 -> IO ()
-uvTimerSetRepeat handle timeo = throwUVIfMinus_ $ uv_timer_set_repeat handle timeo
 foreign import ccall unsafe  uv_timer_set_repeat :: Ptr UVHandle -> Word64 -> IO CInt 
-
-uvTimerStop :: HasCallStack => Ptr UVHandle -> IO ()
-uvTimerStop = throwUVIfMinus_ . uv_timer_stop
 foreign import ccall unsafe uv_timer_stop :: Ptr UVHandle -> IO CInt
 
 --------------------------------------------------------------------------------
 -- tcp
-uvTCPOpen :: HasCallStack => Ptr UVHandle -> UVFD -> IO ()
-uvTCPOpen handle sock = throwUVIfMinus_ $ hs_uv_tcp_open handle sock
 foreign import ccall unsafe hs_uv_tcp_open :: Ptr UVHandle -> UVFD -> IO CInt
-
-uvTCPInit :: HasCallStack => Ptr UVLoop -> Ptr UVHandle -> IO ()
-uvTCPInit loop handle = throwUVIfMinus_ $ uv_tcp_init loop handle
 foreign import ccall unsafe uv_tcp_init :: Ptr UVLoop -> Ptr UVHandle -> IO CInt
-
-uvTCPInitEx :: HasCallStack => CUInt -> Ptr UVLoop -> Ptr UVHandle -> IO ()
-uvTCPInitEx family loop handle = throwUVIfMinus_ $ uv_tcp_init_ex loop handle family
 foreign import ccall unsafe uv_tcp_init_ex :: Ptr UVLoop -> Ptr UVHandle -> CUInt -> IO CInt
 
-uvTCPNodelay :: HasCallStack => Ptr UVHandle -> Bool -> IO ()
-uvTCPNodelay handle nodelay = throwUVIfMinus_ $ uv_tcp_nodelay handle (if nodelay then 1 else 0)
 foreign import ccall unsafe uv_tcp_nodelay :: Ptr UVHandle -> CInt -> IO CInt
-
-uvTCPKeepAlive :: HasCallStack => Ptr UVHandle -> Maybe CUInt -> IO ()
-uvTCPKeepAlive handle Nothing = throwUVIfMinus_ $ uv_tcp_keepalive handle 0 0
-uvTCPKeepAlive handle (Just delay) = throwUVIfMinus_ $ uv_tcp_keepalive handle 1 delay
 foreign import ccall unsafe uv_tcp_keepalive :: Ptr UVHandle -> CInt -> CUInt -> IO CInt
 
-uvTCPBind :: HasCallStack => Ptr UVHandle -> Ptr SockAddr -> Bool -> IO ()
-uvTCPBind handle addr ipv6_only = throwUVIfMinus_ $
-    uv_tcp_bind handle addr (if ipv6_only then #{const UV_TCP_IPV6ONLY} else 0)
+uV_TCP_IPV6ONLY :: CUInt
+uV_TCP_IPV6ONLY = #{const UV_TCP_IPV6ONLY}
 foreign import ccall unsafe uv_tcp_bind :: Ptr UVHandle -> Ptr SockAddr -> CUInt -> IO CInt
-
-uvTCPConnect :: HasCallStack => Ptr UVReq -> Ptr UVHandle -> Ptr SockAddr -> IO ()
-uvTCPConnect req handle addr = throwUVIfMinus_ $ hs_uv_tcp_connect req handle addr
 foreign import ccall unsafe hs_uv_tcp_connect :: Ptr UVReq -> Ptr UVHandle -> Ptr SockAddr -> IO CInt
-
-hsSetSocketReuse :: HasCallStack => Ptr UVHandle -> IO ()
-hsSetSocketReuse = throwUVIfMinus_ . hs_set_socket_reuse
+foreign import ccall unsafe hs_uv_listen  :: Ptr UVHandle -> CInt -> IO CInt
+foreign import ccall unsafe hs_uv_accept_check_init :: Ptr UVLoop -> Ptr UVHandle -> Ptr UVHandle -> IO CInt
+foreign import ccall unsafe "hs_uv_listen_resume" uvListenResume :: Ptr UVHandle -> IO ()
 foreign import ccall unsafe hs_set_socket_reuse :: Ptr UVHandle -> IO CInt
 
 --------------------------------------------------------------------------------
@@ -274,33 +202,31 @@ type UVFSCallBack = FunPtr (Ptr UVReq -> IO ())
 
 foreign import ccall "hs_uv.h &hs_uv_fs_callback" uvFSCallBack :: UVFSCallBack
 
-
-
 newtype UVFileFlag = UVFileFlag CInt
     deriving (Bounded, Enum, Eq, Integral, Num, Ord, Read, Real, Show, FiniteBits, Bits, Storable)
 
 #{enum UVFileFlag, UVFileFlag,
-    uV_FS_O_APPEND       = UV_FS_O_APPEND
-  , uV_FS_O_CREAT        = UV_FS_O_CREAT
-  , uV_FS_O_DIRECT       = UV_FS_O_DIRECT
-  , uV_FS_O_DIRECTORY    = UV_FS_O_DIRECTORY
-  , uV_FS_O_DSYNC        = UV_FS_O_DSYNC
-  , uV_FS_O_EXCL         = UV_FS_O_EXCL
-  , uV_FS_O_EXLOCK       = UV_FS_O_EXLOCK
-  , uV_FS_O_NOATIME      = UV_FS_O_NOATIME
-  , uV_FS_O_NOCTTY       = UV_FS_O_NOCTTY
-  , uV_FS_O_NOFOLLOW     = UV_FS_O_NOFOLLOW
-  , uV_FS_O_NONBLOCK     = UV_FS_O_NONBLOCK
-  , uV_FS_O_RDONLY       = UV_FS_O_RDONLY
-  , uV_FS_O_RDWR         = UV_FS_O_RDWR
-  , uV_FS_O_SYMLINK      = UV_FS_O_SYMLINK
-  , uV_FS_O_SYNC         = UV_FS_O_SYNC
-  , uV_FS_O_TRUNC        = UV_FS_O_TRUNC
-  , uV_FS_O_WRONLY       = UV_FS_O_WRONLY
-  , uV_FS_O_RANDOM       = UV_FS_O_RANDOM
-  , uV_FS_O_SHORT_LIVED  = UV_FS_O_SHORT_LIVED
-  , uV_FS_O_SEQUENTIAL   = UV_FS_O_SEQUENTIAL
-  , uV_FS_O_TEMPORARY    = UV_FS_O_TEMPORARY}
+    uV_FS_O_APPEND       = UV_FS_O_APPEND,
+    uV_FS_O_CREAT        = UV_FS_O_CREAT,
+    uV_FS_O_DIRECT       = UV_FS_O_DIRECT,
+    uV_FS_O_DIRECTORY    = UV_FS_O_DIRECTORY,
+    uV_FS_O_DSYNC        = UV_FS_O_DSYNC,
+    uV_FS_O_EXCL         = UV_FS_O_EXCL,
+    uV_FS_O_EXLOCK       = UV_FS_O_EXLOCK,
+    uV_FS_O_NOATIME      = UV_FS_O_NOATIME,
+    uV_FS_O_NOCTTY       = UV_FS_O_NOCTTY,
+    uV_FS_O_NOFOLLOW     = UV_FS_O_NOFOLLOW,
+    uV_FS_O_NONBLOCK     = UV_FS_O_NONBLOCK,
+    uV_FS_O_RDONLY       = UV_FS_O_RDONLY,
+    uV_FS_O_RDWR         = UV_FS_O_RDWR,
+    uV_FS_O_SYMLINK      = UV_FS_O_SYMLINK,
+    uV_FS_O_SYNC         = UV_FS_O_SYNC,
+    uV_FS_O_TRUNC        = UV_FS_O_TRUNC,
+    uV_FS_O_WRONLY       = UV_FS_O_WRONLY,
+    uV_FS_O_RANDOM       = UV_FS_O_RANDOM,
+    uV_FS_O_SHORT_LIVED  = UV_FS_O_SHORT_LIVED,
+    uV_FS_O_SEQUENTIAL   = UV_FS_O_SEQUENTIAL,
+    uV_FS_O_TEMPORARY    = UV_FS_O_TEMPORARY}
 
 newtype UVDirEntType = UVDirEntType CInt
     deriving (Bounded, Enum, Eq, Integral, Num, Ord, Read, Real, Show, FiniteBits, Bits, Storable)
@@ -319,17 +245,14 @@ data UVDirEnt
 
 initUVDirEnt :: Resource (Ptr UVDirEnt)
 initUVDirEnt = initResource hs_uv_dirent_alloc hs_uv_dirent_free
-foreign import ccall unsafe hs_uv_dirent_alloc :: IO (Ptr UVDirEnt)
-foreign import ccall unsafe hs_uv_dirent_free :: Ptr UVDirEnt -> IO ()
 
 peekUVDirEnt :: Ptr UVDirEnt -> IO (CString, UVDirEntType)
 peekUVDirEnt p = (,) 
     <$> (#{peek struct uv_dirent_s, name          } p)
     <*> (#{peek struct uv_dirent_s, type          } p)
 
-uvFSScandir :: CString -> Bool -> Ptr UVLoop -> Ptr UVReq -> IO ()
-uvFSScandir path block loop req  = 
-    throwUVIfMinus_ $ uv_fs_scandir loop req path 0 (if block then uvFSCallBack else nullFunPtr)
+foreign import ccall unsafe hs_uv_dirent_alloc :: IO (Ptr UVDirEnt)
+foreign import ccall unsafe hs_uv_dirent_free :: Ptr UVDirEnt -> IO ()
 
 foreign import ccall unsafe uv_fs_scandir :: Ptr UVLoop -> Ptr UVReq -> CString -> CInt -> UVFSCallBack -> IO CInt
 foreign import ccall unsafe uv_fs_scandir_next :: Ptr UVReq -> Ptr UVDirEnt -> IO CInt

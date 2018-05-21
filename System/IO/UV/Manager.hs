@@ -177,7 +177,6 @@ initUVManager siz cap = do
     loop  <- initUVLoop (fromIntegral siz)
     async <- initUVAsyncWake loop
     timer <- initUVTimer loop
-
     liftIO $ do
         mblockTable <- newArr siz
         forM_ [0..siz-1] $ \ i -> writeArr mblockTable i =<< newEmptyMVar
@@ -186,6 +185,23 @@ initUVManager siz cap = do
         loopData <- peekUVLoopData loop
         running <- newMVar False
         return (UVManager blockTableRef loop loopData running async timer cap)
+  where
+    initUVAsyncWake :: HasCallStack => Ptr UVLoop -> Resource (Ptr UVHandle)
+    initUVAsyncWake loop = initResource
+        (do handle <- throwOOMIfNull (hs_uv_handle_alloc uV_ASYNC loop)
+            throwUVIfMinus_ (hs_uv_async_wake_init loop handle) `onException` (hs_uv_handle_free handle)
+            return handle
+        ) hs_uv_handle_close -- handle is freed in uv_close callback
+    initUVLoop :: HasCallStack => Int -> Resource (Ptr UVLoop)
+    initUVLoop siz = initResource
+        (throwOOMIfNull $ hs_uv_loop_init (fromIntegral siz :: CSize)
+        ) hs_uv_loop_close
+    initUVTimer :: HasCallStack => Ptr UVLoop -> Resource (Ptr UVHandle)
+    initUVTimer loop = initResource
+        (do handle <- throwOOMIfNull (hs_uv_handle_alloc uV_TIMER loop)
+            throwUVIfMinus_ (uv_timer_init loop handle) `onException` (hs_uv_handle_free handle)
+            return handle
+        ) hs_uv_handle_close -- handle is free in uv_close callback
 
 -- | Lock an uv mananger, so that we can safely mutate its uv_loop's state.
 --
@@ -193,12 +209,12 @@ initUVManager siz cap = do
 --
 withUVManager :: HasCallStack => UVManager -> (Ptr UVLoop -> IO a) -> IO a
 withUVManager uvm f = do
-
     r <- withMVar (uvmRunning uvm) $ \ running ->
         if running
         then do
-            uvAsyncSend (uvmAsync uvm) -- if uv_run is running, it will stop
-                                       -- if uv_run is not running, next running won't block
+            -- if uv_run is running, it will stop
+            -- if uv_run is not running, next running won't block
+            throwUVIfMinus_ (uv_async_send (uvmAsync uvm))
             return Nothing
         else do
             r <- f (uvmLoop uvm)
@@ -247,12 +263,12 @@ startUVManager uvm@(UVManager _ _ _ running _ _ _) = loop -- use a closure captu
 
             if block
             then if rtsSupportsBoundThreads
-                then uvRunSafe loop uV_RUN_ONCE
+                then throwUVIfMinus_ $ uv_run_safe loop uV_RUN_ONCE
                 else do
                     -- use a 2ms timeout blocking poll on non-threaded rts
-                    uvTimerWakeStart timer 2
-                    uvRun loop uV_RUN_ONCE
-            else uvRun loop uV_RUN_NOWAIT
+                    throwUVIfMinus_ (hs_uv_timer_wake_start timer 2)
+                    throwUVIfMinus_ (uv_run loop uV_RUN_ONCE)
+            else throwUVIfMinus_ (uv_run loop uV_RUN_NOWAIT)
 
             (c, q) <- peekUVEventQueue loopData
             forM_ [0..(fromIntegral c-1)] $ \ i -> do
@@ -383,6 +399,7 @@ autoResizeUVM (UVManager blockTableRef _ loopDataPtr _ _ _ _) slot = do
 
         writeIORef blockTableRef iBlockTable'
 
+
 --------------------------------------------------------------------------------
 
 -- | A higher level wrappe for uv_stream_t
@@ -421,10 +438,12 @@ initUVStream typ init uvm =
                 hs_uv_req_free req loop)
 
 initTCPStream :: HasCallStack => UVManager -> Resource UVStream
-initTCPStream = initUVStream uV_TCP uvTCPInit
+initTCPStream = initUVStream uV_TCP (\ loop handle ->
+    throwUVIfMinus_ (uv_tcp_init loop handle))
 
 initTCPExStream :: HasCallStack => CUInt -> UVManager -> Resource UVStream
-initTCPExStream family = initUVStream uV_TCP (uvTCPInitEx family)
+initTCPExStream family = initUVStream uV_TCP (\ loop handle ->
+    throwUVIfMinus_ (uv_tcp_init_ex loop handle family))
 
 initPipeStream :: HasCallStack => UVManager -> Resource UVStream
 initPipeStream = initUVStream uV_NAMED_PIPE uvPipeInit

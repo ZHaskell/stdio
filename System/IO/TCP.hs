@@ -13,21 +13,16 @@ Maintainer  : drkoster@qq.com
 Stability   : experimental
 Portability : non-portable
 
-This module provides an API for creating TCP or IPC servers and clients. IPC Support is implemented with named pipes on Windows, and UNIX domain sockets on other operating systems.
-
-On UNIX, the local domain is also known as the UNIX domain. The path is a filesystem path name. It gets truncated to sizeof(sockaddr_un.sun_path) - 1, which varies on different operating system between 91 and 107 bytes. The typical values are 107 on Linux and 103 on macOS. The path is subject to the same naming conventions and permissions checks as would be done on file creation. It will be visible in the filesystem, and will persist until unlinked.
-
-On Windows, the local domain is implemented using a named pipe. The path must refer to an entry in \\?\pipe\ or \\.\pipe\. Any characters are permitted, but the latter may do some processing of pipe names, such as resolving .. sequences. Despite appearances, the pipe name space is flat. Pipes will not persist, they are removed when the last reference to them is closed. Do not forget JavaScript string escaping requires paths to be specified with double-backslashes, such as:
-
-net.createServer().listen(
-  path.join('\\\\?\\pipe', process.cwd(), 'myctl'));
+This module provides an API for creating TCP servers and clients.
 
 -}
 
 module System.IO.TCP (
+  -- * TCP Client
     ClientConfig(..)
   , defaultClientConfig
   , initClient
+  -- * TCP Server
   , ServerConfig(..)
   , defaultServerConfig
   , startServer
@@ -56,7 +51,8 @@ import Foreign.PrimArray
 
 --------------------------------------------------------------------------------
 
-
+-- | A TCP client configuration
+--
 data ClientConfig = ClientConfig
     { clientLocalAddr :: Maybe SockAddr
     , clientTargetAddr :: SockAddr
@@ -81,13 +77,13 @@ initClient ClientConfig{..} = do
   where
     connect nodelay handle local targetPtr loop req = do
         forM_ local $ \ local' -> withSockAddr local' $ \ localPtr ->
-            uvTCPBind handle localPtr False
-        uvTCPConnect req handle targetPtr
-        when nodelay $ uvTCPNodelay handle True
+            throwUVIfMinus_ (uv_tcp_bind handle localPtr 0)
+        throwUVIfMinus_ (hs_uv_tcp_connect req handle targetPtr)
+        when nodelay $ throwUVIfMinus_ (uv_tcp_nodelay handle 1)
 
 --------------------------------------------------------------------------------
 
--- | A TCP/Pipe server configuration
+-- | A TCP server configuration
 --
 data ServerConfig = ServerConfig
     { serverAddr       :: SockAddr
@@ -141,9 +137,9 @@ startServer ServerConfig{..} = do
                 let acceptBufPtr = (coerce (mutablePrimArrayContents acceptBuf :: Ptr UVFD))
 
                 withUVManager' serverManager $ do
-                    uvTCPBind serverHandle addrPtr False
+                    throwUVIfMinus_ (uv_tcp_bind serverHandle addrPtr 0)
                     pokeBufferTable serverManager serverSlot acceptBufPtr 0
-                    uvListen serverHandle (fromIntegral serverBackLog)
+                    throwUVIfMinus_ (hs_uv_listen serverHandle (fromIntegral serverBackLog))
 
                 forever $ do
                     takeMVar m
@@ -169,9 +165,10 @@ startServer ServerConfig{..} = do
                             uvm <- getUVManager
                             withResource (initTCPStream uvm) $ \ client -> do
                                 withUVManager' (uvsManager client) $ do
-                                    uvTCPOpen (uvsHandle client) (fromIntegral fd)
-                                    when serverWorkerNoDelay $
-                                        uvTCPNodelay (uvsHandle client) True
+                                    throwUVIfMinus_
+                                        (hs_uv_tcp_open (uvsHandle client) fd)
+                                    when serverWorkerNoDelay . throwUVIfMinus_ $
+                                        uv_tcp_nodelay (uvsHandle client) 1
                                 serverWorker client
 
                     when (accepted == fromIntegral aCCEPT_BUFFER_SIZE) $
@@ -199,10 +196,10 @@ startServer ServerConfig{..} = do
                     let acceptBufPtr = (coerce (mutablePrimArrayContents acceptBuf :: Ptr UVFD))
 
                     withUVManager' serverManager $ do
-                        hsSetSocketReuse serverHandle
-                        uvTCPBind serverHandle addrPtr False
+                        throwUVIfMinus_ (hs_set_socket_reuse serverHandle)
+                        throwUVIfMinus_ (uv_tcp_bind serverHandle addrPtr 0)
                         pokeBufferTable serverManager serverSlot acceptBufPtr 0
-                        uvListen serverHandle (fromIntegral serverBackLog)
+                        throwUVIfMinus_ (hs_uv_listen serverHandle (fromIntegral serverBackLog))
 
                     forever $ do
                         takeMVar m
@@ -228,9 +225,9 @@ startServer ServerConfig{..} = do
                             else void . forkOn serverIndex  $ do
                                 withResource (initTCPStream serverManager) $ \ client -> do
                                     withUVManager' (uvsManager client) $ do
-                                        uvTCPOpen (uvsHandle client) (fromIntegral fd)
-                                        when serverWorkerNoDelay $
-                                            uvTCPNodelay (uvsHandle client) True
+                                        throwUVIfMinus_ (hs_uv_tcp_open (uvsHandle client) fd)
+                                        when serverWorkerNoDelay . throwUVIfMinus_ $
+                                            uv_tcp_nodelay (uvsHandle client) 1
                                     serverWorker client
 
                         when (accepted == fromIntegral aCCEPT_BUFFER_SIZE) $
@@ -239,11 +236,3 @@ startServer ServerConfig{..} = do
         takeMVar serverLock
 
 --------------------------------------------------------------------------------
-
-uvListen :: HasCallStack => Ptr UVHandle -> CInt -> IO ()
-uvListen handle backlog = throwUVIfMinus_ (hs_uv_listen handle backlog)
-foreign import ccall unsafe hs_uv_listen  :: Ptr UVHandle -> CInt -> IO CInt
-
-foreign import ccall unsafe hs_uv_accept_check_init  :: Ptr UVLoop -> Ptr UVHandle -> Ptr UVHandle -> IO CInt
-
-foreign import ccall unsafe "hs_uv_listen_resume" uvListenResume :: Ptr UVHandle -> IO ()
