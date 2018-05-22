@@ -35,6 +35,33 @@ import Foreign.C
 import Data.CBytes
 import GHC.Generics
 
+--------------------------------------------------------------------------------
+-- File
+
+data UVFile = UVFile
+    { uvFileFd     :: {-# UNPACK #-} UVFD
+    , uvFileReq    :: {-# UNPACK #-} UVReq
+    , uvFileSlot   :: {-# UNPACK #-} Int
+    , uvFileReadOffset ::
+    }
+
+newtype UVFileT = UVFileT { uvFile :: UVFile }
+
+open :: HasCallStack
+     => CByte
+     -> UVFileFlag
+     -> CInt    -- sets the file mode (permission and sticky bits), but only if the file was created, see 'defaultMode'.
+     -> Resource UVFile
+open = --
+
+-- | default mode for open, 0o666(readable and writable).
+defaultMode :: CInt
+defaultMode = 0o666
+
+
+--------------------------------------------------------------------------------
+--
+--
 data DirEntType
     = DirEntUnknown
     | DirEntFile
@@ -59,9 +86,19 @@ fromUVDirEntType t
 
 scandir :: CBytes -> IO [(CBytes, DirEntType)]
 scandir path = withCBytes path $ \ p ->
-    withResource (initUVReq uV_FS) $ \ req -> do
-        uvFSScandir nullPtr req p False
+    withResource (initUVReqNoSlot uV_FS) $ \ req -> do
+        uvFSScandir p False nullPtr req
         loopScanDirReq req
+
+scandirT :: CBytes -> IO [(CBytes, DirEntType)]
+scandirT path = do
+    uvm <- getUVManager
+    withCBytes path $ \ p ->
+        withResource (initUVReq uV_FS (uvFSScandir p True) uvm) $ \ req -> do
+            slot <- peekUVReqData req
+            lock <- getBlockMVar uvm slot
+            takeMVar lock
+            loopScanDirReq req
 
 loopScanDirReq :: Ptr UVReq -> IO [(CBytes, DirEntType)]
 loopScanDirReq req = do
@@ -80,14 +117,3 @@ loopScanDirReq req = do
                 !rest <- loopScanDirReq req
                 return ((path', typ') : rest)
 
-scandirT :: CBytes -> IO [(CBytes, DirEntType)]
-scandirT path = do
-    uvm <- getUVManager
-    withCBytes path $ \ p ->
-        withResource (initUVSlot uvm) $ \ slot ->
-            withResource (initUVReq uV_FS) $ \ req -> do
-                lock <- getBlockMVar uvm slot
-                pokeUVReqData req slot
-                withUVManager uvm $ \ loop -> uvFSScandir loop req p True
-                takeMVar lock
-                loopScanDirReq req
