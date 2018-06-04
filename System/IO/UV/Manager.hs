@@ -40,8 +40,6 @@ module System.IO.UV.Manager
   , initUVHandleNoSlot
   , initUVReq
   , initUVReqNoSlot
-  , initUVFS
-  , initUVFSNoSlot
   , UVStream(..)
   , initUVStream
   , initTCPStream
@@ -347,41 +345,6 @@ initUVReqNoSlot typ = initResource
     (throwOOMIfNull $ hs_uv_req_alloc_no_slot typ)
     hs_uv_req_free_no_slot
 
--- | Safely lock an uv manager and perform fs operation.
---
--- The `uv_fs_t` request has one more extra clean up step: `uv_fs_req_cleanup`, thus
--- for perform fs operation with `uv_fs_t` you should use this function instead of
--- `initUVReq`.
---
-initUVFS :: HasCallStack
-         => (Ptr UVLoop -> Ptr UVReq -> UVFSCallBack -> IO ())
-         -> UVManager
-         -> Resource (Ptr UVReq)
-initUVFS fs uvm = initResource
-    (withUVManager uvm $ \ loop -> do
-        req <- throwOOMIfNull $ hs_uv_req_alloc uV_FS loop
-        slot <- peekUVReqData req
-        autoResizeUVM uvm slot
-        tryTakeMVar =<< getBlockMVar uvm slot   -- clear the parking spot
-        fs loop req uvFSCallBack `onException` hs_uv_req_free req loop
-        return req)
-    (\ req -> do
-        uv_fs_req_cleanup req
-        withUVManager uvm $ \ loop -> hs_uv_req_free req loop)
-
--- | Safely lock an uv manager and perform fs operation without allocating a slot.
---
--- This function will pass `nullPtr` as `Ptr UVLoop`, `nullFunPtr` as `UVFSCallBack`.
---
-initUVFSNoSlot :: HasCallStack
-               => (Ptr UVLoop -> Ptr UVReq -> UVFSCallBack -> IO ())
-               -> Resource (Ptr UVReq)
-initUVFSNoSlot fs = initResource
-    (do req <- throwOOMIfNull $ hs_uv_req_alloc_no_slot uV_FS
-        fs nullPtr req nullFunPtr `onException` hs_uv_req_free_no_slot req
-        return req)
-    (\ req -> uv_fs_req_cleanup req >> hs_uv_req_free_no_slot req)
-
 autoResizeUVM :: UVManager -> Int -> IO ()
 {-# INLINE autoResizeUVM #-}
 autoResizeUVM (UVManager blockTableRef _ loopDataPtr _ _ _ _) slot = do
@@ -458,18 +421,13 @@ instance Input UVStream where
         withUVManager' uvm $ do
             tryTakeMVar m
             pokeBufferTable uvm rslot buf len
-            uvReadStart handle
+            throwUVIfMinus_ (hs_uv_read_start handle)
         takeMVar m
         r <- peekBufferTable uvm rslot
         if  | r > 0  -> return r
-            -- r == 0 should be impossible, since we guard this situation in c side, but we handle it anyway
-            -- nread might be 0, which does not indicate an error or EOF. This is equivalent to EAGAIN or EWOULDBLOCK under read(2)
+            -- r == 0 should be impossible, since we guard this situation in c side
             | r == fromIntegral uV_EOF -> return 0
             | r < 0 ->  throwUVIfMinus (return r)
-
-uvReadStart :: Ptr UVHandle -> IO ()
-uvReadStart = throwUVIfMinus_ . hs_uv_read_start
-foreign import ccall unsafe hs_uv_read_start :: Ptr UVHandle -> IO CInt
 
 instance Output UVStream where
     -- writeOutput :: HasCallStack => UVStream -> Ptr Word8 -> Int -> IO ()
@@ -478,13 +436,71 @@ instance Output UVStream where
         withUVManager' uvm $ do
             tryTakeMVar m
             pokeBufferTable uvm wslot buf len
-            uvWrite req handle
+            throwUVIfMinus_ $ hs_uv_write req handle
         takeMVar m
         throwUVIfMinus_ $ peekBufferTable uvm wslot
 
-uvWrite :: Ptr UVReq -> Ptr UVHandle -> IO ()
-uvWrite req handle = throwUVIfMinus_ $ hs_uv_write req handle
-foreign import ccall unsafe hs_uv_write :: Ptr UVReq -> Ptr UVHandle -> IO CInt
+--------------------------------------------------------------------------------
+
+-- | Safely lock an uv manager and perform fs operation.
+--
+-- The `uv_fs_t` request has one more extra clean up step: `uv_fs_req_cleanup`, thus
+-- for perform fs operation with `uv_fs_t` you should use this function instead of
+-- `initUVReq`.
+--
+initUVFS :: HasCallStack
+         => (Ptr UVLoop -> Ptr UVFS -> UVFSCallBack -> IO ())
+         -> UVManager
+         -> Resource (Ptr UVFS)
+initUVFS fs uvm = initResource
+    (withUVManager uvm $ \ loop -> do
+        req <- throwOOMIfNull $ hs_uv_fs_alloc uV_FS loop
+        slot <- peekUVReqData req
+        autoResizeUVM uvm slot
+        tryTakeMVar =<< getBlockMVar uvm slot   -- clear the parking spot
+        fs loop req uvFSCallBack `onException` hs_uv_req_free req loop
+        return req)
+    (\ req -> do
+        uv_fs_req_cleanup req
+        withUVManager uvm $ \ loop -> hs_uv_req_free req loop)
+
+-- | Safely lock an uv manager and perform fs operation without allocating a slot.
+--
+-- This function will pass `nullPtr` as `Ptr UVLoop`, `nullFunPtr` as `UVFSCallBack`.
+--
+initUVFSNoSlot :: HasCallStack
+               => (Ptr UVLoop -> Ptr UVFS -> UVFSCallBack -> IO ())
+               -> Resource (Ptr UVFS)
+initUVFSNoSlot fs = initResource
+    (do req <- throwOOMIfNull $ hs_uv_req_alloc_no_slot uV_FS
+        fs nullPtr req nullFunPtr `onException` hs_uv_req_free_no_slot req
+        return req)
+    (\ req -> uv_fs_req_cleanup req >> hs_uv_req_free_no_slot req)
+
+data UVFile = UVFile
+    { uvFileFd     :: {-# UNPACK #-} !UVFD
+    , uvFileReq    :: {-# UNPACK #-} !UVReq
+    , uvFileSlot   :: {-# UNPACK #-} !Int
+    , uvFileOffset :: {-# UNPACK #-} !(IORefU Int64)
+    , uvFileManager :: UVManager
+    }
+
+instance Input UVFile
+    -- readInput :: HasCallStack => i -> Ptr Word8 -> Int -> IO Int
+    readInput (UVFile fd req slot offset uvm) buf len = do
+        m <- getBlockMVar uvm slot
+        o <- readIORefU offset
+        withUVManager' uvm $ do
+            tryTakeMVar m
+            pokeBufferTable uvm rslot buf len
+            throwUVIfMinus_ (hs_uv_fs_read nullPtr req fd buf (fromIntegra len) o uvFSCallBack)
+        takeMVar m
+        r <- peekUVFSResult req
+        if  | r >= 0  -> return r
+            | r < 0 ->  throwUVIfMinus (return r)
+
+
+
 
 --------------------------------------------------------------------------------
 

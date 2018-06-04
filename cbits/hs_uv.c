@@ -556,8 +556,83 @@ int hs_uv_async_wake_init(uv_loop_t* loop, uv_async_t* async){
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// fs
-//
+// fs, none thread pool version
+// we wrappered non-threaded pool version functions, so that we can move the allocation
+// of uv_fs_t to stack, most of the functions can be optimized in this way.
+// in none thread pool version, req->result is directly returned.
+int32_t hs_uv_fs_open(const char* path, int flags, int mode){
+    uv_fs_t req;
+    int r = uv_fs_open(NULL, &req, path, flags, mode, NULL);
+    uv_fs_req_cleanup(&req);    // maybe not neccessary
+    return (int32_t)r;
+}
+
+int hs_uv_fs_close(int32_t file){
+    uv_fs_t req;
+    r = uv_fs_close(NULL, req, file, NULL);
+    uv_fs_req_cleanup(req);
+    return r;
+}
+
+ssize_t hs_uv_fs_read(int32_t file, char* buffer, size_t buffer_size, int64_t offset){
+    uv_fs_t req;
+    uv_buf_t buf = { 
+        .base = buffer,
+        .len = buffer_size
+    };
+    uv_fs_read(NULL, req, file, &buf, 1, offset, NULL);
+    return req->result;
+}
+
+ssize_t hs_uv_fs_write(int32_t file, char* buffer, size_t buffer_size, int64_t offset){
+    uv_fs_t req;
+    uv_buf_t buf = { 
+        .base = buffer,
+        .len = buffer_size
+    };
+    uv_fs_write(NULL, req, file, &buf, 1, offset, NULL);
+    return req->result;
+}
+
+int hs_uv_fs_unlink(char* path){
+    uv_fs_t req;
+    return uv_fs_unlink(NULL, req, path, NULL);
+}
+
+int hs_uv_fs_mkdir(char* path, int mode){
+    uv_fs_t req;
+    return uv_fs_mkdir(NULL, req, path, mode, NULL);
+}
+/*
+// fs, thread pool version
+void hs_uv_fs_free(uv_fs_t* req){
+    size_t slot = req->data;
+    free_slot(req->loop, slot);
+    free(req);
+}
+uv_fs_t* hs_uv_fs_alloc(){
+    uv_req_t* req = malloc(uv_req_size(UV_FS));
+    if (req == NULL) { return NULL; }
+    else {
+        req->data = (void*)alloc_slot(loop);
+        return req;
+    }
+}
+int hs_uv_fs_close(uv_loop_t* loop, uv_fs_t* req, int32_t file){
+    // do the last clean up, since uv_fs_req_cleanup is idempotent
+    uv_fs_req_cleanup(req);
+    return uv_fs_close(loop, req, (uv_file)file, hs_uv_fs_free);
+}
+
+int hs_uv_fs_read(uv_loop_t* loop, uv_fs_t* req, int32_t file, 
+        char* buf, size_t buf_siz, int64_t offset, uv_fs_cb cb){
+    uv_buf_t buf_t = { 
+        .base = buf,
+        .len = buf_siz
+    };
+    uv_fs_read(loop, req, (uv_file)file, &buf_t, 1, offset, cb);
+}
+
 uv_dirent_t* hs_uv_dirent_alloc(){
     return malloc(sizeof(uv_dirent_t));
 }
@@ -571,3 +646,4 @@ void hs_uv_fs_callback(uv_fs_t* req){
     loop_data->event_queue[loop_data->event_counter] = (size_t)req->data; // push the slot to event queue
     loop_data->event_counter += 1;
 }
+*/
