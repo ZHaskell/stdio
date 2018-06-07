@@ -176,9 +176,12 @@ foreign import ccall unsafe hs_set_socket_reuse :: Ptr UVHandle -> IO CInt
 
 --------------------------------------------------------------------------------
 -- pipe
-uvPipeInit :: HasCallStack => Ptr UVLoop -> Ptr UVHandle -> IO ()
-uvPipeInit loop handle = throwUVIfMinus_ $ uv_pipe_init loop handle 0
 foreign import ccall unsafe uv_pipe_init :: Ptr UVLoop -> Ptr UVHandle -> CInt -> IO CInt
+
+--------------------------------------------------------------------------------
+-- stream
+foreign import ccall unsafe hs_uv_read_start :: Ptr UVHandle -> IO CInt
+foreign import ccall unsafe hs_uv_write :: Ptr UVReq -> Ptr UVHandle -> IO CInt
 
 --------------------------------------------------------------------------------
 -- tty
@@ -190,12 +193,11 @@ newtype UVTTYMode = UVTTYMode CInt
     uV_TTY_MODE_RAW         = UV_TTY_MODE_RAW,
     uV_TTY_MODE_IO          = UV_TTY_MODE_IO }
 
-uvTTYInit :: HasCallStack => UVFD -> Ptr UVLoop -> Ptr UVHandle -> IO ()
-uvTTYInit fd loop handle = throwUVIfMinus_ $ uv_tty_init loop handle (fromIntegral fd)
 foreign import ccall unsafe uv_tty_init :: Ptr UVLoop -> Ptr UVHandle -> CInt -> IO CInt
 
 --------------------------------------------------------------------------------
 -- fs
+
 foreign import ccall uv_fs_req_cleanup :: Ptr UVReq -> IO () 
 
 type UVFSCallBack = FunPtr (Ptr UVReq -> IO ())

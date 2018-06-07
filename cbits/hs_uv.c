@@ -569,8 +569,8 @@ int32_t hs_uv_fs_open(const char* path, int flags, int mode){
 
 int hs_uv_fs_close(int32_t file){
     uv_fs_t req;
-    r = uv_fs_close(NULL, req, file, NULL);
-    uv_fs_req_cleanup(req);
+    int r = uv_fs_close(NULL, &req, file, NULL);
+    uv_fs_req_cleanup(&req);
     return r;
 }
 
@@ -580,8 +580,8 @@ ssize_t hs_uv_fs_read(int32_t file, char* buffer, size_t buffer_size, int64_t of
         .base = buffer,
         .len = buffer_size
     };
-    uv_fs_read(NULL, req, file, &buf, 1, offset, NULL);
-    return req->result;
+    uv_fs_read(NULL, &req, file, &buf, 1, offset, NULL);
+    return req.result;
 }
 
 ssize_t hs_uv_fs_write(int32_t file, char* buffer, size_t buffer_size, int64_t offset){
@@ -590,18 +590,18 @@ ssize_t hs_uv_fs_write(int32_t file, char* buffer, size_t buffer_size, int64_t o
         .base = buffer,
         .len = buffer_size
     };
-    uv_fs_write(NULL, req, file, &buf, 1, offset, NULL);
-    return req->result;
+    uv_fs_write(NULL, &req, file, &buf, 1, offset, NULL);
+    return req.result;
 }
 
 int hs_uv_fs_unlink(char* path){
     uv_fs_t req;
-    return uv_fs_unlink(NULL, req, path, NULL);
+    return uv_fs_unlink(NULL, &req, path, NULL);
 }
 
 int hs_uv_fs_mkdir(char* path, int mode){
     uv_fs_t req;
-    return uv_fs_mkdir(NULL, req, path, mode, NULL);
+    return uv_fs_mkdir(NULL, &req, path, mode, NULL);
 }
 /*
 // fs, thread pool version
@@ -632,7 +632,7 @@ int hs_uv_fs_read(uv_loop_t* loop, uv_fs_t* req, int32_t file,
     };
     uv_fs_read(loop, req, (uv_file)file, &buf_t, 1, offset, cb);
 }
-
+*/
 uv_dirent_t* hs_uv_dirent_alloc(){
     return malloc(sizeof(uv_dirent_t));
 }
@@ -646,4 +646,3 @@ void hs_uv_fs_callback(uv_fs_t* req){
     loop_data->event_queue[loop_data->event_counter] = (size_t)req->data; // push the slot to event queue
     loop_data->event_counter += 1;
 }
-*/

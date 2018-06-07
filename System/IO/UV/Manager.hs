@@ -409,10 +409,12 @@ initTCPExStream family = initUVStream uV_TCP (\ loop handle ->
     throwUVIfMinus_ (uv_tcp_init_ex loop handle family))
 
 initPipeStream :: HasCallStack => UVManager -> Resource UVStream
-initPipeStream = initUVStream uV_NAMED_PIPE uvPipeInit
+initPipeStream = initUVStream uV_NAMED_PIPE (\ loop handle ->
+    throwUVIfMinus_ (uv_pipe_init loop handle 0))
 
 initTTYStream :: HasCallStack => UVFD -> UVManager -> Resource UVStream
-initTTYStream fd = initUVStream uV_TTY (uvTTYInit fd)
+initTTYStream fd = initUVStream uV_TTY (\ loop handle ->
+    throwUVIfMinus_ (uv_tty_init loop handle (fromIntegral fd)))
 
 instance Input UVStream where
     -- readInput :: HasCallStack => UVStream -> Ptr Word8 ->  Int -> IO Int
@@ -449,17 +451,17 @@ instance Output UVStream where
 -- `initUVReq`.
 --
 initUVFS :: HasCallStack
-         => (Ptr UVLoop -> Ptr UVFS -> UVFSCallBack -> IO ())
+         => (Ptr UVLoop -> Ptr UVReq -> UVFSCallBack -> IO ())
          -> UVManager
-         -> Resource (Ptr UVFS)
+         -> Resource (Ptr UVReq)
 initUVFS fs uvm = initResource
     (withUVManager uvm $ \ loop -> do
-        req <- throwOOMIfNull $ hs_uv_fs_alloc uV_FS loop
+        req <- throwOOMIfNull $ hs_uv_req_alloc uV_FS loop
         slot <- peekUVReqData req
         autoResizeUVM uvm slot
         tryTakeMVar =<< getBlockMVar uvm slot   -- clear the parking spot
         fs loop req uvFSCallBack `onException` hs_uv_req_free req loop
-        return req)
+        return (castPtr req))
     (\ req -> do
         uv_fs_req_cleanup req
         withUVManager uvm $ \ loop -> hs_uv_req_free req loop)
@@ -469,38 +471,13 @@ initUVFS fs uvm = initResource
 -- This function will pass `nullPtr` as `Ptr UVLoop`, `nullFunPtr` as `UVFSCallBack`.
 --
 initUVFSNoSlot :: HasCallStack
-               => (Ptr UVLoop -> Ptr UVFS -> UVFSCallBack -> IO ())
-               -> Resource (Ptr UVFS)
+               => (Ptr UVLoop -> Ptr UVReq -> UVFSCallBack -> IO ())
+               -> Resource (Ptr UVReq)
 initUVFSNoSlot fs = initResource
     (do req <- throwOOMIfNull $ hs_uv_req_alloc_no_slot uV_FS
         fs nullPtr req nullFunPtr `onException` hs_uv_req_free_no_slot req
         return req)
     (\ req -> uv_fs_req_cleanup req >> hs_uv_req_free_no_slot req)
-
-data UVFile = UVFile
-    { uvFileFd     :: {-# UNPACK #-} !UVFD
-    , uvFileReq    :: {-# UNPACK #-} !UVReq
-    , uvFileSlot   :: {-# UNPACK #-} !Int
-    , uvFileOffset :: {-# UNPACK #-} !(IORefU Int64)
-    , uvFileManager :: UVManager
-    }
-
-instance Input UVFile
-    -- readInput :: HasCallStack => i -> Ptr Word8 -> Int -> IO Int
-    readInput (UVFile fd req slot offset uvm) buf len = do
-        m <- getBlockMVar uvm slot
-        o <- readIORefU offset
-        withUVManager' uvm $ do
-            tryTakeMVar m
-            pokeBufferTable uvm rslot buf len
-            throwUVIfMinus_ (hs_uv_fs_read nullPtr req fd buf (fromIntegra len) o uvFSCallBack)
-        takeMVar m
-        r <- peekUVFSResult req
-        if  | r >= 0  -> return r
-            | r < 0 ->  throwUVIfMinus (return r)
-
-
-
 
 --------------------------------------------------------------------------------
 
