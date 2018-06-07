@@ -18,7 +18,7 @@ cabal-version:       >=1.10
 executable libuv
   main-is:             LibUV.hs
   other-modules:        System.IO.Buffered
-                        System.IO.Net
+                        System.IO.TCP
                         System.IO.Net.SockAddr
                         System.IO.UV.Exception
                         System.IO.UV.Internal

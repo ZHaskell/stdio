@@ -3,7 +3,7 @@
 
 module Main where
 
-import System.IO.Net
+import System.IO.TCP
 import System.IO.Buffered
 import Control.Concurrent
 import Foreign.ForeignPtr
