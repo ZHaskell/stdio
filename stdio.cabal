@@ -13,8 +13,8 @@ maintainer:          drkoster@qq.com
 category:            Data
 build-type:          Simple
 cabal-version:       >=1.10
-homepage:            https://github.com/winterland1989/stdio
-bug-reports:         https://github.com/winterland1989/stdio/issues
+homepage:            https://github.com/haskell-stdio/stdio
+bug-reports:         https://github.com/haskell-stdio/stdio/issues
 
 extra-source-files:  ChangeLog.md
                      include/hs_uv.h
@@ -23,7 +23,7 @@ extra-source-files:  ChangeLog.md
 
 source-repository head
   type:     git
-  location: git://github.com/winterland1989/stdio.git
+  location: git://github.com/haskell-stdio/stdio.git
 
 
 library
