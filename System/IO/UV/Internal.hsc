@@ -201,8 +201,24 @@ type UVFSCallBack = FunPtr (Ptr UVReq -> IO ())
 
 foreign import ccall "hs_uv.h &hs_uv_fs_callback" uvFSCallBack :: UVFSCallBack
 
+type UVFileMode = Int32
 newtype UVFileFlag = UVFileFlag CInt
     deriving (Bounded, Enum, Eq, Integral, Num, Ord, Read, Real, Show, FiniteBits, Bits, Storable)
+
+-- non-threaded functions
+foreign import ccall unsafe hs_uv_fs_open :: CString -> UVFileFlag -> UVFileMode -> IO UVFD
+foreign import ccall unsafe hs_uv_fs_close :: UVFD -> IO CInt
+foreign import ccall unsafe hs_uv_fs_read :: UVFD -> Ptr Word8 -> CInt -> CInt -> IO CInt
+foreign import ccall unsafe hs_uv_fs_write :: UVFD -> Ptr Word8 -> CInt -> CInt -> IO CInt
+foreign import ccall unsafe hs_uv_fs_unlink :: CString -> IO CInt
+foreign import ccall unsafe hs_uv_fs_mkdir :: CString -> UVFileMode -> IO CInt
+
+-- threaded functions
+foreign import ccall unsafe hs_uv_fs_free :: Ptr UVReq -> IO ()
+foreign import ccall unsafe hs_uv_fs_alloc :: Ptr UVLoop -> IO (Ptr UVReq)
+foreign import ccall unsafe hs_uv_fs_close_threaded :: Ptr UVLoop -> Ptr UVReq -> UVFD -> IO CInt
+foreign import ccall unsafe hs_uv_fs_read_threaded
+  :: Ptr UVLoop -> Ptr UVReq -> UVFD -> Ptr Word8 -> CInt -> CInt -> UVFSCallBack -> IO CInt
 
 #{enum UVFileFlag, UVFileFlag,
     uV_FS_O_APPEND       = UV_FS_O_APPEND,

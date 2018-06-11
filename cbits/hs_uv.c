@@ -603,28 +603,23 @@ int hs_uv_fs_mkdir(char* path, int mode){
     uv_fs_t req;
     return uv_fs_mkdir(NULL, &req, path, mode, NULL);
 }
-/*
+
 // fs, thread pool version
 void hs_uv_fs_free(uv_fs_t* req){
-    size_t slot = req->data;
-    free_slot(req->loop, slot);
-    free(req);
+    hs_uv_req_free((uv_req_t*)req, req->loop);
 }
-uv_fs_t* hs_uv_fs_alloc(){
-    uv_req_t* req = malloc(uv_req_size(UV_FS));
-    if (req == NULL) { return NULL; }
-    else {
-        req->data = (void*)alloc_slot(loop);
-        return req;
-    }
+
+uv_fs_t* hs_uv_fs_alloc(uv_loop_t* loop){
+    return (uv_fs_t*)hs_uv_req_alloc(UV_FS, loop);
 }
-int hs_uv_fs_close(uv_loop_t* loop, uv_fs_t* req, int32_t file){
+
+int hs_uv_fs_close_threaded(uv_loop_t* loop, uv_fs_t* req, int32_t file){
     // do the last clean up, since uv_fs_req_cleanup is idempotent
     uv_fs_req_cleanup(req);
     return uv_fs_close(loop, req, (uv_file)file, hs_uv_fs_free);
 }
 
-int hs_uv_fs_read(uv_loop_t* loop, uv_fs_t* req, int32_t file, 
+int hs_uv_fs_read_threaded(uv_loop_t* loop, uv_fs_t* req, int32_t file,
         char* buf, size_t buf_siz, int64_t offset, uv_fs_cb cb){
     uv_buf_t buf_t = { 
         .base = buf,
@@ -632,7 +627,7 @@ int hs_uv_fs_read(uv_loop_t* loop, uv_fs_t* req, int32_t file,
     };
     uv_fs_read(loop, req, (uv_file)file, &buf_t, 1, offset, cb);
 }
-*/
+
 uv_dirent_t* hs_uv_dirent_alloc(){
     return malloc(sizeof(uv_dirent_t));
 }
