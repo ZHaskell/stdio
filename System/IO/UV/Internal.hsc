@@ -195,9 +195,14 @@ foreign import ccall unsafe uv_tty_init :: Ptr UVLoop -> Ptr UVHandle -> CInt ->
 --------------------------------------------------------------------------------
 -- fs
 
-foreign import ccall uv_fs_req_cleanup :: Ptr UVReq -> IO () 
+data UVFSReq
 
-type UVFSCallBack = FunPtr (Ptr UVReq -> IO ())
+peekUVFSReqResult :: Ptr UVFSReq -> IO CInt
+peekUVFSReqResult p = fromIntegral <$> (#{peek uv_fs_t, result} p :: IO CSize)
+
+foreign import ccall uv_fs_req_cleanup :: Ptr UVFSReq -> IO () 
+
+type UVFSCallBack = FunPtr (Ptr UVFSReq -> IO ())
 
 foreign import ccall "hs_uv.h &hs_uv_fs_callback" uvFSCallBack :: UVFSCallBack
 
@@ -214,11 +219,9 @@ foreign import ccall unsafe hs_uv_fs_unlink :: CString -> IO CInt
 foreign import ccall unsafe hs_uv_fs_mkdir :: CString -> UVFileMode -> IO CInt
 
 -- threaded functions
-foreign import ccall unsafe hs_uv_fs_free :: Ptr UVReq -> IO ()
-foreign import ccall unsafe hs_uv_fs_alloc :: Ptr UVLoop -> IO (Ptr UVReq)
-foreign import ccall unsafe hs_uv_fs_close_threaded :: Ptr UVLoop -> Ptr UVReq -> UVFD -> IO CInt
+foreign import ccall unsafe hs_uv_fs_close_threaded :: Ptr UVLoop -> Ptr UVFSReq -> UVFD -> IO CInt
 foreign import ccall unsafe hs_uv_fs_read_threaded
-  :: Ptr UVLoop -> Ptr UVReq -> UVFD -> Ptr Word8 -> CInt -> CInt -> UVFSCallBack -> IO CInt
+  :: Ptr UVLoop -> Ptr UVFSReq -> UVFD -> Ptr Word8 -> CInt -> CInt -> IO CInt
 
 #{enum UVFileFlag, UVFileFlag,
     uV_FS_O_APPEND       = UV_FS_O_APPEND,
