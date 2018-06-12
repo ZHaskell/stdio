@@ -629,10 +629,8 @@ void hs_uv_dirent_free(uv_dirent_t* ent){
 }
 
 void hs_uv_fs_callback(uv_fs_t* req){
-    size_t slot = (size_t)req->data;
     hs_loop_data* loop_data = req->loop->data;
-
     assert(loop_data->event_counter < loop_data->size);
-    loop_data->event_queue[loop_data->event_counter] = slot; // push the slot to event queue
+    loop_data->event_queue[loop_data->event_counter] = (size_t)req->data; // push the slot to event queue
     loop_data->event_counter += 1;
 }

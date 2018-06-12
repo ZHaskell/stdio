@@ -195,8 +195,12 @@ foreign import ccall unsafe uv_tty_init :: Ptr UVLoop -> Ptr UVHandle -> CInt ->
 --------------------------------------------------------------------------------
 -- fs
 
+-- | FileSystem request. Casteable to `UVReq`.
 data UVFSReq
 
+-- | Result of the request. < 0 means error, success otherwise.
+-- On requests such as reads and writes it indicates
+-- the amount of data that was read or written, respectively.
 peekUVFSReqResult :: Ptr UVFSReq -> IO CInt
 peekUVFSReqResult p = fromIntegral <$> (#{peek uv_fs_t, result} p :: IO CSize)
 

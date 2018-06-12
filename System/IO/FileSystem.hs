@@ -45,10 +45,11 @@ import Foreign.C
 --------------------------------------------------------------------------------
 -- File
 
--- | default mode for open, 0o666(readable and writable).
+-- | Default mode for open, 0o666(readable and writable).
 defaultMode :: UVFileMode
 defaultMode = 0o666
 
+-- | Open a file and get the descriptor
 open :: HasCallStack
      => String
      -> UVFileFlag
@@ -62,6 +63,7 @@ open path flags mode = do
         (hs_uv_fs_open path' flags mode)
         (void . hs_uv_fs_close)
 
+-- | Read a file, non-threaded version
 read :: UVFD
      -> Int
      -> Int
@@ -73,6 +75,8 @@ read fd size offset = do
     liftIO $ throwUVIfMinus_ $ hs_uv_fs_read fd buf size' offset'
     return buf
 
+-- | Read a file, threaded version
+-- The buffer shouldn't be read before the request is completed
 readT :: UVManager
       -> UVFD
       -> Int
