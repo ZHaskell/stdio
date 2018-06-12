@@ -48,6 +48,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Primitive
 import Data.Primitive.PrimArray
 import Foreign.PrimArray
+import System.IO.Resource
 
 --------------------------------------------------------------------------------
 

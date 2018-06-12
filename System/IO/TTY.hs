@@ -27,6 +27,7 @@ module System.IO.TTY(
 import System.IO.UV.Manager
 import System.IO.Exception
 import System.IO.Unsafe
+import System.IO.Resource
 
 stdin :: UVStream
 {-# NOINLINE stdin #-}

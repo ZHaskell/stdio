@@ -7,9 +7,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 {-|
-Module      : System.IO.UV.Exception
+Module      : System.IO.Exception
 Description : Extensible IO exceptions
-Copyright   : (c) Winterland, 2017
+Copyright   : (c) Winterland, 2017-2018
 License     : BSD
 Maintainer  : drkoster@qq.com
 Stability   : experimental
@@ -20,10 +20,6 @@ Hierarchy of Exceptions/ by Simon Marlow. The implementation in this module has 
 User who want to catch certain type of exceptions can directly use exception types this module provide,
 which are modeled after @IOErrorType@ from "GHC.IO.Exception".
 
-
-This module also implements Gabriel Gonzalez'd idea on 'Resource' applicative:
-<http://www.haskellforall.com/2013/06/the-resource-applicative.html>. The 'Applicative' and 'Monad' instance is
-especially useful when you want safely combine multiple resources.
 
 Functions from this package will throw exceptions from this module only instead of the old 'IOError' on I/O exceptions.
 Exceptions from this module contain 'IOEInfo' which is pretty detailed, but this also require user of this module
@@ -74,12 +70,6 @@ module System.IO.Exception
   , throwUVIfMinus
   , throwUVIfMinus_
   , throwUVError
-    -- * Resource management
-  , Resource(..)
-  , initResource
-  , initResource_
-  , withResource
-  , withResource'
     -- * Re-exports
   , module Control.Exception
   , HasCallStack
@@ -272,101 +262,3 @@ throwUVError e info
     | e == uV_ENXIO           = throwIO (NoSuchThing             info)
     | e == uV_EMLINK          = throwIO (ResourceExhausted       info)
     | otherwise               = throwIO (OtherError              info)
-
---------------------------------------------------------------------------------
-
--- | A 'Resource' is an 'IO' action which acquires some resource of type a and
--- also returns a finalizer of type IO () that releases the resource.
---
--- The only safe way to use a 'Resource' is 'with' \/ 'with\'', You should NEVER
--- use the `acquire` field directly, unless you want to give up resource management.
---
--- 'MonadIO' instance is provided so that you can lift 'IO' computation inside
--- 'Resource', this is convenient for propagate 'Resource' around since many
--- 'IO' computations carry finalizers.
---
--- A convention in stdio is that functions returning a 'Resource' should be
--- named in @initXXX@ format, users are strongly recommended to follow this convention.
---
-newtype Resource a = Resource { acquire :: IO (a, IO ()) }
-
--- | Create 'Resource' from create and release action.
---
--- Note, 'resource' doesn't open resource itself, resource is created when you use
--- 'with' \/ 'with''.
---
-initResource :: IO a -> (a -> IO ()) -> Resource a
-{-# INLINE initResource #-}
-initResource create release = Resource $ do
-    r <- create
-    return $ (r, release r)
-
--- | Create 'Resource' from create and release action.
---
--- This function is useful when you want to add some initialization and clean up action
--- inside 'Resource' monad.
---
-initResource_ :: IO () -> IO () -> Resource ()
-{-# INLINE initResource_ #-}
-initResource_ create release = Resource $ do
-    r <- create
-    return $ (r, release)
-
-instance Functor Resource where
-    {-# INLINE fmap #-}
-    fmap f resource = Resource $ do
-        (a, release) <- acquire resource
-        return (f a, release)
-
-instance Applicative Resource where
-    {-# INLINE pure #-}
-    pure a = Resource (pure (a, pure ()))
-    {-# INLINE (<*>) #-}
-    resource1 <*> resource2 = Resource $ do
-        (f, release1) <- acquire resource1
-        (x, release2) <- acquire resource2 `onException` release1
-        return (f x, release2 >> release1)
-
-instance Monad Resource where
-    {-# INLINE return #-}
-    return = pure
-    {-# INLINE (>>=) #-}
-    m >>= f = Resource $ do
-        (m', release1) <- acquire m
-        (x , release2) <- acquire (f m') `onException` release1
-        return (x, release2 >> release1)
-
-instance MonadIO Resource where
-    {-# INLINE liftIO #-}
-    liftIO f = Resource $ fmap (\ a -> (a, dummyRelease)) f
-        where dummyRelease = return ()
-
--- | Create a new resource and run some computation, resource is guarantee to
--- be closed.
---
--- Be care don't leak the resource through computation return value, because
--- after the computation finishes, the resource is closed already.
---
-withResource :: Resource a -> (a -> IO b) -> IO b
-withResource resource k = bracket (acquire resource)
-                                 (\(_, release) -> release)
-                                 (\(a, _) -> k a)
-
--- | Create a new resource and run some computation, resource is guarantee to
--- be closed.
---
--- The difference from 'with' is that the computation will receive an extra
--- close action, which can be used to close the resource early before the whole
--- computation finished, the close action can be called multiple times,
--- only the first call will clean up the resource.
---
-withResource' :: Resource a -> (a -> IO () -> IO b) -> IO b
-withResource' resource k = do
-    c <- newCounter 0
-    bracket (do (a, release) <- acquire resource
-                let release' = do
-                        c' <- atomicOrCounter_ c 1
-                        when (c' == 0) release
-                return (a, release'))
-             (\(_, release) -> release)
-             (\(a, release) -> k a release)

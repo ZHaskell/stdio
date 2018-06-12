@@ -252,7 +252,7 @@ debounce t action = do
             Just result -> return result
             _           -> do
                 result' <- action
-                written <- tryPutMVar resultLock result'    -- there may be some contention here
+                written <- tryPutMVar resultLock result'  -- there may be some contention here
                 when written . void $             -- we don't have to success, but if we have
                     registerLowResTimer t         -- after t ms we clear result
                         (void $ tryTakeMVar resultLock)

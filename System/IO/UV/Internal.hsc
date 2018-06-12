@@ -14,6 +14,7 @@ import Data.Word
 import Data.Int
 import System.Posix.Types (CSsize(..))
 import System.IO.Exception
+import System.IO.Resource
 import Data.Bits
 import System.IO.Net.SockAddr (SockAddr, SocketFamily(..))
 

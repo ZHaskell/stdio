@@ -92,6 +92,7 @@ import GHC.Ptr
 import qualified Foreign.Storable as Storable
 import Foreign.C.Types
 import System.IO.Exception
+import System.IO.Resource
 
 -- | Pass primitive array to unsafe FFI as pointer.
 --

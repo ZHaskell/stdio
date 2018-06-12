@@ -74,6 +74,7 @@ import Numeric (showHex)
 import Data.Typeable
 import Data.Ratio
 import System.IO.Unsafe (unsafeDupablePerformIO)
+import System.IO.Resource
 import qualified Data.Vector as V
 import Data.CBytes
 import Foreign.PrimArray

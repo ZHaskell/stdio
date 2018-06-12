@@ -41,6 +41,8 @@ library
                             Data.Binary
                             Data.Builder
 
+                            System.IO.Resource
+
                             Foreign.PrimArray
                             GHC.Stack.Compat
 
@@ -80,6 +82,8 @@ library
                         ,   deepseq
                         ,   template-haskell 
                         ,   unboxed-ref >= 0.4
+                        ,   exceptions >= 0.10
+                        ,   stm
 
     include-dirs:       include
     includes:           hs_uv.h
@@ -162,7 +166,7 @@ test-suite test
     hs-source-dirs: test
     build-depends:  stdio
                   , base
-                  , tasty == 0.11.*
+                  , tasty == 1.1.*
                   , tasty-hunit
                   , tasty-quickcheck 
                   , tasty-hunit

@@ -70,6 +70,7 @@ import System.IO.Exception
 import System.IO.UV.Exception
 import System.IO.UV.Internal
 import System.IO.Buffered
+import System.IO.Resource
 
 #define IDLE_LIMIT 20
 
