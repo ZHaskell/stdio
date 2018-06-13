@@ -372,8 +372,10 @@ autoResizeUVM (UVManager blockTableRef _ loopDataPtr _ _ _ _) slot = do
 data UVStream = UVStream
     { uvsHandle     :: {-# UNPACK #-} !(Ptr UVHandle)
     , uvsReadSlot   :: {-# UNPACK #-} !UVSlot
+    , uvsReadLock   :: {-# UNPACK #-} !(MVar ())
     , uvsWriteReq   :: {-# UNPACK #-} !(Ptr UVReq)
     , uvsWriteSlot  :: {-# UNPACK #-} !UVSlot
+    , uvsWriteLock  :: {-# UNPACK #-} !(MVar ())
     , uvsManager    :: UVManager
     }
 
@@ -395,8 +397,10 @@ initUVStream typ init uvm =
                 wslot <- peekUVReqData req
                 autoResizeUVM uvm rslot
                 autoResizeUVM uvm wslot
-                return (UVStream handle rslot req wslot uvm))
-        (\ (UVStream handle _ req  _ uvm) ->
+                rlock <- newMVar ()
+                wlock <- newMVar ()
+                return (UVStream handle rslot rlock req wslot wlock uvm))
+        (\ (UVStream handle _ _ req _ _ uvm) ->
             withUVManager uvm $ \ loop -> do
                 hs_uv_handle_close handle -- handle is free in uv_close callback
                 hs_uv_req_free req loop)
@@ -419,29 +423,31 @@ initTTYStream fd = initUVStream uV_TTY (\ loop handle ->
 
 instance Input UVStream where
     -- readInput :: HasCallStack => UVStream -> Ptr Word8 ->  Int -> IO Int
-    readInput uvs@(UVStream handle rslot _ _ uvm) buf len = do
-        m <- getBlockMVar uvm rslot
-        withUVManager' uvm $ do
-            tryTakeMVar m
-            pokeBufferTable uvm rslot buf len
-            throwUVIfMinus_ (hs_uv_read_start handle)
-        takeMVar m
-        r <- peekBufferTable uvm rslot
-        if  | r > 0  -> return r
-            -- r == 0 should be impossible, since we guard this situation in c side
-            | r == fromIntegral uV_EOF -> return 0
-            | r < 0 ->  throwUVIfMinus (return r)
+    readInput uvs@(UVStream handle rslot rlock _ _ _ uvm) buf len =
+        withMVar rlock $ \ _ -> do
+            m <- getBlockMVar uvm rslot
+            withUVManager' uvm $ do
+                tryTakeMVar m
+                pokeBufferTable uvm rslot buf len
+                throwUVIfMinus_ (hs_uv_read_start handle)
+            takeMVar m
+            r <- peekBufferTable uvm rslot
+            if  | r > 0  -> return r
+                -- r == 0 should be impossible, since we guard this situation in c side
+                | r == fromIntegral uV_EOF -> return 0
+                | r < 0 ->  throwUVIfMinus (return r)
 
 instance Output UVStream where
     -- writeOutput :: HasCallStack => UVStream -> Ptr Word8 -> Int -> IO ()
-    writeOutput (UVStream handle _ req wslot uvm) buf len = do
-        m <- getBlockMVar uvm wslot
-        withUVManager' uvm $ do
-            tryTakeMVar m
-            pokeBufferTable uvm wslot buf len
-            throwUVIfMinus_ $ hs_uv_write req handle
-        takeMVar m
-        throwUVIfMinus_ $ peekBufferTable uvm wslot
+    writeOutput (UVStream handle _ _ req wslot wlock uvm) buf len =
+        withMVar wlock $ \ _ -> do
+            m <- getBlockMVar uvm wslot
+            withUVManager' uvm $ do
+                tryTakeMVar m
+                pokeBufferTable uvm wslot buf len
+                throwUVIfMinus_ $ hs_uv_write req handle
+            takeMVar m
+            throwUVIfMinus_ $ peekBufferTable uvm wslot
 
 --------------------------------------------------------------------------------
 

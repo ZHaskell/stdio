@@ -36,6 +36,7 @@ executable libuv
                     ,   deepseq
                     ,   async
                     ,   bytestring
+                    ,   exceptions
 
   include-dirs:       ../../include
   includes:           hs_uv.h
@@ -81,7 +82,7 @@ executable libuv
       , ../../third_party/libuv/src/win/winsock.c
     ghc-options: -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0600
     cc-options: -Wall -Wextra -Wno-unused-parameter -Wstrict-prototypes -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0600 -I../../third_party/libuv/src -I../../third_party/libuv/src/win
-    extra-libraries:   psapi, Iphlpapi, userenv
+    extra-libraries:   psapi, Iphlpapi, userenv, Ws2_32
 
   else
     extra-libraries:   uv
