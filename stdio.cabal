@@ -130,7 +130,7 @@ library
       cpp-options:       -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0600
       include-dirs:      third_party/libuv/include
       -- The C runtime dependencies are imposed by libuv.
-      extra-libraries:   psapi, Iphlpapi, userenv
+      extra-libraries:   psapi, Iphlpapi, userenv, Ws2_32
     else
       extra-libraries:   uv
 
