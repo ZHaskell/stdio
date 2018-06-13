@@ -23,8 +23,11 @@ module System.IO.Resource (
   , initResource_
   , withResource
   , withResource'
-
+    -- * Resource pool
+  , Pool
+  , PoolState(..)
   , initPool
+  , statPool
   , usePool
 ) where
 
@@ -148,15 +151,28 @@ withResource' resource k = do
 data Entry a = Entry (a, IO ()) -- ^ the resource and clean up action
                      {-# UNPACK #-} !Int        -- ^ the life remaining
 
+data PoolState = PoolClosed | PoolScanning | PoolEmpty deriving (Eq, Show)
+
+-- | A high performance resource pool based on STM.
+--
+-- We choose to not divide pool into strips due to the difficults in resource balancing. If there
+-- is a high contention on resource (see 'statPool'), just increase the maximum number of resources
+-- can be opened.
+--
 data Pool a = Pool
     { poolResource :: Resource a
     , poolLimit :: Int
     , poolIdleTime :: Int
     , poolEntries :: TVar [Entry a]
     , poolInUse :: TVar Int
-    , poolClosed :: TVar Bool
+    , poolState :: TVar PoolState
     }
 
+-- | Initialize a resource pool with given 'Resource'
+--
+-- Like other initXXX functions, this function won't open a resource pool until you use 'withResource'.
+-- And this resource pool follow the same resource management pattern like other resources.
+--
 initPool :: Resource a
          -> Int     -- ^ maximum number of resources can be opened
          -> Int     -- ^ amount of time after which an unused resource can be released (in seconds).
@@ -166,45 +182,36 @@ initPool res limit itime = initResource createPool closePool
     createPool = do
         entries <- newTVarIO []
         inuse <- newTVarIO 0
-        closed <- newTVarIO False
-        registerLowResTimer (itime*10) (scanPool entries inuse closed)
-        return (Pool res limit itime entries inuse closed)
+        state <- newTVarIO PoolEmpty
+        return (Pool res limit itime entries inuse state)
 
-    closePool (Pool _ _ _ entries _ closed) = do
-        atomically $ writeTVar closed True
+    closePool (Pool _ _ _ entries _ state) = do
+        atomically $ writeTVar state PoolClosed
         es <- readTVarIO entries
         forM_ es $ \ (Entry (_, close) _) ->
             handleAll (\ _ -> return ()) close
 
-    scanPool entries inuse closed = do
-         join . atomically $ do
-            c <- readTVar closed
-            if c
-            then return (return ())
-            else do
-                es <- readTVar entries
-                when (null es) retry    -- if there're no resources now, stop scanning and wait
+-- | Get a resource pool's 'PoolState'
+--
+-- This function is useful when debug, under load lots of 'PoolEmpty' may indicate
+-- contention on resources, i.e. the limit on maximum number of resources can be opened
+-- should be adjusted to a higher number. On the otherhand, lots of 'PoolScanning'
+-- may indicate there're too much free resources.
+--
+statPool :: Pool a -> IO PoolState
+statPool pool = readTVarIO (poolState pool)
 
-                let (deadNum, dead, living) = age es 0 [] []
-                writeTVar entries living
-                modifyTVar' inuse (subtract deadNum)
-                return (do
-                    forM_ dead $ \ (_, close) -> handleAll (\ _ -> return ()) close
-                    void $ registerLowResTimer (itime*10)
-                                (scanPool entries inuse closed))
-
-    age ((Entry a life):es) !deadNum dead living
-        | life >= 0 = age es deadNum     dead     (Entry a (life-1):living)
-        | otherwise = age es (deadNum+1) (a:dead) living
-    age _ !deadNum dead living = (deadNum, dead, living)
-
-
+-- | Obtain the pooled resource inside a given resource pool.
+--
+-- You shouldn't use 'withResource' with this resource after you closed the pool,
+-- an 'E.ResourceVanished' with @EPOOLCLOSED@ name will be thrown.
+--
 usePool :: Pool a -> Resource a
-usePool (Pool res limit itime entries inuse closed) = fst <$> initResource takeFromPool returnToPool
+usePool (Pool res limit itime entries inuse state) = fst <$> initResource takeFromPool returnToPool
   where
-    takeFromPool = mask_ . join . atomically $ do
-        c <- readTVar closed
-        if c
+    takeFromPool = join . atomically $ do
+        c <- readTVar state
+        if c == PoolClosed
         then throwSTM $ E.ResourceVanished
                 (E.IOEInfo "EPOOLCLOSED" "resource pool is closed" E.callStack)
         else do
@@ -220,10 +227,38 @@ usePool (Pool res limit itime entries inuse closed) = fst <$> initResource takeF
                     return (acquire res `onException`
                          atomically (modifyTVar' inuse (subtract 1)))
 
-    returnToPool a = mask_ . join . atomically $ do
-        c <- readTVar closed
-        if c
-        then return (snd a)
-        else do
-            modifyTVar' entries (Entry a itime:)
-            return (return ())
+    returnToPool a = join . atomically $ do
+        c <- readTVar state
+        case c of
+            PoolClosed -> return (snd a)
+            PoolEmpty -> do
+                modifyTVar' entries (Entry a itime:)
+                writeTVar state PoolScanning
+                return (void $ registerLowResTimer 10 (scanPool entries inuse state))
+            _ -> do
+                modifyTVar' entries (Entry a itime:)
+                return (return ())
+
+    scanPool entries inuse state = do
+         join . atomically $ do
+            c <- readTVar state
+            if c == PoolClosed
+            then return (return ())
+            else do
+                es <- readTVar entries
+                if (null es)
+                then do
+                    writeTVar state PoolEmpty
+                    return (return ())
+                else do
+                    let (deadNum, dead, living) = age es 0 [] []
+                    writeTVar entries living
+                    modifyTVar' inuse (subtract deadNum)
+                    return (do
+                        forM_ dead $ \ (_, close) -> handleAll (\ _ -> return ()) close
+                        void $ registerLowResTimer 10 (scanPool entries inuse state))
+
+    age ((Entry a life):es) !deadNum dead living
+        | life > 1  = age es deadNum     dead     (Entry a (life-1):living)
+        | otherwise = age es (deadNum+1) (a:dead) living
+    age _ !deadNum dead living = (deadNum, dead, living)
