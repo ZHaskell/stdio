@@ -5,6 +5,7 @@
 module Data.CBytes where
 
 import Foreign.C
+import Data.Array
 import Data.Primitive.PrimArray
 import Data.Primitive.ByteArray
 import Control.Monad.Primitive
@@ -103,7 +104,7 @@ packCBytes s = unsafeDupablePerformIO $ do
     -- Keep an eye on its core!
     go :: SP2 -> Char -> IO SP2
     go (SP2 i mba) !c = do
-        siz <- sizeofMutablePrimArray mba
+        siz <- getSizeofMutablePrimArray mba
         if i < siz - 4  -- we need at least 5 bytes for safety due to extra '\0' byte
         then do
             i' <- encodeCBytesChar mba i c
@@ -135,7 +136,7 @@ fromCStringMaybe cstring = do
     then return Nothing
     else do
         len <- c_strlen cstring
-        mpa@(MutablePrimArray (MutableByteArray mba#)) <- newPinnedPrimArray (fromIntegral len+1)
+        mpa@(MutablePrimArray mba#) <- newPinnedPrimArray (fromIntegral len+1)
         c_strcpy mba# cstring
         return (Just (CBytesOnHeap mpa))
 
@@ -152,7 +153,7 @@ fromCString cstring = do
         (E.IOEInfo "" "unexpected null pointer" callStack))
     else do
         len <- c_strlen cstring
-        mpa@(MutablePrimArray (MutableByteArray mba#)) <- newPinnedPrimArray (fromIntegral len+1)
+        mpa@(MutablePrimArray mba#) <- newPinnedPrimArray (fromIntegral len+1)
         c_strcpy mba# cstring
         return (CBytesOnHeap mpa)
 

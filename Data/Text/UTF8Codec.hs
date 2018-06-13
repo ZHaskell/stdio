@@ -32,7 +32,7 @@ encodeCharLength n
 --
 encodeChar :: MutablePrimArray s Word8 -> Int -> Char -> ST s Int
 {-# INLINE encodeChar #-}
-encodeChar (MutablePrimArray (MutableByteArray mba#)) (I# i#) (C# c#) = ST (\ s# ->
+encodeChar (MutablePrimArray mba#) (I# i#) (C# c#) = ST (\ s# ->
     let (# s1#, j# #) = encodeChar# mba# i# c# s# in (# s1#, (I# j#) #))
 
 -- | The unboxed version of 'encodeChar'
@@ -85,7 +85,7 @@ encodeChar# mba# i# c# = case (int2Word# (ord# c#)) of
 --
 encodeCBytesChar :: MutablePrimArray RealWorld Word8 -> Int -> Char -> IO Int
 {-# INLINE encodeCBytesChar #-}
-encodeCBytesChar (MutablePrimArray (MutableByteArray mba#)) (I# i#) (C# c#) = primitive (\ s# ->
+encodeCBytesChar (MutablePrimArray mba#) (I# i#) (C# c#) = primitive (\ s# ->
     let (# s1#, j# #) = encodeCBytesChar# mba# i# c# s# in (# s1#, (I# j#) #))
 
 encodeCBytesChar# :: MutableByteArray# s -> Int# -> Char# -> State# s -> (# State# s, Int# #)
@@ -120,7 +120,7 @@ encodeCBytesChar# mba# i# c# = case (int2Word# (ord# c#)) of
 --
 decodeChar :: PrimArray Word8 -> Int -> (# Char, Int #)
 {-# INLINE decodeChar #-}
-decodeChar (PrimArray (ByteArray ba#)) (I# idx#) =
+decodeChar (PrimArray ba#) (I# idx#) =
     let (# c#, i# #) = decodeChar# ba# idx# in (# C# c#, I# i# #)
 
 -- | The unboxed version of 'decodeChar'
@@ -152,7 +152,7 @@ decodeChar# ba# idx# = case indexWord8Array# ba# idx# of
 --
 decodeCharLen :: PrimArray Word8 -> Int -> Int
 {-# INLINE decodeCharLen #-}
-decodeCharLen (PrimArray (ByteArray ba#)) (I# idx#) =
+decodeCharLen (PrimArray ba#) (I# idx#) =
     let i# = decodeCharLen# ba# idx# in I# i#
 
 -- | The unboxed version of 'decodeCharLen'
@@ -175,7 +175,7 @@ decodeCharLen# ba# idx# = case indexWord8Array# ba# idx# of
 --
 decodeCharReverse :: PrimArray Word8 -> Int -> (# Char, Int #)
 {-# INLINE decodeCharReverse #-}
-decodeCharReverse (PrimArray (ByteArray ba#)) (I# idx#) =
+decodeCharReverse (PrimArray ba#) (I# idx#) =
     let (# c#, i# #) = decodeCharReverse# ba# idx# in (# C# c#, I# i# #)
 
 -- | The unboxed version of 'decodeCharReverse'
@@ -208,7 +208,7 @@ decodeCharReverse# ba# idx# =
 --
 decodeCharLenReverse :: PrimArray Word8 -> Int -> Int
 {-# INLINE decodeCharLenReverse #-}
-decodeCharLenReverse (PrimArray (ByteArray ba#)) (I# idx#) =
+decodeCharLenReverse (PrimArray ba#) (I# idx#) =
     let i# = decodeCharLenReverse# ba# idx# in I# i#
 
 -- | The unboxed version of 'decodeCharLenReverse'
@@ -246,7 +246,7 @@ validateChar :: PrimArray Word8
              -> Int  -- end index(which shouldn't be accessed)
              -> Int
 {-# INLINE validateChar #-}
-validateChar (PrimArray (ByteArray ba#)) (I# idx#) (I# end#) =
+validateChar (PrimArray ba#) (I# idx#) (I# end#) =
     let i# = validateChar# ba# idx# end# in I# i#
 
 

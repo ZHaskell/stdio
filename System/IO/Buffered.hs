@@ -34,6 +34,7 @@ import Data.IORef
 import Data.IORef.Unboxed
 import Data.Typeable
 import Data.Primitive.PrimArray
+import Data.Array
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Builder as B
@@ -91,7 +92,7 @@ readBuffer BufferedInput{..} = do
     if V.null pb
     then do
         rbuf <- readIORef inputBuffer
-        bufSiz <- sizeofMutablePrimArray rbuf
+        bufSiz <- getSizeofMutablePrimArray rbuf
         l <- readInput bufInput (mutablePrimArrayContents rbuf) bufSiz
         if l < bufSiz `quot` 2                -- read less than half size
         then do
@@ -209,7 +210,7 @@ readTextChunkUTF8 h@BufferedInput{..} = do
         if minLen > vl                              -- is this chunk partial?
         then do                                     -- if so, try continue reading first
             rbuf <- readIORef inputBuffer
-            bufSiz <- sizeofMutablePrimArray rbuf
+            bufSiz <- getSizeofMutablePrimArray rbuf
             copyPrimArray rbuf 0 vba vs vl         -- copy the partial chunk into buffer and try read new bytes
             l <- readInput bufInput (mutablePrimArrayContents rbuf `plusPtr` vl) (bufSiz - vl)
             let l' = l + vl
@@ -257,7 +258,7 @@ instance Exception UTF8DecodeException where
 writeBuffer :: (Output o) => BufferedOutput o -> V.Bytes -> IO ()
 writeBuffer o@BufferedOutput{..} v@(V.PrimVector ba s l) = do
     i <- readIORefU bufIndex
-    bufSiz <- sizeofMutablePrimArray outputBuffer
+    bufSiz <- getSizeofMutablePrimArray outputBuffer
     if i + l <= bufSiz
     then do
         -- current buffer can hold it
@@ -283,7 +284,7 @@ writeBuffer o@BufferedOutput{..} v@(V.PrimVector ba s l) = do
 writeBuilder :: (Output o) => BufferedOutput o -> B.Builder -> IO ()
 writeBuilder BufferedOutput{..} (B.Builder b) = do
     i <- readIORefU bufIndex
-    originBufSiz <- sizeofMutablePrimArray outputBuffer
+    originBufSiz <- getSizeofMutablePrimArray outputBuffer
     _ <- b (B.OneShotAction action) (lastStep originBufSiz) (B.Buffer outputBuffer i)
     return ()
   where

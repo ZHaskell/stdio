@@ -263,7 +263,7 @@ data PrimVector a = PrimVector
     {-# UNPACK #-} !(PrimArray a) -- payload
     {-# UNPACK #-} !Int         -- offset in elements of type a rather than in bytes
     {-# UNPACK #-} !Int         -- length in elements of type a rather than in bytes
-  deriving (Typeable, Data)
+  deriving Typeable
 
 vW16 :: Q.QuasiQuoter
 vW16 = Q.QuasiQuoter
@@ -287,12 +287,12 @@ instance {-# OVERLAPPABLE #-} (Prim a, Eq a) => Eq (PrimVector a) where
 eqPrimVector :: forall a. Prim a => PrimVector a -> PrimVector a -> Bool
 {-# INLINE eqPrimVector #-}
 eqPrimVector (PrimVector baA sA lA)
-        (PrimVector baB@(PrimArray (ByteArray baB#)) sB lB)
-    | baA `samePrimArray` baB =
+        (PrimVector baB@(PrimArray baB#) sB lB)
+    | baA `sameArr` baB =
         if sA == sB then lA == lB else lA == lB && go baA baB
     | otherwise = lA == lB && go baA baB
   where
-    go (PrimArray (ByteArray baA#)) (PrimArray (ByteArray baB#)) =
+    go (PrimArray baA#) (PrimArray baB#) =
         let r = c_memcmp baA# (fromIntegral $ sA * siz) -- we use memcmp for all primitive vector
                          baB# (fromIntegral $ sB * siz) (fromIntegral $ min (lA*siz) (lB*siz))
         in r == 0
@@ -309,7 +309,7 @@ instance {-# OVERLAPPING #-} Ord (PrimVector Word8) where
 comparePrimVector :: (Prim a, Ord a) => PrimVector a -> PrimVector a -> Ordering
 {-# INLINE comparePrimVector #-}
 comparePrimVector (PrimVector baA sA lA) (PrimVector baB sB lB)
-    | baA `samePrimArray` baB = if sA == sB then lA `compare` lB else go sA sB
+    | baA `sameArr` baB = if sA == sB then lA `compare` lB else go sA sB
     | otherwise = go sA sB
   where
     !endA = sA + lA
@@ -322,8 +322,8 @@ comparePrimVector (PrimVector baA sA lA) (PrimVector baB sB lB)
 
 compareBytes :: PrimVector Word8 -> PrimVector Word8 -> Ordering
 {-# INLINE compareBytes #-}
-compareBytes (PrimVector (PrimArray (ByteArray baA#)) sA lA)
-             (PrimVector (PrimArray (ByteArray baB#)) sB lB) =
+compareBytes (PrimVector (PrimArray baA#) sA lA)
+             (PrimVector (PrimArray baB#) sB lB) =
     let r = c_memcmp baA# (fromIntegral sA)
                      baB# (fromIntegral sB) (fromIntegral $ min lA lB)
     in case r `compare` 0 of
@@ -1136,7 +1136,7 @@ elemIndex w (VecPat arr s l) = go s
 
 elemIndexBytes :: Word8 -> Bytes -> Maybe Int
 {-# INLINE elemIndexBytes #-}
-elemIndexBytes w (PrimVector (PrimArray (ByteArray ba#)) s l) =
+elemIndexBytes w (PrimVector (PrimArray ba#) s l) =
     let !w' = fromIntegral w
         !s' = fromIntegral s
         !l' = fromIntegral l
@@ -1157,7 +1157,7 @@ elemIndices w (VecPat arr s l) = go s
 
 elemIndicesBytes :: Word8 -> PrimVector Word8 -> [Int]
 {-# INLINE elemIndicesBytes #-}
-elemIndicesBytes w (PrimVector (PrimArray (ByteArray ba#)) s l) = go s
+elemIndicesBytes w (PrimVector (PrimArray ba#) s l) = go s
   where
     !w' = fromIntegral w
     !end = s + l

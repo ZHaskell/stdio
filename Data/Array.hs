@@ -1,4 +1,5 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FunctionalDependencies #-}
@@ -6,6 +7,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
+{-# LANGUAGE UnliftedFFITypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 
@@ -40,6 +42,8 @@ module Data.Array (
   , Prim(..)
   , newPinnedPrimArray, newAlignedPinnedPrimArray
   , copyPrimArrayToPtr, copyMutablePrimArrayToPtr, copyMutablePrimArrayFromPtr
+  , primArrayContents, mutablePrimArrayContents, withPrimArrayContents, withMutablePrimArrayContents
+  , isPrimArrayPinned, isMutablePrimArrayPinned
   -- * Unlifted array type
   , UnliftedArray(..)
   , MutableUnliftedArray(..)
@@ -52,9 +56,13 @@ import Data.Primitive.Types
 import Control.Monad.Primitive
 import Control.Exception (ArrayException(..), throw)
 import Data.Primitive.PrimArray
+import Data.Primitive.ByteArray
 import Data.Primitive.Array
 import Data.Primitive.SmallArray
 import Data.Primitive.UnliftedArray
+import Foreign.C.Types (CInt(..))
+import GHC.Ptr (Ptr(..))
+import GHC.Types
 import GHC.ST
 import GHC.Prim
 import GHC.Types (isTrue#)
@@ -364,7 +372,9 @@ instance Prim a => Arr MutablePrimArray PrimArray a where
     copyMutableArr = copyMutablePrimArray
     {-# INLINE copyMutableArr #-}
 
-    moveArr = movePrimArray
+    moveArr (MutablePrimArray dst) doff (MutablePrimArray src) soff n =
+        moveByteArray (MutableByteArray dst) (doff*siz) (MutableByteArray src) (soff*siz) (n*siz)
+      where siz = sizeOf (undefined :: a)
     {-# INLINE moveArr #-}
 
     cloneArr arr s l = runST (do
@@ -388,13 +398,13 @@ instance Prim a => Arr MutablePrimArray PrimArray a where
     {-# INLINE sameMutableArr #-}
     sizeofArr = sizeofPrimArray
     {-# INLINE sizeofArr #-}
-    sizeofMutableArr = sizeofMutablePrimArray
+    sizeofMutableArr = getSizeofMutablePrimArray
     {-# INLINE sizeofMutableArr #-}
 
-    sameArr = samePrimArray
+    sameArr (PrimArray ba1#) (PrimArray ba2#) =
+        isTrue# (sameMutableByteArray# (unsafeCoerce# ba1#) (unsafeCoerce# ba2#))
     {-# INLINE sameArr #-}
 
-#if MIN_VERSION_primitive(0,6,2)
 instance PrimUnlifted a => Arr MutableUnliftedArray UnliftedArray a where
     newArr = unsafeNewUnliftedArray
     {-# INLINE newArr #-}
@@ -480,7 +490,110 @@ instance PrimUnlifted a => Arr MutableUnliftedArray UnliftedArray a where
         sameMutableArrayArray# (unsafeCoerce# arr1#) (unsafeCoerce# arr2#))
     {-# INLINE sameArr #-}
 
-instance PrimUnlifted (MVar a) where
-    toArrayArray# (MVar mv#) = unsafeCoerce# mv#
-    fromArrayArray# aa# = MVar (unsafeCoerce# aa#)
-#endif
+--------------------------------------------------------------------------------
+
+-- | Create a /pinned/ byte array of the specified size,
+-- The garbage collector is guaranteed not to move it.
+newPinnedPrimArray :: forall m a. (PrimMonad m, Prim a) => Int -> m (MutablePrimArray (PrimState m) a)
+{-# INLINE newPinnedPrimArray #-}
+newPinnedPrimArray n = do
+    (MutableByteArray mba#) <- newPinnedByteArray (n*siz)
+    return (MutablePrimArray mba#)
+  where siz = sizeOf (undefined :: a)
+        align = alignment (undefined :: a)
+
+
+-- | Create a /pinned/ primitive array of the specified size and respect given primitive type's
+-- alignment. The garbage collector is guaranteed not to move it.
+--
+newAlignedPinnedPrimArray
+  :: forall m a. (PrimMonad m, Prim a) => Int -> m (MutablePrimArray (PrimState m) a)
+{-# INLINE newAlignedPinnedPrimArray #-}
+newAlignedPinnedPrimArray n = do
+    (MutableByteArray mba#) <- newAlignedPinnedByteArray (n*siz) align
+    return (MutablePrimArray mba#)
+  where siz = sizeOf (undefined :: a)
+        align = alignment (undefined :: a)
+
+-- | Copy a slice of an mutable primitive array from an address.
+-- The offset and length are given in elements of type @a@.
+--
+copyMutablePrimArrayFromPtr :: forall m a. (PrimMonad m, Prim a)
+              => MutablePrimArray (PrimState m) a -- ^ destination array
+              -> Int                              -- ^ offset into destination array
+              -> Ptr a                            -- ^ source pointer
+              -> Int                              -- ^ number of prims to copy
+              -> m ()
+{-# INLINE copyMutablePrimArrayFromPtr #-}
+copyMutablePrimArrayFromPtr (MutablePrimArray mba#) (I# doff#) (Ptr addr#) (I# n#) =
+    primitive (\ s# ->
+        let s'# = copyAddrToByteArray# addr# mba# (doff# *# siz#) (n# *# siz#) s#
+        in (# s'#, () #))
+  where siz# = sizeOf# (undefined :: a)
+
+-- | Yield a pointer to the array's data.
+-- This operation is only safe on /pinned/ primitive arrays allocated by 'newPinnedPrimArray' or
+-- 'newAlignedPinnedPrimArray', and you have to make sure the 'PrimArray' can outlive the 'Ptr'.
+--
+primArrayContents :: PrimArray a -> Ptr a
+{-# INLINE primArrayContents #-}
+primArrayContents (PrimArray ba) =
+    let addr# = byteArrayContents# ba in Ptr addr#
+
+-- | Yield a pointer to the array's data.
+--
+-- This operation is only safe on /pinned/ primitive arrays allocated by 'newPinnedPrimArray' or
+-- 'newAlignedPinnedPrimArray'. and you have to make sure the 'PrimArray' can outlive the 'Ptr'.
+--
+mutablePrimArrayContents :: MutablePrimArray s a -> Ptr a
+{-# INLINE mutablePrimArrayContents #-}
+mutablePrimArrayContents (MutablePrimArray mba#) =
+    let addr# = byteArrayContents# (unsafeCoerce# mba#) in Ptr addr#
+
+-- | Yield a pointer to the array's data and do computation with it.
+--
+-- This operation is only safe on /pinned/ primitive arrays allocated by 'newPinnedPrimArray' or
+-- 'newAlignedPinnedPrimArray'.
+--
+withPrimArrayContents :: PrimArray a -> (Ptr a -> IO b) -> IO b
+{-# INLINE withPrimArrayContents #-}
+withPrimArrayContents (PrimArray ba#) f = do
+    let addr# = byteArrayContents# ba#
+        ptr = Ptr addr#
+    b <- f ptr
+    primitive_ (touch# ba#)
+    return b
+
+-- | Yield a pointer to the array's data and do computation with it.
+--
+-- This operation is only safe on /pinned/ primitive arrays allocated by 'newPinnedPrimArray' or
+-- 'newAlignedPinnedPrimArray'.
+--
+withMutablePrimArrayContents :: MutablePrimArray RealWorld a -> (Ptr a -> IO b) -> IO b
+{-# INLINE withMutablePrimArrayContents #-}
+withMutablePrimArrayContents (MutablePrimArray mba#) f = do
+    let addr# = byteArrayContents# (unsafeCoerce# mba#)
+        ptr = Ptr addr#
+    b <- f ptr
+    primitive_ (touch# mba#)
+    return b
+
+-- | Check if a primitive array is pinned.
+--
+isPrimArrayPinned :: PrimArray a -> Bool
+{-# INLINE isPrimArrayPinned #-}
+isPrimArrayPinned (PrimArray ba#) =
+    c_is_byte_array_pinned ba# == 1
+
+-- | Check if a mutable primitive array is pinned.
+--
+isMutablePrimArrayPinned :: MutablePrimArray s a -> Bool
+{-# INLINE isMutablePrimArrayPinned #-}
+isMutablePrimArrayPinned (MutablePrimArray mba#) =
+    c_is_mutable_byte_array_pinned mba# == 1
+
+foreign import ccall unsafe "bytes.c is_byte_array_pinned"
+    c_is_byte_array_pinned :: ByteArray# -> CInt
+
+foreign import ccall unsafe "bytes.c is_byte_array_pinned"
+    c_is_mutable_byte_array_pinned :: MutableByteArray# s -> CInt

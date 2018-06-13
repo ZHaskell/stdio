@@ -70,7 +70,7 @@ memchr :: PrimArray Word8 -- array
        -> Int             -- search length
        -> Int
 {-# INLINE memchr #-}
-memchr (PrimArray (ByteArray ba#)) (W8# c#) (I# s#) (I# siz#) =
+memchr (PrimArray ba#) (W8# c#) (I# s#) (I# siz#) =
     I# (memchr# ba# c# s# siz#)
 
 -- | The unboxed version of 'memchr'
@@ -118,7 +118,7 @@ memchrReverse :: PrimArray Word8  -- array
               -> Int              -- search length
               -> Int
 {-# INLINE memchrReverse #-}
-memchrReverse (PrimArray (ByteArray ba#)) (W8# c#) (I# s#) (I# siz#) =
+memchrReverse (PrimArray ba#) (W8# c#) (I# s#) (I# siz#) =
     I# (memchr# ba# c# s# siz#)
 
 -- | The unboxed version of 'memchrReverse'

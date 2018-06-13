@@ -47,7 +47,7 @@ instance Ord Text where
 compareText :: Text -> Text -> Ordering
 {-# INLINE compareText #-}
 compareText (Text (V.PrimVector baA sA lA)) (Text (V.PrimVector baB sB lB))
-    | baA `samePrimArray` baB = if sA == sB then lA `compare` lB else go sA sB
+    | baA `sameArr` baB = if sA == sB then lA `compare` lB else go sA sB
     | otherwise = go sA sB
   where
     !endA = sA + lA
@@ -136,7 +136,7 @@ packN n0 = \ ws0 -> runST (do mba <- newPrimArray n0
     -- Keep an eye on its core!
     go :: SP2 s -> Char -> ST s (SP2 s)
     go (SP2 i mba) !c = do
-        siz <- sizeofMutablePrimArray mba
+        siz <- getSizeofMutablePrimArray mba
         if i < siz - 3  -- we need at least 4 bytes for safety
         then do
             i' <- encodeChar mba i c

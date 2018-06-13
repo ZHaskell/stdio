@@ -40,6 +40,7 @@ import GHC.Ptr
 import Foreign.C.Types (CInt(..), CSize(..))
 import Data.Int
 import Data.Vector
+import Data.Array
 import Data.IORef.Unboxed
 import Control.Concurrent
 import Control.Concurrent.MVar

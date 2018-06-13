@@ -52,6 +52,8 @@ module Data.Array.Checked
   , A.newPinnedPrimArray, A.newAlignedPinnedPrimArray
   -- * Bound checked primitive array operations
   , copyPrimArrayToPtr, copyMutablePrimArrayToPtr, copyMutablePrimArrayFromPtr
+  , A.primArrayContents, A.mutablePrimArrayContents, A.withPrimArrayContents, A.withMutablePrimArrayContents
+  , A.isPrimArrayPinned, A.isMutablePrimArrayPinned
   -- * Unlifted array type
   , A.UnliftedArray(..)
   , A.MutableUnliftedArray(..)

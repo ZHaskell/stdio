@@ -27,8 +27,7 @@ source-repository head
 
 
 library
-    exposed-modules:        Data.Primitive.PrimArray
-                            Data.Primitive.PrimArrayQ
+    exposed-modules:        Data.Primitive.PrimArrayQ
                             Data.Primitive.BitTwiddle
                             Data.Vector
                             Data.Array
@@ -78,7 +77,7 @@ library
 
     build-depends:          base >=4.7 && <5.0
                         ,   ghc-prim  >= 0.4
-                        ,   primitive >= 0.6.2
+                        ,   primitive >= 0.6.4
                         ,   deepseq
                         ,   template-haskell 
                         ,   unboxed-ref >= 0.4

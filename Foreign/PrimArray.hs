@@ -88,6 +88,7 @@ import Control.Monad.Primitive
 import Data.Primitive.PrimArray
 import Data.Primitive.ByteArray
 import Data.Vector
+import Data.Array
 import GHC.Ptr
 import qualified Foreign.Storable as Storable
 import Foreign.C.Types
@@ -112,7 +113,7 @@ import System.IO.Resource
 --
 withPrimArrayUnsafe :: forall m a b. (PrimMonad m, Prim a)
                     => PrimArray a -> (ByteArray# -> Int -> m b) -> m b
-withPrimArrayUnsafe pa@(PrimArray (ByteArray ba#)) f = f ba# (sizeofPrimArray pa)
+withPrimArrayUnsafe pa@(PrimArray ba#) f = f ba# (sizeofPrimArray pa)
 
 -- | Pass mutable primitive array to unsafe FFI as pointer.
 --
@@ -123,8 +124,8 @@ withPrimArrayUnsafe pa@(PrimArray (ByteArray ba#)) f = f ba# (sizeofPrimArray pa
 withMutablePrimArrayUnsafe :: forall m a b. (PrimMonad m, Prim a)
                            => MutablePrimArray (PrimState m) a
                            -> (MutableByteArray# (PrimState m)-> Int -> m b) -> m b
-withMutablePrimArrayUnsafe mpa@(MutablePrimArray (MutableByteArray mba#)) f =
-    sizeofMutablePrimArray mpa >>= f mba#
+withMutablePrimArrayUnsafe mpa@(MutablePrimArray mba#) f =
+    getSizeofMutablePrimArray mpa >>= f mba#
 
 -- | Pass 'PrimVector' to unsafe FFI as pointer
 --
@@ -144,8 +145,8 @@ withPrimVectorUnsafe (PrimVector arr s l) f = withPrimArrayUnsafe arr $ \ ba# _ 
 --
 withPrimUnsafe :: forall m a b. (PrimMonad m, Prim a) => (MutableByteArray# (PrimState m) -> m a) -> m a
 withPrimUnsafe f = do
-    mpa@(MutablePrimArray (MutableByteArray mba#)) <- newPrimArray 1    -- All heap objects are WORD aligned
-    f mba#                                                              -- so no need to do extra alignment
+    mpa@(MutablePrimArray mba#) <- newPrimArray 1    -- All heap objects are WORD aligned
+    f mba#                                           -- so no need to do extra alignment
     readPrimArray mpa 0
 
 -- | Pass primitive array to safe FFI as pointer.
@@ -175,10 +176,10 @@ withPrimArraySafe arr f
 withMutablePrimArraySafe :: (Prim a) => MutablePrimArray RealWorld a -> (Ptr a -> Int -> IO b) -> IO b
 withMutablePrimArraySafe marr f
     | isMutablePrimArrayPinned marr = do
-        siz <- sizeofMutablePrimArray marr
+        siz <- getSizeofMutablePrimArray marr
         withMutablePrimArrayContents marr $ \ ptr -> f ptr siz
     | otherwise = do
-        siz <- sizeofMutablePrimArray marr
+        siz <- getSizeofMutablePrimArray marr
         buf <- newPinnedPrimArray siz
         copyMutablePrimArray buf 0 marr 0 siz
         withMutablePrimArrayContents buf $ \ ptr -> f ptr siz
@@ -204,7 +205,7 @@ withPrimVectorSafe v@(PrimVector arr s l) f
 --
 withPrimSafe :: forall m a b. (PrimMonad m, Prim a) => (MutableByteArray# (PrimState m) -> m a) -> m a
 withPrimSafe f = do
-    mpa@(MutablePrimArray (MutableByteArray mba#)) <- newAlignedPinnedPrimArray 1
+    mpa@(MutablePrimArray mba#) <- newAlignedPinnedPrimArray 1
     f mba#
     readPrimArray mpa 0
 
