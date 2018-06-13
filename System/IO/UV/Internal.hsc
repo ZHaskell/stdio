@@ -152,10 +152,6 @@ foreign import ccall unsafe hs_uv_timer_wake_start :: Ptr UVHandle -> Word64 -> 
 -- timer 
 
 foreign import ccall unsafe uv_timer_init :: Ptr UVLoop -> Ptr UVHandle -> IO CInt
-foreign import ccall unsafe uv_timer_start :: Ptr UVHandle -> Word64 -> Word64 -> IO CInt
-foreign import ccall unsafe uv_timer_again :: Ptr UVHandle -> IO CInt
-foreign import ccall unsafe  uv_timer_set_repeat :: Ptr UVHandle -> Word64 -> IO CInt 
-foreign import ccall unsafe uv_timer_stop :: Ptr UVHandle -> IO CInt
 
 --------------------------------------------------------------------------------
 -- tcp

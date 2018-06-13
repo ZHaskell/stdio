@@ -82,6 +82,7 @@ library
                         ,   template-haskell 
                         ,   unboxed-ref >= 0.4
                         ,   exceptions >= 0.10
+                        ,   transformers
                         ,   stm
 
     include-dirs:       include

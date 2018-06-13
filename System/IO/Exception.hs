@@ -78,7 +78,6 @@ module System.IO.Exception
 
 import Control.Exception hiding (IOException)
 import Control.Monad
-import Control.Monad.IO.Class
 import Data.Typeable
 import Data.IORef.Unboxed
 import Foreign.Ptr
