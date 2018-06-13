@@ -36,6 +36,7 @@ executable libuv
                     ,   deepseq
                     ,   async
                     ,   bytestring
+                    ,   exceptions >= 0.10
 
   include-dirs:       ../../include
   includes:           hs_uv.h

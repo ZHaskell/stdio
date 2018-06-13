@@ -1,5 +1,9 @@
 resolver: lts-10.4
 
+extra-deps:
+- primitive-0.6.4.0
+- exceptions-0.10.0
+
 packages:
 - .
 - bench/tcp

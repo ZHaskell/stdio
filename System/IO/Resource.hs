@@ -31,8 +31,8 @@ module System.IO.Resource (
   , usePool
 ) where
 
-import Control.Monad.Catch
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.IO.Class
 import System.LowResTimer
 import qualified System.IO.Exception as E
