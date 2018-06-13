@@ -162,7 +162,11 @@ benchmark bench
 test-suite test
     type: exitcode-stdio-1.0
     main-is: Main.hs
-    -- other-modules:      
+    other-modules:          Property.Text
+                            Property.Vector
+                            Unit.FileSystem
+                            Unit.LowResTimer
+                            Unit.Resource
     hs-source-dirs: test
     build-depends:  stdio
                   , base
@@ -172,6 +176,7 @@ test-suite test
                   , tasty-hunit
                   , QuickCheck >= 2.10
                   , async
+                  , temporary
                   , unboxed-ref
 
 

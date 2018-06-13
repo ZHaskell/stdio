@@ -38,6 +38,7 @@ import Control.Monad.IO.Class
 import Data.Word (Word8)
 import System.IO (FilePath)
 import System.IO.Exception
+import System.IO.Resource
 import System.IO.UV.Manager
 import System.IO.UV.Internal
 import Foreign.Marshal.Alloc
