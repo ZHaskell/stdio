@@ -28,6 +28,7 @@ module System.IO.FileSystem
   , open
   , read
   , readT
+  , write
   ) where
 
 import Prelude hiding (read)
@@ -35,6 +36,7 @@ import Prelude hiding (read)
 import Control.Monad (void)
 import Control.Monad.IO.Class
 import Data.Word (Word8)
+import System.IO (FilePath)
 import System.IO.Exception
 import System.IO.UV.Manager
 import System.IO.UV.Internal
@@ -51,7 +53,7 @@ defaultMode = 0o666
 
 -- | Open a file and get the descriptor
 open :: HasCallStack
-     => String
+     => FilePath
      -> UVFileFlag
      -> UVFileMode
      -- ^ Sets the file mode (permission and sticky bits),
@@ -90,6 +92,17 @@ readT mgr fd size offset = do
     liftIO $ withUVManager mgr $ \loop ->
         throwUVIfMinus_ $ hs_uv_fs_read_threaded loop req fd buf size' offset'
     return (req, buf)
+
+-- | Read a file, non-threaded version
+write :: UVFD
+      -> Ptr Word8
+      -> Int
+      -> Int
+      -> IO ()
+write fd buf size offset = do
+    let size' = fromIntegral size
+        offset' = fromIntegral offset
+    throwUVIfMinus_ $ hs_uv_fs_write fd buf size' offset'
 
 {-
 
