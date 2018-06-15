@@ -46,6 +46,8 @@ module System.IO.UV.Manager
   , initTCPExStream
   , initTTYStream
   , initPipeStream
+  , initUVFS
+  , initUVFSNoSlot
   -- * concurrent helpers
   , forkBa
   ) where
@@ -452,19 +454,21 @@ instance Output UVStream where
 -- `initUVReq`.
 --
 initUVFS :: HasCallStack
-         => (Ptr UVLoop -> Ptr UVReq -> UVFSCallBack -> IO ())
+         => (Ptr UVLoop -> Ptr UVFSReq -> UVFSCallBack -> IO ())
          -> UVManager
-         -> Resource (Ptr UVReq)
+         -> Resource (Ptr UVFSReq)
 initUVFS fs uvm = initResource
     (withUVManager uvm $ \ loop -> do
         req <- throwOOMIfNull $ hs_uv_req_alloc uV_FS loop
+        let fsreq = castPtr req
         slot <- peekUVReqData req
         autoResizeUVM uvm slot
         tryTakeMVar =<< getBlockMVar uvm slot   -- clear the parking spot
-        fs loop req uvFSCallBack `onException` hs_uv_req_free req loop
-        return (castPtr req))
-    (\ req -> do
-        uv_fs_req_cleanup req
+        fs loop fsreq uvFSCallBack `onException` hs_uv_req_free req loop
+        return fsreq)
+    (\ fsreq -> do
+        let req = castPtr fsreq
+        uv_fs_req_cleanup fsreq
         withUVManager uvm $ \ loop -> hs_uv_req_free req loop)
 
 -- | Safely lock an uv manager and perform fs operation without allocating a slot.
@@ -472,13 +476,14 @@ initUVFS fs uvm = initResource
 -- This function will pass `nullPtr` as `Ptr UVLoop`, `nullFunPtr` as `UVFSCallBack`.
 --
 initUVFSNoSlot :: HasCallStack
-               => (Ptr UVLoop -> Ptr UVReq -> UVFSCallBack -> IO ())
-               -> Resource (Ptr UVReq)
+               => (Ptr UVLoop -> Ptr UVFSReq -> UVFSCallBack -> IO ())
+               -> Resource (Ptr UVFSReq)
 initUVFSNoSlot fs = initResource
     (do req <- throwOOMIfNull $ hs_uv_req_alloc_no_slot uV_FS
-        fs nullPtr req nullFunPtr `onException` hs_uv_req_free_no_slot req
-        return req)
-    (\ req -> uv_fs_req_cleanup req >> hs_uv_req_free_no_slot req)
+        let fsreq = castPtr req
+        fs nullPtr fsreq nullFunPtr `onException` hs_uv_req_free_no_slot req
+        return fsreq)
+    (\ req -> uv_fs_req_cleanup req >> hs_uv_req_free_no_slot (castPtr req))
 
 --------------------------------------------------------------------------------
 

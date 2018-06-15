@@ -21,43 +21,99 @@ Otherwise you may block RTS's capability thus all the other threads live on it.
 -}
 
 module System.IO.FileSystem
-  ( scandir
-  , scandirT
+  ( UVFileFlag(..)
+  , UVFileMode
+  , defaultMode
+  -- * Operations
+  , open
+  , read
+  , readT
+  , write
   ) where
 
+import Prelude hiding (read)
+
+import Control.Monad (void)
+import Control.Monad.IO.Class
+import Data.Word (Word8)
+import System.IO (FilePath)
 import System.IO.Exception
+import System.IO.Resource
 import System.IO.UV.Manager
 import System.IO.UV.Internal
-import System.IO.UV.Exception
-import Control.Concurrent
+import Foreign.Marshal.Alloc
 import Foreign.Ptr
 import Foreign.C
-import Data.CBytes
-import GHC.Generics
 
 --------------------------------------------------------------------------------
 -- File
+
+-- | Default mode for open, 0o666(readable and writable).
+defaultMode :: UVFileMode
+defaultMode = 0o666
+
+-- | Open a file and get the descriptor
+open :: HasCallStack
+     => FilePath
+     -> UVFileFlag
+     -> UVFileMode
+     -- ^ Sets the file mode (permission and sticky bits),
+     -- but only if the file was created, see 'defaultMode'.
+     -> Resource UVFD
+open path flags mode = do
+    path' <- initResource (newCString path) free
+    initResource
+        (hs_uv_fs_open path' flags mode)
+        (void . hs_uv_fs_close)
+
+-- | Read a file, non-threaded version
+read :: UVFD
+     -> Int
+     -> Int
+     -> Resource (Ptr Word8)
+read fd size offset = do
+    let size' = fromIntegral size
+        offset' = fromIntegral offset
+    buf <- initResource (mallocBytes size :: IO (Ptr Word8)) free
+    liftIO $ throwUVIfMinus_ $ hs_uv_fs_read fd buf size' offset'
+    return buf
+
+-- | Read a file, threaded version
+-- The buffer shouldn't be read before the request is completed
+readT :: UVManager
+      -> UVFD
+      -> Int
+      -> Int
+      -> Resource (Ptr UVFSReq, Ptr Word8)
+readT mgr fd size offset = do
+    let size' = fromIntegral size
+        offset' = fromIntegral offset
+    req <- initUVFS (\_ _ _ -> return ()) mgr
+    buf <- initResource (mallocBytes size :: IO (Ptr Word8)) free
+    liftIO $ withUVManager mgr $ \loop ->
+        throwUVIfMinus_ $ hs_uv_fs_read_threaded loop req fd buf size' offset'
+    return (req, buf)
+
+-- | Read a file, non-threaded version
+write :: UVFD
+      -> Ptr Word8
+      -> Int
+      -> Int
+      -> IO ()
+write fd buf size offset = do
+    let size' = fromIntegral size
+        offset' = fromIntegral offset
+    throwUVIfMinus_ $ hs_uv_fs_write fd buf size' offset'
+
+{-
 
 data UVFile = UVFile
     { uvFileFd     :: {-# UNPACK #-} UVFD
     , uvFileReq    :: {-# UNPACK #-} UVReq
     , uvFileSlot   :: {-# UNPACK #-} Int
-    , uvFileReadOffset ::
     }
 
 newtype UVFileT = UVFileT { uvFile :: UVFile }
-
-open :: HasCallStack
-     => CByte
-     -> UVFileFlag
-     -> CInt    -- sets the file mode (permission and sticky bits), but only if the file was created, see 'defaultMode'.
-     -> Resource UVFile
-open = --
-
--- | default mode for open, 0o666(readable and writable).
-defaultMode :: CInt
-defaultMode = 0o666
-
 
 --------------------------------------------------------------------------------
 --
@@ -116,4 +172,4 @@ loopScanDirReq req = do
                 !path' <- fromCString path
                 !rest <- loopScanDirReq req
                 return ((path', typ') : rest)
-
+-}

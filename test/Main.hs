@@ -5,6 +5,7 @@ module Main where
 import           Test.Tasty
 import           Property.Vector
 import           Property.Text
+import           Unit.FileSystem
 import           Unit.LowResTimer
 import           Unit.Resource
 
@@ -14,6 +15,6 @@ main = defaultMain $ testGroup "stdio tests" [
     ,   propertyText
     ,   unitLowResTimer
     ,   unitResource
-
+    ,   unitFileSystem
     ]
 
