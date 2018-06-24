@@ -7,6 +7,7 @@ import           Property.Vector
 import           Property.Text
 import           Unit.LowResTimer
 import           Unit.Resource
+import           Unit.TCP
 
 main :: IO ()
 main = defaultMain $ testGroup "stdio tests" [
@@ -14,6 +15,7 @@ main = defaultMain $ testGroup "stdio tests" [
     ,   propertyText
     ,   unitLowResTimer
     ,   unitResource
+    ,   unitTCP
 
     ]
 

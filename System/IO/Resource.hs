@@ -22,7 +22,7 @@ module System.IO.Resource (
   , initResource
   , initResource_
   , withResource
-  , withResource'
+  , withResourcePre
     -- * Resource pool
   , Pool
   , PoolState(..)
@@ -45,17 +45,23 @@ import Data.IORef.Unboxed
 -- | A 'Resource' is an 'IO' action which acquires some resource of type a and
 -- also returns a finalizer of type IO () that releases the resource.
 --
--- The only safe way to use a 'Resource' is 'withResource' \/ 'withResource\'',
+-- The only safe way to use a 'Resource' is 'withResource' \/ 'withResourcePre',
 -- You should not use the `acquire` field directly, unless you want to implement your own
--- resource management. In the later case, you should always use 'E.mask_' since
+-- resource management. In the later case, you may want to use 'E.mask_' since
 -- some resource initializations may assume async exceptions are masked.
+--
+-- A 'Resource' should track its liveness atomically, and throw 'E.ResourceVanished'
+-- if used after closing, 'E.throwECLOSED' provides a standard way to do this.
+-- If you're build your 'Resource' on top of 'Resource' provided by stdio, you can
+-- also rely on these basic 'Resource' s' liveness tracking.
 --
 -- 'MonadIO' instance is provided so that you can lift 'IO' computation inside
 -- 'Resource', this is convenient for propagating 'Resource' around since many
 -- 'IO' computations carry finalizers.
 --
 -- A convention in stdio is that functions returning a 'Resource' should be
--- named in @initXXX@ format, users are strongly recommended to follow this convention.
+-- named in @initXXX@ pattern, users creating their own 'Resource' s are strongly
+-- recommended to follow this convention.
 --
 newtype Resource a = Resource { acquire :: E.HasCallStack => IO (a, IO ()) }
 
@@ -126,15 +132,15 @@ withResource resource k = bracket (liftIO (acquire resource))
 -- | Create a new resource and run some computation, resource is guarantee to
 -- be closed.
 --
--- The difference from 'with' is that the computation will receive an extra
+-- The difference from 'withResource' is that the computation will receive an extra
 -- close action, which can be used to close the resource early before the whole
 -- computation finished, the close action can be called multiple times,
 -- only the first call will clean up the resource.
 --
-withResource' :: (MonadMask m, MonadIO m, E.HasCallStack)
+withResourcePre :: (MonadMask m, MonadIO m, E.HasCallStack)
               => Resource a -> (a -> m () -> m b) -> m b
-{-# INLINABLE withResource' #-}
-withResource' resource k = do
+{-# INLINABLE withResourcePre #-}
+withResourcePre resource k = do
     c <- liftIO (newCounter 0)
     bracket (liftIO $ do
                 (a, release) <- (acquire resource)
@@ -212,8 +218,7 @@ usePool (Pool res limit itime entries inuse state) = fst <$> initResource takeFr
     takeFromPool = join . atomically $ do
         c <- readTVar state
         if c == PoolClosed
-        then throwSTM $ E.ResourceVanished
-                (E.IOEInfo "EPOOLCLOSED" "resource pool is closed" E.callStack)
+        then return E.throwECLOSED
         else do
             es <- readTVar entries
             case es of

@@ -34,7 +34,7 @@ module System.IO.UV.Manager
   , peekBufferTable
   , pokeBufferTable
   , withUVManager
-  , withUVManager'
+  , withUVManager_
   -- * handle/request resources
   , initUVHandle
   , initUVHandleNoSlot
@@ -148,11 +148,11 @@ getBlockMVar uvm slot = do
 -- | Poke a prepared buffer and size into loop data under given slot.
 --
 -- NOTE, this action is not protected with 'withUVManager' for effcient reason, you should merge this action
--- with other uv action and put them together inside a 'withUVManager' or 'withUVManager\''. for example:
+-- with other uv action and put them together inside a 'withUVManager' or 'withUVManager_'. for example:
 --
 --  @@@
 --      ...
---      withUVManager' uvm $ do
+--      withUVManager_ uvm $ do
 --          pokeBufferTable uvm rslot buf len
 --          uvReadStart handle
 --      ...
@@ -230,8 +230,8 @@ withUVManager uvm f = do
 --
 -- In fact most of the libuv's functions are not thread safe, so watch out!
 --
-withUVManager' :: HasCallStack => UVManager -> IO a -> IO a
-withUVManager' uvm f = withUVManager uvm (\ _ -> f)
+withUVManager_ :: HasCallStack => UVManager -> IO a -> IO a
+withUVManager_ uvm f = withUVManager uvm (\ _ -> f)
 
 -- | Start the uv loop
 --
@@ -302,7 +302,7 @@ initUVHandle typ init uvm = initResource
         tryTakeMVar =<< getBlockMVar uvm slot   -- clear the parking spot
         init loop handle `onException` hs_uv_handle_free handle
         return handle)
-    (withUVManager' uvm . hs_uv_handle_close) -- handle is free in uv_close callback
+    (withUVManager_ uvm . hs_uv_handle_close) -- handle is free in uv_close callback
 
 -- | Safely lock an uv manager and perform uv_handle initialization without allocating a slot.
 --
@@ -318,7 +318,7 @@ initUVHandleNoSlot typ init uvm = initResource
         withUVManager uvm $ \ loop ->
             init loop handle `onException` hs_uv_handle_free handle
         return handle)
-    (withUVManager' uvm . hs_uv_handle_close_no_slot) -- handle is free in uv_close callback
+    (withUVManager_ uvm . hs_uv_handle_close_no_slot) -- handle is free in uv_close callback
 
 -- | Safely lock an uv manager and perform uv_req initialization.
 --
@@ -366,15 +366,17 @@ autoResizeUVM (UVManager blockTableRef _ loopDataPtr _ _ _ _) slot = do
 
 --------------------------------------------------------------------------------
 
+data UVInputState = UVInputOpened | UVInputBuffered | UVInputClosed
+
 -- | A higher level wrappe for uv_stream_t
 --
 --
 data UVStream = UVStream
     { uvsHandle     :: {-# UNPACK #-} !(Ptr UVHandle)
-    , uvsReadSlot   :: {-# UNPACK #-} !UVSlot
-    , uvsWriteReq   :: {-# UNPACK #-} !(Ptr UVReq)
-    , uvsWriteSlot  :: {-# UNPACK #-} !UVSlot
-    , uvsManager    :: UVManager
+    , uvsSlot       :: {-# UNPACK #-} !UVSlot       -- Cache to the read slot
+    , uvsState      :: {-# UNPACK #-} !(IORef UVInputState)
+                                    -- This is no need for a lock or atomic ops here
+    , uvsManager    :: UVManager    -- because we only change it inside 'withUVManager'
     }
 
 initUVStream :: HasCallStack
@@ -382,24 +384,20 @@ initUVStream :: HasCallStack
              -> (Ptr UVLoop -> Ptr UVHandle -> IO ())
              -> UVManager
              -> Resource UVStream
-initUVStream typ init uvm =
-    initResource
-        (do withUVManager uvm $ \ loop -> do
-                handle <- throwOOMIfNull (hs_uv_handle_alloc typ loop)
-                req <- throwOOMIfNull (hs_uv_req_alloc uV_WRITE loop)
-                        `onException` (hs_uv_handle_free handle)
-                init loop handle
-                    `onException` (hs_uv_handle_free handle >> hs_uv_req_free req loop)
-
-                rslot <- peekUVHandleData handle
-                wslot <- peekUVReqData req
-                autoResizeUVM uvm rslot
-                autoResizeUVM uvm wslot
-                return (UVStream handle rslot req wslot uvm))
-        (\ (UVStream handle _ req  _ uvm) ->
-            withUVManager uvm $ \ loop -> do
+initUVStream typ init uvm = initResource
+    (withUVManager uvm $ \ loop -> do
+        handle <- throwOOMIfNull (hs_uv_handle_alloc typ loop)
+        (do init loop handle
+            rslot <- peekUVHandleData handle
+            autoResizeUVM uvm rslot
+            closed <- newIORef False
+            return (UVStream handle slot closed uvm)) `onException` hs_uv_handle_free handle)
+    (\ (UVStream handle _ closed uvm) ->
+        withUVManager_ uvm $ do
+            l <- readIORef closed
+            when (l /= UVInputClosed) (do
                 hs_uv_handle_close handle -- handle is free in uv_close callback
-                hs_uv_req_free req loop)
+                writeIORef closed False))
 
 initTCPStream :: HasCallStack => UVManager -> Resource UVStream
 initTCPStream = initUVStream uV_TCP (\ loop handle ->
@@ -418,13 +416,17 @@ initTTYStream fd = initUVStream uV_TTY (\ loop handle ->
     throwUVIfMinus_ (uv_tty_init loop handle (fromIntegral fd)))
 
 instance Input UVStream where
+    inputBuffered (UVStream _ _ state)
     -- readInput :: HasCallStack => UVStream -> Ptr Word8 ->  Int -> IO Int
-    readInput uvs@(UVStream handle rslot _ _ uvm) buf len = do
+    readInput uvs@(UVStream handle closed uvm) buf len = do
+        rslot <- withUVManager_ uvm $ do
+            c <- readIORef closed
+            when c throwECLOSED                 -- guard against closed streams
+            rslot <- peekUVHandleData handle
+            pokeBufferTable uvm rslot buf len   -- prepared buffer for libuv
+            throwUVIfMinus_ (hs_uv_read_start handle)   -- let's read
+            return rslot
         m <- getBlockMVar uvm rslot
-        withUVManager' uvm $ do
-            tryTakeMVar m
-            pokeBufferTable uvm rslot buf len
-            throwUVIfMinus_ (hs_uv_read_start handle)
         takeMVar m
         r <- peekBufferTable uvm rslot
         if  | r > 0  -> return r
@@ -433,10 +435,24 @@ instance Input UVStream where
             | r < 0 ->  throwUVIfMinus (return r)
 
 instance Output UVStream where
+    createWriteUVReq (UVStream handle closed uvm) =
+        withUVManager uvm $ \ loop -> do
+            c <- readIORef closed
+            when c throwECLOSED                 -- guard against closed streams
+            req <- throwOOMIfNull (hs_uv_req_alloc uV_WRITE loop)
+            wslot <- peekUVReqData req
+            autoResizeUVM uvm wslot `onException` hs_uv_req_free req loop
+            return req
+    -- uv_req_t is free in uv_close callback, when we closed the handle
+    destroyWriteUVReq _ _ = return ()
+
     -- writeOutput :: HasCallStack => UVStream -> Ptr Word8 -> Int -> IO ()
-    writeOutput (UVStream handle _ req wslot uvm) buf len = do
+    writeOutput (UVStream handle uvm) req buf len = do
+        wslot <- peekUVReqData req
         m <- getBlockMVar uvm wslot
-        withUVManager' uvm $ do
+        withUVManager_ uvm $ do
+            c <- readIORef closed
+            when c throwECLOSED                 -- guard against closed streams
             tryTakeMVar m
             pokeBufferTable uvm wslot buf len
             throwUVIfMinus_ $ hs_uv_write req handle

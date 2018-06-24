@@ -3,6 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE QuasiQuotes #-}
 
 {-|
 Module      : System.IO.TCP
@@ -108,7 +109,9 @@ defaultServerConfig :: ServerConfig
 defaultServerConfig = ServerConfig
     (SockAddrInet 8888 inetAny)
     128
-    (\ uvs -> writeOutput uvs (Ptr "hello world"#) 11)
+    (\ uvs -> do
+        withResource (newBufferedOutput uvs 0) $ \ o ->
+            writeBytes o [vASCII|hello world|])
     True
     False
 
@@ -127,7 +130,7 @@ startServer ServerConfig{..} = do
         withResource (initTCPStream serverManager) $ \ server -> do
 
             let serverHandle  = uvsHandle server
-                serverSlot    = uvsReadSlot server
+            serverSlot <- peekUVHandleData serverHandle
 
             withResource (initUVHandleNoSlot
                 uV_CHECK
@@ -186,7 +189,7 @@ startServer ServerConfig{..} = do
                 (fromIntegral $ family) serverManager) $ \ server -> do
 
                 let serverHandle  = uvsHandle server
-                    serverSlot    = uvsReadSlot server
+                serverSlot <- peekUVHandleData serverHandle
 
                 withResource (initUVHandleNoSlot
                     uV_CHECK

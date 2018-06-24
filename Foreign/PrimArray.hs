@@ -71,9 +71,6 @@ module Foreign.PrimArray
   , withPrimVectorSafe
   , withPrimSafe
     -- ** FFI resource
-  , initStorable
-  , initBytes
-  , initBytesAligned
   , clearPtr
     -- ** Convert between Addr and Ptr a
   -- ** re-export
@@ -211,33 +208,10 @@ withPrimSafe f = do
 
 --------------------------------------------------------------------------------
 
--- | Create an pinned byte array and use it as a pointer.
---
-initBytes :: Int -> Resource (Ptr a)
-initBytes siz = addrToPtr . fst <$> initResource
-    (do arr <- newPinnedByteArray siz
-        return (mutableByteArrayContents arr, arr))
-    (\ (_, (MutableByteArray mba#)) -> primitive_ (touch# mba#))
-
--- | Create an pinned/aligned byte array and use it as a pointer.
---
-initBytesAligned :: Int -> Int -> Resource (Ptr a)
-initBytesAligned siz alignment = addrToPtr . fst <$> initResource
-    (do arr <- newAlignedPinnedByteArray siz alignment
-        return (mutableByteArrayContents arr, arr))
-    (\ (_, (MutableByteArray mba#)) -> primitive_ (touch# mba#))
-
 -- | Zero a structure.
 clearPtr :: Ptr a -> Int -> IO ()
 clearPtr dest nbytes = memset dest 0 (fromIntegral nbytes)
 foreign import ccall unsafe "string.h" memset :: Ptr a -> CInt -> CSize -> IO ()
-
--- | Create an pinned/aligned byte array and use it as a pointer to a 'Storable' pointer.
---
-initStorable :: forall a. Storable.Storable a => Resource (Ptr a)
-initStorable = initBytesAligned
-    (Storable.sizeOf (undefined :: a))
-    (Storable.alignment (undefined :: a))
 
 -- | Cast between raw address and tagged pointer.
 addrToPtr :: Addr -> Ptr a

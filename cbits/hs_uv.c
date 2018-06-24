@@ -275,10 +275,13 @@ void hs_write_cb(uv_write_t* req, int status){
     size_t slot = (size_t)req->data;
     hs_loop_data* loop_data = req->handle->loop->data;
 
-    loop_data->buffer_size_table[slot] = (ssize_t)status;                   // 0 in case of success, < 0 otherwise.
+    loop_data->buffer_size_table[slot] = (ssize_t)status;       // 0 in case of success, < 0 otherwise.
 
-    loop_data->event_queue[loop_data->event_counter] = slot;   // push the slot to event queue
+    loop_data->event_queue[loop_data->event_counter] = slot;    // push the slot to event queue
     loop_data->event_counter += 1;
+
+    if (status == UV_ECANCELED) { hs_uv_req_free(req); }        // free the uv_req_t, there's no
+                                                                // other place to do it safely.
 }
 
 int hs_uv_write(uv_write_t* req, uv_stream_t* handle){
