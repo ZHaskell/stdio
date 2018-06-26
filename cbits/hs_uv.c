@@ -56,14 +56,25 @@ uv_loop_t* hs_uv_loop_init(size_t siz){
     char** buffer_table = malloc(siz*sizeof(char*));
     ssize_t* buffer_size_table = malloc(siz*sizeof(ssize_t));
     size_t* slot_table = malloc(siz*sizeof(size_t));
+    hs_uv_struct* uv_struct_table = malloc(siz*sizeof(hs_uv_struct));
+
+    uv_async_t* async = malloc(sizeof(uv_async_t));
+    uv_timer_t* timer = malloc(sizeof(uv_timer_t));
 
     if (loop_data == NULL || event_queue == NULL || buffer_table == NULL ||
-                buffer_size_table == NULL || slot_table == NULL){
+            buffer_size_table == NULL || slot_table == NULL ||
+                async == NULL || timer == NULL ||
+                    uv_timer_init(loop, timer) < 0 ||
+                        uv_async_init(loop, async, NULL) < 0){
         free(event_queue);
         free(loop_data);
         free(buffer_table);
         free(buffer_size_table);
         free(slot_table);
+        free(uv_struct_table);
+
+        free(async);
+        free(timer);
 
         uv_loop_close(loop);
         free(loop);
@@ -79,7 +90,10 @@ uv_loop_t* hs_uv_loop_init(size_t siz){
         loop_data->buffer_size_table    = buffer_size_table;
         loop_data->slot_table           = slot_table;
         loop_data->free_slot            = 0;
+        loop_data->uv_struct_table      = uv_struct_table;
         loop_data->size                 = siz;
+        loop_data->async                = async;
+        loop_data->timer                = timer;
         loop->data = loop_data;
         return loop;
     }
@@ -112,14 +126,17 @@ uv_loop_t* hs_uv_loop_resize(uv_loop_t* loop, size_t siz){
     char** buffer_table_new       = realloc(loop_data->buffer_table, (siz*sizeof(char*)));
     ssize_t* buffer_size_table_new = realloc(loop_data->buffer_size_table, (siz*sizeof(ssize_t)));
     size_t* slot_table_new = realloc(loop_data->slot_table, (siz*sizeof(ssize_t)));
+    hs_uv_struct* uv_struct_table_new = realloc(loop_data->uv_struct_table, (siz*sizeof(hs_uv_struct)));
 
     if (event_queue_new == NULL || buffer_table_new == NULL ||
-            buffer_size_table_new == NULL || slot_table_new == NULL){
+            buffer_size_table_new == NULL || slot_table_new == NULL ||
+                uv_struct_table_new == NULL){
         // release new memory
         if (event_queue_new != loop_data->event_queue) free(event_queue_new);
         if (buffer_table_new != loop_data->buffer_table) free(buffer_table_new);
         if (buffer_size_table_new != loop_data->buffer_size_table) free(buffer_size_table_new);
         if (slot_table_new != loop_data->slot_table) free(slot_table_new);
+        if (uv_struct_table_new != loop_data->uv_struct_table) free(uv_struct_table_new);
         return NULL;
     } else {
         for (i = loop_data->size; i < siz; i++) {
@@ -130,6 +147,7 @@ uv_loop_t* hs_uv_loop_resize(uv_loop_t* loop, size_t siz){
         loop_data->buffer_size_table  = buffer_size_table_new;
         loop_data->slot_table         = slot_table_new;
         loop_data->free_slot          = loop_data->size;
+        loop_data->uv_struct_table    = uv_struct_table_new;
         loop_data->size               = siz;
         return loop;
     }
@@ -156,7 +174,28 @@ void hs_uv_loop_close(uv_loop_t* loop){
     free(loop_data->buffer_table);
     free(loop_data->buffer_size_table);
     free(loop_data->slot_table);
+    free(loop_data->uv_struct_table);
+
+    free(loop_data->async);
+    free(loop_data->timer);
+
     free(loop_data);
+    free(loop);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// thread-safe wake up
+
+// A empty callback for wake up uv_run, since timer is not allowed to have NULL callback.
+void uv_timer_wake_cb(uv_timer_t* handle){}
+
+int hs_uv_wake_up(uv_loop_t* loop){
+    hs_loop_data* loop_data = loop->data;
+    return uv_timer_start(loop_data->timer, uv_timer_wake_cb, 1, 1);
+}
+int hs_uv_wake_up_threaded(uv_loop_t* loop){
+    hs_loop_data* loop_data = loop->data;
+    return uv_async_send(loop_data->async);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -188,10 +227,9 @@ uv_handle_t* hs_uv_handle_alloc_no_slot(uv_handle_type typ){
     return malloc(uv_handle_size(typ));
 }
 
-// Free uv_handle_t 's memory & slot
+// Free slot
 void hs_uv_handle_free(uv_handle_t* handle){
     free_slot(handle->loop, (size_t)handle->data);
-    free(handle);
 }
 
 // Free uv_handle_t 's memory only
@@ -536,24 +574,6 @@ int hs_set_socket_reuse(uv_stream_t* server) {
 #endif
 }
 
-
-////////////////////////////////////////////////////////////////////////////////
-// thread-safe wake up
-//
-// A empty callback for wake up uv_run, since timer is not allowed to have NULL callback.
-void uv_timer_wake_cb(uv_timer_t* handle){}
-
-// A timer handler whose sole purpose is to break current uv_run from other threads,
-// this is used with none-threaded GHC rts.
-int hs_uv_timer_wake_start(uv_timer_t* handle, uint64_t timeout){
-    return uv_timer_start(handle, uv_timer_wake_cb, timeout, timeout);
-}
-
-// A async handler whose sole purpose is to break current uv_run from other threads,
-// this is used with multi-threaded GHC rts.
-int hs_uv_async_wake_init(uv_loop_t* loop, uv_async_t* async){
-    return uv_async_init(loop, async, NULL);
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 // fs, none thread pool version

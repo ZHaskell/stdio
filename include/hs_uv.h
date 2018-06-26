@@ -49,6 +49,16 @@ int uv_translate_sys_error(int sys_errno);
 
 ////////////////////////////////////////////////////////////////////////////////
 // loop
+
+typedef union {
+    uv_tcp_t tcp;
+    uv_pipe_t pipe;
+    uv_tty_t tty;
+    uv_udp_t udp;
+    uv_write_t write;
+    uv_udp_send_t udp_send;
+} hs_uv_struct;
+
 typedef struct {
     // following two fields record events during uv_run, inside callback which
     // wants to record a event, push the handler's slot into the queue 
@@ -63,7 +73,15 @@ typedef struct {
     // in the right place, e.g. uv_close_cb.
     size_t*   slot_table;
     size_t    free_slot;
+    // following field is a memory pools for uv_handle_t and uv_req_t struct,
+    // it's inefficient to manange malloced memory in haskell side, so we use
+    // a memory pool to simplify memory management.
+    hs_uv_struct*  uv_struct_table;
     size_t    size;  
+    // following fields are handlers used to wake up event loop under threaded and
+    // non-threaded RTS respectively.
+    uv_async_t* async;
+    uv_timer_t* timer;
 } hs_loop_data;
 
 uv_loop_t* hs_uv_loop_init(size_t siz);
@@ -71,35 +89,23 @@ uv_loop_t* hs_uv_loop_resize(uv_loop_t* loop, size_t siz);
 void hs_uv_loop_close(uv_loop_t* loop);
 
 ////////////////////////////////////////////////////////////////////////////////
-// handle
-uv_handle_t* hs_uv_handle_alloc(uv_handle_type typ, uv_loop_t* loop);
-void hs_uv_handle_free(uv_handle_t* handle);
-void hs_uv_handle_close(uv_handle_t* handle);
-uv_handle_t* hs_uv_handle_alloc_no_slot(uv_handle_type typ);
-void hs_uv_handle_free_no_slot(uv_handle_t* handle);
-void hs_uv_handle_close_no_slot(uv_handle_t* handle);
+// thread-safe wake up
+int hs_uv_wake_up(uv_loop_t* loop);
+int hs_uv_wake_up_threaded(uv_loop_t* loop);
 
 ////////////////////////////////////////////////////////////////////////////////
-// request
-uv_req_t* hs_uv_req_alloc(uv_req_type typ, uv_loop_t* loop);
-void hs_uv_req_free(uv_req_t* req, uv_loop_t* loop);
-uv_req_t* hs_uv_req_alloc_no_slot(uv_req_type typ);
-void hs_uv_req_free_no_slot(uv_req_t* req);
+// handle
+size_t hs_uv_struct_alloc(uv_loop_t* loop);
+void hs_uv_struct_close(size_t slot);
 
 ////////////////////////////////////////////////////////////////////////////////
 // stream
-int hs_uv_read_start(uv_stream_t* stream);
-int hs_uv_write(uv_write_t* req, uv_stream_t* handle);
-
-
-////////////////////////////////////////////////////////////////////////////////
-// thread-safe wake up
-int hs_uv_timer_wake_start(uv_timer_t* handle, uint64_t timeout);
-int hs_uv_async_wake_init(uv_loop_t* loop, uv_async_t* async);
+int hs_uv_read_start(size_t slot);
+int hs_uv_write(size_t slot);
 
 ////////////////////////////////////////////////////////////////////////////////
 // tcp 
-int hs_uv_tcp_open(uv_tcp_t* handle, int sock);
+int hs_uv_tcp_open(size_t slot, int sock);
 int hs_uv_tcp_connect(uv_connect_t* req, uv_tcp_t* handle, const struct sockaddr* addr);
 
 #if defined(_WIN32)
