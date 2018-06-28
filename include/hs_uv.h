@@ -29,6 +29,22 @@
  */
 
 #include <uv.h>
+#include <assert.h>
+#include <HsFFI.h>  // for HsInt
+#include <stdlib.h> // for malloc, free, etc.
+
+#if defined(__sun)
+# include <sys/port.h>
+# include <port.h>
+#endif /* __sun */
+
+#if defined(_AIX)
+# define reqevents events
+# define rtnevents revents
+# include <sys/poll.h>
+#else
+# include <poll.h>
+#endif /* _AIX */
 
 ////////////////////////////////////////////////////////////////////////////////
 // CONSTANT
@@ -56,66 +72,76 @@ typedef union {
     uv_tty_t tty;
     uv_udp_t udp;
     uv_write_t write;
+    uv_connect_t connect;
     uv_udp_send_t udp_send;
+    uv_fs_t fs;
 } hs_uv_struct;
 
 typedef struct {
     // following two fields record events during uv_run, inside callback which
     // wants to record a event, push the handler's slot into the queue 
-    size_t    event_counter;
-    size_t*   event_queue;
+    HsInt    event_counter;
+    HsInt*   event_queue;
     // following two fields provide buffers allocated in haskell to uv_alloc_cb,
     // the buffer_size_table are also used to record operation's result
     char**    buffer_table;
-    ssize_t*  buffer_size_table;
+    HsInt*  buffer_size_table;
     // following fields are used to implemented a stable slot allocator, we used
     // to do slot allocation in haskell, but doing it in C allow us to free slot
     // in the right place, e.g. uv_close_cb.
-    size_t*   slot_table;
-    size_t    free_slot;
-    // following field is a memory pools for uv_handle_t and uv_req_t struct,
+    HsInt*   slot_table;
+    HsInt    free_slot;
+    // following field points a memory pools for uv_handle_t / uv_req_t struct,
     // it's inefficient to manange malloced memory in haskell side, so we use
     // a memory pool to simplify memory management.
     hs_uv_struct*  uv_struct_table;
-    size_t    size;  
+    HsInt    size;  
     // following fields are handlers used to wake up event loop under threaded and
     // non-threaded RTS respectively.
     uv_async_t* async;
     uv_timer_t* timer;
 } hs_loop_data;
 
-uv_loop_t* hs_uv_loop_init(size_t siz);
-uv_loop_t* hs_uv_loop_resize(uv_loop_t* loop, size_t siz);
+uv_loop_t* hs_uv_loop_init(HsInt siz);
+uv_loop_t* hs_uv_loop_resize(uv_loop_t* loop, HsInt siz);
 void hs_uv_loop_close(uv_loop_t* loop);
 
+HsInt alloc_slot(uv_loop_t* loop);
+void free_slot(uv_loop_t* loop, HsInt slot);
+
 ////////////////////////////////////////////////////////////////////////////////
-// thread-safe wake up
-int hs_uv_wake_up(uv_loop_t* loop);
-int hs_uv_wake_up_threaded(uv_loop_t* loop);
+// wake up
+int hs_uv_wake_up_timer(hs_loop_data* loop_data);
+int hs_uv_wake_up_async(hs_loop_data* loop_data);
 
 ////////////////////////////////////////////////////////////////////////////////
 // handle
-size_t hs_uv_struct_alloc(uv_loop_t* loop);
-void hs_uv_struct_close(size_t slot);
+uv_handle_t* hs_uv_handle_alloc(uv_loop_t* loop);
+void hs_uv_handle_free(uv_handle_t* handle);
+void hs_uv_handle_close(uv_handle_t* handle);
+
+////////////////////////////////////////////////////////////////////////////////
+// request
+void hs_uv_cancel(uv_loop_t* loop, HsInt slot);
 
 ////////////////////////////////////////////////////////////////////////////////
 // stream
-int hs_uv_read_start(size_t slot);
-int hs_uv_write(size_t slot);
+int hs_uv_read_start(uv_stream_t* handle);
+HsInt hs_uv_write(uv_stream_t* handle, char* buf, HsInt buf_size);
 
 ////////////////////////////////////////////////////////////////////////////////
 // tcp 
-int hs_uv_tcp_open(size_t slot, int sock);
-int hs_uv_tcp_connect(uv_connect_t* req, uv_tcp_t* handle, const struct sockaddr* addr);
+int hs_uv_tcp_open(uv_tcp_t* handle, int sock);
+HsInt hs_uv_tcp_connect(uv_tcp_t* handle, const struct sockaddr* addr);
 
 #if defined(_WIN32)
+
 #define UV_HANDLE_READING                       0x00000100
 #define UV_HANDLE_BOUND                         0x00000200
 #define UV_HANDLE_LISTENING                     0x00000800
 #define UV_HANDLE_CONNECTION                    0x00001000
 #define UV_HANDLE_READABLE                      0x00008000
 #define UV_HANDLE_WRITABLE                      0x00010000
-
 enum {
   UV__SIGNAL_ONE_SHOT = 0x80000,  /* On signal reception remove sighandler */
   UV__HANDLE_INTERNAL = 0x8000,
@@ -127,12 +153,17 @@ enum {
 #define UV_HANDLE_TCP_ACCEPT_STATE_CHANGING     0x10000000
 extern unsigned int uv_simultaneous_server_accepts;
 extern void uv_tcp_queue_accept(uv_tcp_t* handle, uv_tcp_accept_t* req);
-int32_t hs_uv_tcp_accept(uv_tcp_t* server);
-int32_t hs_uv_pipe_accept(uv_pipe_t* server);
+#else
+void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events);
+#endif
+
+////////////////////////////////////////////////////////////////////////////////
+// fs
 
 // we define file open flag here for compatibility on libuv < v1.16
 // see https://github.com/libuv/libuv/commit/4b666bd2d82a51f1c809b2703a91679789c1ec01#diff-a5e63f9b16ca783355e2d83941c3eafb
 
+#if defined(_WIN32)
 /* fs open() flags supported on this platform: */
 #ifndef UV_FS_O_APPEND
 #define UV_FS_O_APPEND       _O_APPEND
@@ -201,55 +232,7 @@ int32_t hs_uv_pipe_accept(uv_pipe_t* server);
 #endif
 
 #else
-ssize_t read(int fd, void *buf, size_t count); 
-int uv__close(int fd); /* preserves errno */
-int uv__stream_open(uv_stream_t* stream, int fd, int flags);
-typedef struct uv__stream_queued_fds_s uv__stream_queued_fds_t;
-void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events);
-struct uv__stream_queued_fds_s {
-  unsigned int size;
-  unsigned int offset;
-  int fds[1];
-};
-void uv__free(void* ptr);
 
-/* handle flags */
-enum {
-  UV_CLOSING              = 0x01,   /* uv_close() called but not finished. */
-  UV_CLOSED               = 0x02,   /* close(2) finished. */
-  UV_STREAM_READING       = 0x04,   /* uv_read_start() called. */
-  UV_STREAM_SHUTTING      = 0x08,   /* uv_shutdown() called but not complete. */
-  UV_STREAM_SHUT          = 0x10,   /* Write side closed. */
-  UV_STREAM_READABLE      = 0x20,   /* The stream is readable */
-  UV_STREAM_WRITABLE      = 0x40,   /* The stream is writable */
-  UV_STREAM_BLOCKING      = 0x80,   /* Synchronous writes. */
-  UV_STREAM_READ_PARTIAL  = 0x100,  /* read(2) read less than requested. */
-  UV_STREAM_READ_EOF      = 0x200,  /* read(2) read EOF. */
-  UV_TCP_NODELAY          = 0x400,  /* Disable Nagle. */
-  UV_TCP_KEEPALIVE        = 0x800,  /* Turn on keep-alive. */
-  UV_TCP_SINGLE_ACCEPT    = 0x1000, /* Only accept() when idle. */
-  UV_HANDLE_IPV6          = 0x10000, /* Handle is bound to a IPv6 socket. */
-  UV_UDP_PROCESSING       = 0x20000, /* Handle is running the send callback queue. */
-  UV_HANDLE_BOUND         = 0x40000  /* Handle is bound to an address and port */
-};
-
-#if defined(__sun)
-# include <sys/port.h>
-# include <port.h>
-#endif /* __sun */
-
-#if defined(_AIX)
-# define reqevents events
-# define rtnevents revents
-# include <sys/poll.h>
-#else
-# include <poll.h>
-#endif /* _AIX */
-
-// we define file open flag here for compatibility on libuv < v1.16
-// see https://github.com/libuv/libuv/commit/4b666bd2d82a51f1c809b2703a91679789c1ec01#diff-a5e63f9b16ca783355e2d83941c3eafb
-
-/* fs open() flags supported on this platform: */
 #ifndef UV_FS_O_APPEND
 #if defined(O_APPEND)
 # define UV_FS_O_APPEND       O_APPEND
@@ -386,6 +369,4 @@ enum {
 
 #endif
 
-////////////////////////////////////////////////////////////////////////////////
-// fs
 void hs_uv_fs_callback(uv_fs_t* req);

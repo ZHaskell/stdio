@@ -23,3 +23,7 @@ net.createServer().listen(
   path.join('\\\\?\\pipe', process.cwd(), 'myctl'));
 
 -}
+
+initPipeStream :: HasCallStack => UVManager -> Resource UVStream
+initPipeStream = initUVStream uV_NAMED_PIPE (\ loop handle ->
+    throwUVIfMinus_ (uv_pipe_init loop handle 0))

@@ -212,8 +212,7 @@ usePool (Pool res limit itime entries inuse state) = fst <$> initResource takeFr
     takeFromPool = join . atomically $ do
         c <- readTVar state
         if c == PoolClosed
-        then throwSTM $ E.ResourceVanished
-                (E.IOEInfo "EPOOLCLOSED" "resource pool is closed" E.callStack)
+        then return E.throwECLOSED
         else do
             es <- readTVar entries
             case es of
