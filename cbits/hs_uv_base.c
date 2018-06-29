@@ -29,6 +29,7 @@
  */
 
 #include <hs_uv.h>
+#include <stdio.h>
 
 ////////////////////////////////////////////////////////////////////////////////
 // loop
@@ -132,7 +133,8 @@ uv_loop_t* hs_uv_loop_resize(uv_loop_t* loop, HsInt siz){
         loop_data->buffer_size_table  = buffer_size_table_new;
         loop_data->slot_table         = slot_table_new;
         loop_data->free_slot          = loop_data->size;
-        loop_data->uv_struct_table[loop_data->resize] = uv_struct_table_block;
+        loop_data->uv_struct_table    = uv_struct_table_new;
+        uv_struct_table_new[loop_data->resize] = uv_struct_table_block;
         loop_data->size               = siz;
         return loop;
     }

@@ -83,6 +83,8 @@ HsInt hs_uv_write(uv_stream_t* handle, char* buf, HsInt buf_siz){
     uv_loop_t* loop = handle->loop;
     hs_loop_data* loop_data = loop->data;
     HsInt slot = alloc_slot(loop);
+    assert(slot > 0);
+    assert(slot < loop_data->size);
     uv_write_t* req = 
         (uv_write_t*)fetch_uv_struct(loop_data, slot);
     req->data = (void*)slot;
