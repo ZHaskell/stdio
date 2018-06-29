@@ -33,6 +33,8 @@
 #include <HsFFI.h>  // for HsInt
 #include <stdlib.h> // for malloc, free, etc.
 
+#if !defined(_WIN32)
+
 #if defined(__sun)
 # include <sys/port.h>
 # include <port.h>
@@ -45,6 +47,8 @@
 #else
 # include <poll.h>
 #endif /* _AIX */
+
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////
 // CONSTANT
@@ -257,8 +261,11 @@ enum {
 #define UV_HANDLE_TCP_ACCEPT_STATE_CHANGING     0x10000000
 extern unsigned int uv_simultaneous_server_accepts;
 extern void uv_tcp_queue_accept(uv_tcp_t* handle, uv_tcp_accept_t* req);
+
 #else
+
 void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events);
+
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////

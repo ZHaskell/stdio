@@ -146,7 +146,7 @@ HsInt alloc_slot(hs_loop_data* loop_data){
     loop_data->free_slot = loop_data->slot_table[r];
     // the slot exceed range, we should resize
     if (r == loop_data->size-1 &&
-        hs_uv_loop_resize(loop_data, (loop_data->size) * 2) == NULL) {
+        hs_uv_loop_resize(loop_data, (loop_data->size) << 1) == NULL) {
         return -1;
     }
     return r;
