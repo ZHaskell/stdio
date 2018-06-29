@@ -160,6 +160,7 @@ void free_slot(hs_loop_data* loop_data, HsInt slot){
 hs_uv_struct* fetch_uv_struct(hs_loop_data* loop_data, HsInt slot){
     int bits = 0;
     HsInt slot2 = slot >> INIT_LOOP_SIZE_BIT;
+    // __builtin_clz may be a good idea
     while (slot2 > 0){ bits += 1; slot2 = slot2 >> 1; }
     if (bits == 0)
         return loop_data->uv_struct_table[bits] + slot;

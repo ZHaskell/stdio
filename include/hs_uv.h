@@ -67,46 +67,145 @@ int uv_translate_sys_error(int sys_errno);
 
 ////////////////////////////////////////////////////////////////////////////////
 // loop
-
+//
+// the memory pool item struct, we use the largest possible value,
+// except uv_getnameinfo_t, which is too large than average :(
+//
+// following size data is from libuv v1.12, in bytes
+//                         win  unix
+// uv_timer_t        : 160  152
+// uv_prepare_t      : 120  120
+// uv_check_t        : 120  120
+// uv_idle_t         : 120  120
+// uv_async_t        : 224  128
+// uv_poll_t         : 416  160
+// uv_signal_t       : 264  152
+// uv_process_t      : 264  136
+// uv_tcp_t          : 320  248
+// uv_pipe_t         : 576  264
+// uv_tty_t          : 344  312
+// uv_udp_t          : 424  216
+// uv_fs_event_t     : 272  136
+// uv_fs_poll_t      : 104  104
+// uv_req_t          : 112  64
+// uv_getaddrinfo_t  : 216  160
+// uv_getnameinfo_t  : 1368 1320  !too large
+// uv_shutdown_t     : 128  80
+// uv_write_t        : 176  192
+// uv_connect_t      : 128  96
+// uv_udp_send_t     : 128  320
+// uv_fs_t           : 456  440
+// uv_work_t         : 176  128
 typedef union {
-    // handles
-    uv_tcp_t tcp;
-    uv_pipe_t pipe;
-    uv_tty_t tty;
-    uv_udp_t udp;
-    uv_check_t check;
-    // requests
-    uv_write_t write;
-    uv_connect_t connect;
-    uv_udp_send_t udp_send;
-    uv_fs_t fs;
+    uv_timer_t          timer_t      ;
+    uv_prepare_t        prepare_t    ;
+    uv_check_t          check_t      ;
+    uv_idle_t           idle_t       ;
+    uv_async_t          async_t      ;
+    uv_poll_t           poll_t       ;
+    uv_signal_t         signal_t     ;
+    uv_process_t        process_t    ;
+    uv_tcp_t            tcp_t        ;
+    uv_pipe_t           pipe_t       ;
+    uv_tty_t            tty_t        ;
+    uv_udp_t            udp_t        ;
+    uv_fs_event_t       fs_event_t   ;
+    uv_fs_poll_t        fs_poll_t    ;
+    uv_req_t            req_t        ;
+    uv_getaddrinfo_t    getaddrinfo_t;
+//   uv_getnameinfo_t    getnameinfo_t; !too large
+    uv_shutdown_t       shutdown_t   ;
+    uv_write_t          write_t      ;
+    uv_connect_t        connect_t    ;
+    uv_udp_send_t       udp_send_t   ;
+    uv_fs_t             fs_t         ;
+    uv_work_t           work_t       ;
 } hs_uv_struct;
 
 typedef struct {
     // following two fields record events during uv_run, inside callback which
-    // wants to record a event, push the handler's slot into the queue 
+    // wants to record a event, push the handler's slot into the queue
     HsInt   event_counter;
     HsInt*  event_queue;
     // following two fields provide buffers allocated in haskell to uv_alloc_cb,
     // the buffer_size_table are also used to record operation's result
     char**  buffer_table;
     HsInt*  buffer_size_table;
-    // following fields are used to implemented a stable slot allocator, we used
-    // to do slot allocation in haskell, but doing it in C allow us to free slot
-    // in the right place, e.g. uv_close_cb.
+    // following fields are used to implemented a stable slot allocator
+    // see note below
     HsInt*  slot_table;
     HsInt   free_slot;
-    // following field points a memory pools for uv_handle_t / uv_req_t struct,
-    // it's inefficient to manange malloced memory in haskell side, so we use
-    // a memory pool to simplify memory management.
+    // uv_struct_table field is a memory pool for uv_handle_t / uv_req_t struct,
+    // see note below
     hs_uv_struct**  uv_struct_table;
-    HsInt   size;  
-    size_t  resize;  
+    HsInt   size;
+    size_t  resize;
     // following fields are handlers used to wake up event loop under threaded and
     // non-threaded RTS respectively.
     uv_async_t* async;
     uv_timer_t* timer;
 } hs_loop_data;
+// Note: the stable pointer allocator
+//
+// we used to do slot allocation in haskell, but doing it in C allow us to free slot
+// in the right place, e.g. uv_close_cb. The allocator use the same algorithm with
+// ghc's stable pointer table. When initialized, it's looked like:
+//
+//  slot_table->[0][1][2][3]...[INIT_LOOP_SIZE-1]
+//               |  |  |  |
+//              =1 =2 =3 =4 ...
+//  free_slot = 0
+//
+// Every time we allocate a slot, we return current free_slot, and set the free_slot to
+// slot_table[free_slot], so after 3 allocation, it's looked like
+//
+//  slot_table->[0][1][2][3]...[INIT_LOOP_SIZE-1]
+//               |  |  |  |
+//              =1 =2 =3 =4 ...
+//  free_slot = 3
+//
+// When we free slot x, we set slot_table[x] to current free_slot, and free_slot
+// to x. Now let's say we return slot 1, it will be looked like
+//
+//  slot_table->[0][1][2][3]...[INIT_LOOP_SIZE-1]
+//               |  |  |  |
+//              =1 =3 =3 =4 ...
+//  free_slot = 1
+//
+// Next time allocation will give 1 back to us, and free_slot will continue point to 3.
+//
+////////////////////////////////////////////////////////////////////////////////
+//
+// Note: uv_handle_t/uv_req_t memory pool
+//
+// The reasons to use a memory pool for uv structs are:
+//
+// 1. A malloc/free per request is inefficient.
+// 2. It's diffcult to manange if we use haskell heap(pinned).
+// 3. uv structs are small mostly.
+//
+// The memory pool is grow on demand, when initialized, it's looked like:
+//
+// uv_struct_table [0]
+//                  |
+//                  V
+//      struct_block[INIT_LOOP_SIZE]
+//
+// After several loop data resize, it will be looked like:
+//
+// uv_struct_table [0]                [1]                [2] ...
+//                  |                  |                  |
+//                  V                  |                  |
+//      struct_block[INIT_LOOP_SIZE]   V                  |
+//                        struct_block[INIT_LOOP_SIZE]    V
+//                                            struct_block[INIT_LOOP_SIZE*2]
+//                                                                            .
+//                                                                            .
+//                                                                            .
+// That is, we keep the total number of items sync with loop->data->size, while
+// not touching previously allocated blocks, so that the structs are never moved.
+//
+// Check fetch_uv_struct below to see how do we get struct's address by slot.
 
 uv_loop_t* hs_uv_loop_init(HsInt siz);
 void hs_uv_loop_close(uv_loop_t* loop);
@@ -135,7 +234,7 @@ int hs_uv_read_start(uv_stream_t* handle);
 HsInt hs_uv_write(uv_stream_t* handle, char* buf, HsInt buf_size);
 
 ////////////////////////////////////////////////////////////////////////////////
-// tcp 
+// tcp
 int hs_uv_tcp_open(uv_tcp_t* handle, int sock);
 HsInt hs_uv_tcp_connect(uv_tcp_t* handle, const struct sockaddr* addr);
 
