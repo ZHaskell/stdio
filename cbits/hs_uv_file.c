@@ -32,6 +32,7 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 // fs, none thread pool version
+//
 // we wrappered non-threaded pool version functions, so that we can move the allocation
 // of uv_fs_t to stack, most of the functions can be optimized in this way.
 // in none thread pool version, req->result is directly returned.
@@ -45,29 +46,23 @@ int32_t hs_uv_fs_open(const char* path, int flags, int mode){
 
 int hs_uv_fs_close(int32_t file){
     uv_fs_t req;
-    int r = uv_fs_close(NULL, &req, file, NULL);
+    int r = uv_fs_close(NULL, &req, (uv_file)file, NULL);
     uv_fs_req_cleanup(&req);
     return r;
 }
 
-ssize_t hs_uv_fs_read(int32_t file, char* buffer, size_t buffer_size, int64_t offset){
+HsInt hs_uv_fs_read(int32_t file, char* buffer, HsInt buffer_size, int64_t offset){
     uv_fs_t req;
-    uv_buf_t buf = { 
-        .base = buffer,
-        .len = buffer_size
-    };
-    uv_fs_read(NULL, &req, file, &buf, 1, offset, NULL);
-    return req.result;
+    uv_buf_t buf = { .base = buffer, .len = (size_t)buffer_size };
+    uv_fs_read(NULL, &req, (uv_file)file, &buf, 1, offset, NULL);
+    return (HsInt)req.result;
 }
 
-ssize_t hs_uv_fs_write(int32_t file, char* buffer, size_t buffer_size, int64_t offset){
+HsInt hs_uv_fs_write(int32_t file, char* buffer, HsInt buffer_size, int64_t offset){
     uv_fs_t req;
-    uv_buf_t buf = { 
-        .base = buffer,
-        .len = buffer_size
-    };
-    uv_fs_write(NULL, &req, file, &buf, 1, offset, NULL);
-    return req.result;
+    uv_buf_t buf = { .base = buffer, .len = (size_t)buffer_size };
+    uv_fs_write(NULL, &req, (uv_file)file, &buf, 1, offset, NULL);
+    return (HsInt)req.result;
 }
 
 int hs_uv_fs_unlink(char* path){
@@ -100,7 +95,7 @@ HsInt hs_uv_fs_open_threaded(uv_loop_t* loop, const char* path, int flags, int m
     hs_loop_data* loop_data = loop->data;
     HsInt slot = alloc_slot(loop);
     uv_fs_t* req = 
-        (uv_fs_t*)loop_data->uv_struct_table + (slot*sizeof(hs_uv_struct));
+        (uv_fs_t*)fetch_uv_struct(loop_data, slot);
     req->data = (void*)slot;
 
     int r = uv_fs_open(NULL, req, path, flags, mode, hs_uv_fs_callback);
@@ -114,7 +109,7 @@ HsInt hs_uv_fs_close_threaded(uv_loop_t* loop, int32_t file){
     hs_loop_data* loop_data = loop->data;
     HsInt slot = alloc_slot(loop);
     uv_fs_t* req = 
-        (uv_fs_t*)loop_data->uv_struct_table + (slot*sizeof(hs_uv_struct));
+        (uv_fs_t*)fetch_uv_struct(loop_data, slot);
     req->data = (void*)slot;
     int r = uv_fs_close(loop, req, (uv_file)file, hs_uv_fs_callback);
     if (r < 0) {
@@ -123,3 +118,56 @@ HsInt hs_uv_fs_close_threaded(uv_loop_t* loop, int32_t file){
     } else return slot;
 }
 
+HsInt hs_uv_fs_read_threaded(uv_loop_t* loop, int32_t file, char* buffer, HsInt buffer_size, int64_t offset){
+    hs_loop_data* loop_data = loop->data;
+    HsInt slot = alloc_slot(loop);
+    uv_fs_t* req = 
+        (uv_fs_t*)fetch_uv_struct(loop_data, slot);
+    req->data = (void*)slot;
+    uv_buf_t buf = { .base = buffer, .len = (size_t)buffer_size };
+    int r = uv_fs_read(loop, req, (uv_file)file, &buf, 1, offset, hs_uv_fs_callback);
+    if (r < 0) {
+        free_slot(loop, slot);
+        return (HsInt)r;
+    } else return slot;
+}
+
+HsInt hs_uv_fs_write_threaded(uv_loop_t* loop, int32_t file, char* buffer, HsInt buffer_size, int64_t offset){
+    hs_loop_data* loop_data = loop->data;
+    HsInt slot = alloc_slot(loop);
+    uv_fs_t* req = 
+        (uv_fs_t*)fetch_uv_struct(loop_data, slot);
+    req->data = (void*)slot;
+    uv_buf_t buf = { .base = buffer, .len = (size_t)buffer_size };
+    int r = uv_fs_write(loop, req, (uv_file)file, &buf, 1, offset, hs_uv_fs_callback);
+    if (r < 0) {
+        free_slot(loop, slot);
+        return (HsInt)r;
+    } else return slot;
+}
+
+HsInt hs_uv_fs_unlink_threaded(uv_loop_t* loop, char* path){
+    hs_loop_data* loop_data = loop->data;
+    HsInt slot = alloc_slot(loop);
+    uv_fs_t* req = 
+        (uv_fs_t*)fetch_uv_struct(loop_data, slot);
+    req->data = (void*)slot;
+    int r = uv_fs_unlink(loop, req, path, hs_uv_fs_callback);
+    if (r < 0) {
+        free_slot(loop, slot);
+        return (HsInt)r;
+    } else return slot;
+}
+
+HsInt hs_uv_fs_mkdir_threaded(uv_loop_t* loop, char* path, int mode){
+    hs_loop_data* loop_data = loop->data;
+    HsInt slot = alloc_slot(loop);
+    uv_fs_t* req = 
+        (uv_fs_t*)fetch_uv_struct(loop_data, slot);
+    req->data = (void*)slot;
+    int r = uv_fs_mkdir(loop, req, path, mode, hs_uv_fs_callback);
+    if (r < 0) {
+        free_slot(loop, slot);
+        return (HsInt)r;
+    } else return slot;
+}

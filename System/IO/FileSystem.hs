@@ -27,14 +27,16 @@ module System.IO.FileSystem
   -- * Operations
   , open
   , read
-  , readT
   , write
+  , mkdir
+  , mkdirTP
   ) where
 
 import Prelude hiding (read)
 
 import Control.Monad (void)
 import Control.Monad.IO.Class
+import Data.CBytes
 import Data.Word (Word8)
 import System.IO (FilePath)
 import System.IO.Exception
@@ -54,14 +56,15 @@ defaultMode = 0o666
 
 -- | Open a file and get the descriptor
 open :: HasCallStack
-     => FilePath
+     => CBytes
      -> UVFileFlag
      -> UVFileMode
      -- ^ Sets the file mode (permission and sticky bits),
      -- but only if the file was created, see 'defaultMode'.
      -> Resource UVFD
 open path flags mode = do
-    path' <- initResource (newCString path) free
+    withCBytes path $ \ p ->
+
     initResource
         (hs_uv_fs_open path' flags mode)
         (void . hs_uv_fs_close)
@@ -78,22 +81,6 @@ read fd size offset = do
     liftIO $ throwUVIfMinus_ $ hs_uv_fs_read fd buf size' offset'
     return buf
 
--- | Read a file, threaded version
--- The buffer shouldn't be read before the request is completed
-readT :: UVManager
-      -> UVFD
-      -> Int
-      -> Int
-      -> Resource (Ptr UVFSReq, Ptr Word8)
-readT mgr fd size offset = do
-    let size' = fromIntegral size
-        offset' = fromIntegral offset
-    req <- initUVFS (\_ _ _ -> return ()) mgr
-    buf <- initResource (mallocBytes size :: IO (Ptr Word8)) free
-    liftIO $ withUVManager mgr $ \loop ->
-        throwUVIfMinus_ $ hs_uv_fs_read_threaded loop req fd buf size' offset'
-    return (req, buf)
-
 -- | Read a file, non-threaded version
 write :: UVFD
       -> Ptr Word8
@@ -105,15 +92,19 @@ write fd buf size offset = do
         offset' = fromIntegral offset
     throwUVIfMinus_ $ hs_uv_fs_write fd buf size' offset'
 
+
+
+mkdir :: CBytes -> UVFileMode -> IO ()
+mkdir path mode =
+    throwUVIfMinus_ . withCBytes path $ \ p -> hs_uv_fs_mkdir p mode
+
+mkdirTP :: CBytes -> UVFileMode -> IO ()
+mkdirTP path mode = do
+    uvm <- getUVManager
+    withCBytes path $ \ p ->
+        withUVManagerWrap_ uvm $ \ loop -> hs_uv_fs_mkdir_threaded loop p mode
+
 {-
-
-data UVFile = UVFile
-    { uvFileFd     :: {-# UNPACK #-} UVFD
-    , uvFileReq    :: {-# UNPACK #-} UVReq
-    , uvFileSlot   :: {-# UNPACK #-} Int
-    }
-
-newtype UVFileT = UVFileT { uvFile :: UVFile }
 
 --------------------------------------------------------------------------------
 --

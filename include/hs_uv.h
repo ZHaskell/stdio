@@ -49,6 +49,8 @@
 ////////////////////////////////////////////////////////////////////////////////
 // CONSTANT
 #define ACCEPT_BUFFER_SIZE 1024
+#define INIT_LOOP_SIZE 128
+#define INIT_LOOP_SIZE_BIT 7
 
 #if defined(__linux__) && defined(SO_REUSEPORT)
 #define SO_REUSEPORT_LOAD_BALANCE 1
@@ -67,10 +69,13 @@ int uv_translate_sys_error(int sys_errno);
 // loop
 
 typedef union {
+    // handles
     uv_tcp_t tcp;
     uv_pipe_t pipe;
     uv_tty_t tty;
     uv_udp_t udp;
+    uv_check_t check;
+    // requests
     uv_write_t write;
     uv_connect_t connect;
     uv_udp_send_t udp_send;
@@ -80,22 +85,23 @@ typedef union {
 typedef struct {
     // following two fields record events during uv_run, inside callback which
     // wants to record a event, push the handler's slot into the queue 
-    HsInt    event_counter;
-    HsInt*   event_queue;
+    HsInt   event_counter;
+    HsInt*  event_queue;
     // following two fields provide buffers allocated in haskell to uv_alloc_cb,
     // the buffer_size_table are also used to record operation's result
-    char**    buffer_table;
+    char**  buffer_table;
     HsInt*  buffer_size_table;
     // following fields are used to implemented a stable slot allocator, we used
     // to do slot allocation in haskell, but doing it in C allow us to free slot
     // in the right place, e.g. uv_close_cb.
-    HsInt*   slot_table;
-    HsInt    free_slot;
+    HsInt*  slot_table;
+    HsInt   free_slot;
     // following field points a memory pools for uv_handle_t / uv_req_t struct,
     // it's inefficient to manange malloced memory in haskell side, so we use
     // a memory pool to simplify memory management.
-    hs_uv_struct*  uv_struct_table;
-    HsInt    size;  
+    hs_uv_struct**  uv_struct_table;
+    HsInt   size;  
+    size_t  resize;  
     // following fields are handlers used to wake up event loop under threaded and
     // non-threaded RTS respectively.
     uv_async_t* async;
@@ -103,11 +109,10 @@ typedef struct {
 } hs_loop_data;
 
 uv_loop_t* hs_uv_loop_init(HsInt siz);
-uv_loop_t* hs_uv_loop_resize(uv_loop_t* loop, HsInt siz);
 void hs_uv_loop_close(uv_loop_t* loop);
-
 HsInt alloc_slot(uv_loop_t* loop);
 void free_slot(uv_loop_t* loop, HsInt slot);
+hs_uv_struct* fetch_uv_struct(hs_loop_data* loop_data, HsInt slot);
 
 ////////////////////////////////////////////////////////////////////////////////
 // wake up
@@ -369,4 +374,20 @@ void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events);
 
 #endif
 
-void hs_uv_fs_callback(uv_fs_t* req);
+////////////////////////////////////////////////////////////////////////////////
+// fs, none thread pool version
+int32_t hs_uv_fs_open(const char* path, int flags, int mode);
+int hs_uv_fs_close(int32_t file);
+HsInt hs_uv_fs_read(int32_t file, char* buffer, HsInt buffer_size, int64_t offset);
+HsInt hs_uv_fs_write(int32_t file, char* buffer, HsInt buffer_size, int64_t offset);
+int hs_uv_fs_unlink(char* path);
+int hs_uv_fs_mkdir(char* path, int mode);
+
+////////////////////////////////////////////////////////////////////////////////
+// fs, thread pool version
+HsInt hs_uv_fs_open_threaded(uv_loop_t* loop, const char* path, int flags, int mode);
+HsInt hs_uv_fs_close_threaded(uv_loop_t* loop, int32_t file);
+HsInt hs_uv_fs_read_threaded(uv_loop_t* loop, int32_t file, char* buffer, HsInt buffer_size, int64_t offset);
+HsInt hs_uv_fs_write_threaded(uv_loop_t* loop, int32_t file, char* buffer, HsInt buffer_size, int64_t offset);
+HsInt hs_uv_fs_unlink_threaded(uv_loop_t* loop, char* path);
+HsInt hs_uv_fs_mkdir_threaded(uv_loop_t* loop, char* path, int mode);

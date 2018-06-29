@@ -84,15 +84,15 @@ HsInt hs_uv_write(uv_stream_t* handle, char* buf, HsInt buf_siz){
     hs_loop_data* loop_data = loop->data;
     HsInt slot = alloc_slot(loop);
     uv_write_t* req = 
-        (uv_write_t*)loop_data->uv_struct_table + (slot*sizeof(hs_uv_struct));
+        (uv_write_t*)fetch_uv_struct(loop_data, slot);
     req->data = (void*)slot;
 
     // on windows this struct is captured by WSASend
     // on unix this struct is copied by libuv's uv_write
     // so it's safe to allocate it on stack
-    uv_buf_t buf_t = { .base = buf, .len = buf_siz };
+    uv_buf_t buf_t = { .base = buf, .len = (size_t)buf_siz };
     
-    int r = uv_write(req, handle, &buf_t, 1, hs_write_cb);   // we never use writev: we do our own
+    int r = uv_write(req, handle, &buf_t, 1, hs_write_cb); // we never use writev: we do our own
                                                            // user-space buffering in haskell.
     if (r < 0) {
         free_slot(loop, slot);  // free the uv_req_t, the callback won't fired
@@ -156,7 +156,7 @@ HsInt hs_uv_tcp_connect(uv_tcp_t* handle, const struct sockaddr* addr){
     hs_loop_data* loop_data = loop->data;
     HsInt slot = alloc_slot(loop);
     uv_connect_t* req = 
-        (uv_connect_t*)loop_data->uv_struct_table + (slot*sizeof(hs_uv_struct));
+        (uv_connect_t*)fetch_uv_struct(loop_data, slot);
     req->data = (void*)slot;
     int r = uv_tcp_connect(req, handle, addr, hs_connect_cb);
     if (r < 0) {
@@ -265,7 +265,8 @@ void hs_listen_cb(uv_stream_t* server, int status){
     hs_loop_data* loop_data = server->loop->data;
     assert(slot < loop_data->size);
 
-    int32_t* accept_buf = (int32_t*)loop_data->buffer_table[slot];      // fetch accept buffer from buffer_table table
+    // fetch accept buffer from buffer_table table
+    int32_t* accept_buf = (int32_t*)loop_data->buffer_table[slot];     
     HsInt accepted_number = loop_data->buffer_size_table[slot];
 
     if (status == 0) {
@@ -340,7 +341,7 @@ void hs_accept_check_cb(uv_check_t* check){
 uv_check_t* hs_uv_accept_check_init(uv_stream_t* server){
     uv_check_t* check = malloc(sizeof(uv_check_t));
     if (check == NULL) return NULL;
-    check->data = (void*)server;    // we link server to the buffer field
+    check->data = (void*)server;    // we link server to check's data field
 
     if (uv_check_init(server->loop, check) < 0) {
         free(check);

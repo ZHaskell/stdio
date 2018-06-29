@@ -23,12 +23,17 @@ import System.IO.Net.SockAddr (SockAddr, SocketFamily(..))
 --------------------------------------------------------------------------------
 -- Type alias
 type UVSlot = Int
+newtype UVSlotUnSafe = UVSlotUnSafe { unsafeGetSlot :: UVSlot }
 type UVFD = Int32
 
 --------------------------------------------------------------------------------
 -- CONSTANT
+aCCEPT_BUFFER_SIZE :: Int
 aCCEPT_BUFFER_SIZE = #const ACCEPT_BUFFER_SIZE
+sO_REUSEPORT_LOAD_BALANCE :: Int
 sO_REUSEPORT_LOAD_BALANCE = #const SO_REUSEPORT_LOAD_BALANCE
+iNIT_LOOP_SIZE :: Int
+iNIT_LOOP_SIZE = #const INIT_LOOP_SIZE
 
 --------------------------------------------------------------------------------
 -- loop
@@ -82,8 +87,8 @@ foreign import ccall unsafe hs_uv_wake_up_async :: Ptr UVLoopData -> IO CInt
 -- handle
 data UVHandle
 
-peekUVHandleData :: Ptr UVHandle -> IO UVSlot
-peekUVHandleData p =  fromIntegral <$> (#{peek uv_handle_t, data} p :: IO Int)
+peekUVHandleData :: Ptr UVHandle -> IO UVSlotUnSafe
+peekUVHandleData p =  UVSlotUnSafe <$> (#{peek uv_handle_t, data} p :: IO Int)
 
 foreign import ccall unsafe hs_uv_fileno :: Ptr UVHandle -> IO UVFD
 foreign import ccall unsafe hs_uv_handle_alloc :: Ptr UVLoop -> IO (Ptr UVHandle)
@@ -93,7 +98,7 @@ foreign import ccall unsafe hs_uv_handle_close :: Ptr UVHandle -> IO ()
 --------------------------------------------------------------------------------
 -- request
 
-foreign import ccall unsafe hs_uv_cancel :: Ptr UVLoop -> UVSlot -> IO ()
+-- foreign import ccall unsafe hs_uv_cancel :: Ptr UVLoop -> UVSlot -> IO ()
 
 --------------------------------------------------------------------------------
 -- tcp
@@ -106,7 +111,7 @@ foreign import ccall unsafe uv_tcp_keepalive :: Ptr UVHandle -> CInt -> CUInt ->
 uV_TCP_IPV6ONLY :: CUInt
 uV_TCP_IPV6ONLY = #{const UV_TCP_IPV6ONLY}
 foreign import ccall unsafe uv_tcp_bind :: Ptr UVHandle -> Ptr SockAddr -> CUInt -> IO CInt
-foreign import ccall unsafe hs_uv_tcp_connect :: Ptr UVHandle -> Ptr SockAddr -> IO UVSlot
+foreign import ccall unsafe hs_uv_tcp_connect :: Ptr UVHandle -> Ptr SockAddr -> IO UVSlotUnSafe
 foreign import ccall unsafe hs_uv_listen  :: Ptr UVHandle -> CInt -> IO CInt
 foreign import ccall unsafe "hs_uv_listen_resume" uvListenResume :: Ptr UVHandle -> IO ()
 foreign import ccall unsafe hs_set_socket_reuse :: Ptr UVHandle -> IO CInt
@@ -121,7 +126,7 @@ foreign import ccall unsafe uv_pipe_init :: Ptr UVLoop -> Ptr UVHandle -> CInt -
 --------------------------------------------------------------------------------
 -- stream
 foreign import ccall unsafe hs_uv_read_start :: Ptr UVHandle -> IO CInt
-foreign import ccall unsafe hs_uv_write :: Ptr UVHandle -> Ptr Word8 -> Int -> IO UVSlot
+foreign import ccall unsafe hs_uv_write :: Ptr UVHandle -> Ptr Word8 -> Int -> IO UVSlotUnSafe
 
 --------------------------------------------------------------------------------
 -- tty
@@ -138,21 +143,6 @@ foreign import ccall unsafe uv_tty_init :: Ptr UVLoop -> Ptr UVHandle -> CInt ->
 --------------------------------------------------------------------------------
 -- fs
 
--- | FileSystem request. Casteable to `UVReq`.
-data UVFSReq
-
--- | Result of the request. < 0 means error, success otherwise.
--- On requests such as reads and writes it indicates
--- the amount of data that was read or written, respectively.
-peekUVFSReqResult :: Ptr UVFSReq -> IO CInt
-peekUVFSReqResult p = fromIntegral <$> (#{peek uv_fs_t, result} p :: IO Int)
-
-foreign import ccall uv_fs_req_cleanup :: Ptr UVFSReq -> IO () 
-
-type UVFSCallBack = FunPtr (Ptr UVFSReq -> IO ())
-
-foreign import ccall "hs_uv.h &hs_uv_fs_callback" uvFSCallBack :: UVFSCallBack
-
 type UVFileMode = Int32
 newtype UVFileFlag = UVFileFlag CInt
     deriving (Bounded, Enum, Eq, Integral, Num, Ord, Read, Real, Show, FiniteBits, Bits, Storable)
@@ -166,8 +156,18 @@ foreign import ccall unsafe hs_uv_fs_unlink :: CString -> IO CInt
 foreign import ccall unsafe hs_uv_fs_mkdir :: CString -> UVFileMode -> IO CInt
 
 -- threaded functions
-foreign import ccall unsafe hs_uv_fs_close_threaded :: Ptr UVLoop -> Ptr UVFSReq -> UVFD -> IO CInt
-foreign import ccall unsafe hs_uv_fs_open_threaded :: Ptr UVLoop -> CString -> UVFileFlag -> UVFileMode -> IO UVFD
+foreign import ccall unsafe hs_uv_fs_open_threaded 
+    :: Ptr UVLoop -> CString -> UVFileFlag -> UVFileMode -> IO UVSlotUnSafe
+foreign import ccall unsafe hs_uv_fs_close_threaded 
+    :: Ptr UVLoop -> UVFD -> IO UVSlotUnSafe
+foreign import ccall unsafe hs_uv_fs_read_threaded  
+    :: Ptr UVLoop -> UVFD -> Ptr Word8 -> CInt -> CInt -> IO UVSlotUnSafe
+foreign import ccall unsafe hs_uv_fs_write_threaded 
+    :: Ptr UVLoop -> UVFD -> Ptr Word8 -> CInt -> CInt -> IO UVSlotUnSafe
+foreign import ccall unsafe hs_uv_fs_unlink_threaded
+    :: Ptr UVLoop -> CString -> IO UVSlotUnSafe
+foreign import ccall unsafe hs_uv_fs_mkdir_threaded 
+    :: Ptr UVLoop -> CString -> UVFileMode -> IO UVSlotUnSafe
 
 #{enum UVFileFlag, UVFileFlag,
     uV_FS_O_APPEND       = UV_FS_O_APPEND,

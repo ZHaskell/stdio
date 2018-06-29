@@ -59,7 +59,7 @@ library
                             System.IO.TTY
                             -- System.IO.Log
 
-                            -- System.IO.FileSystem
+                            System.IO.FileSystem
 
                             System.IO.TCP
                             System.IO.Net.SockAddr

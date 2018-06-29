@@ -34,7 +34,9 @@ module System.IO.UV.Manager
   , peekBufferTable
   , pokeBufferTable
   , withUVManager
-  , withUVManager'
+  , withUVManager_
+  , withUVManagerWrap
+  , withUVManagerWrap_
   -- * handle/request resources
   , initUVStream
   , UVStream(..)
@@ -91,9 +93,6 @@ instance Eq UVManager where
     uvm == uvm' =
         uvmCap uvm == uvmCap uvm'
 
-initTableSize :: Int
-initTableSize = 64
-
 uvManagerArray :: IORef (Array UVManager)
 {-# NOINLINE uvManagerArray #-}
 uvManagerArray = unsafePerformIO $ do
@@ -102,7 +101,7 @@ uvManagerArray = unsafePerformIO $ do
     s <- newQSemN 0
     forM_ [0..numCaps-1] $ \ i -> do
         -- fork uv manager thread
-        forkOn i . withResource (initUVManager initTableSize i) $ \ m -> do
+        forkOn i . withResource (initUVManager iNIT_LOOP_SIZE i) $ \ m -> do
             myThreadId >>= (`labelThread` ("uv manager on " ++ show i))
             writeArr uvmArray i m
             signalQSemN s 1
@@ -130,12 +129,12 @@ getBlockMVar uvm slot = do
 
 -- | Poke a prepared buffer and size into loop data under given slot.
 --
--- NOTE, this action is not protected with 'withUVManager' for effcient reason, you should merge this action
--- with other uv action and put them together inside a 'withUVManager' or 'withUVManager\''. for example:
+-- NOTE, this action is not protected with 'withUVManager_ for effcient reason, you should merge this action
+-- with other uv action and put them together inside a 'withUVManager_ or 'withUVManager\''. for example:
 --
 --  @@@
 --      ...
---      withUVManager' uvm $ do
+--      withUVManager_ uvm $ do
 --          pokeBufferTable uvm slot buf len
 --          uvReadStart handle
 --      ...
@@ -200,8 +199,8 @@ withUVManager (UVManager _ loop loopData running _) f = go
 --
 -- In fact most of the libuv's functions are not thread safe, so watch out!
 --
-withUVManager' :: HasCallStack => UVManager -> IO a -> IO a
-withUVManager' uvm f = withUVManager uvm (\ _ -> f)
+withUVManager_ :: HasCallStack => UVManager -> IO a -> IO a
+withUVManager_ uvm f = withUVManager uvm (\ _ -> f)
 
 -- | Start the uv loop
 --
@@ -248,9 +247,10 @@ startUVManager uvm@(UVManager _ _ _ running _) = loop -- use a closure capture u
                 tryPutMVar lock r
             return c
 
-autoResizeUVM :: UVManager -> Int -> IO ()
-{-# INLINE autoResizeUVM #-}
-autoResizeUVM (UVManager blockTableRef _ _ _ _) slot = do
+getUVSlot :: HasCallStack => UVManager -> IO UVSlotUnSafe -> IO UVSlot
+{-# INLINE getUVSlot #-}
+getUVSlot (UVManager blockTableRef _ _ _ _) f = do
+    slot <- throwUVIfMinus (unsafeGetSlot <$> f)
     blockTable <- readIORef blockTableRef
     let oldSiz = sizeofArr blockTable
     when (slot == oldSiz) $ do
@@ -261,6 +261,7 @@ autoResizeUVM (UVManager blockTableRef _ _ _ _) slot = do
             writeArr blockTable' i =<< newEmptyMVar
         !iBlockTable' <- unsafeFreezeArr blockTable'
         writeIORef blockTableRef iBlockTable'
+    return slot
 
 --------------------------------------------------------------------------------
 
@@ -289,17 +290,16 @@ initUVStream :: HasCallStack
 initUVStream init uvm = initResource
     (withUVManager uvm $ \ loop -> do
         handle <- hs_uv_handle_alloc loop
-        slot <- peekUVHandleData handle
-        autoResizeUVM uvm slot
+        slot <- getUVSlot uvm (peekUVHandleData handle)
         tryTakeMVar =<< getBlockMVar uvm slot   -- clear the parking spot
         init loop handle `onException` hs_uv_handle_free handle
         closed <- newIORef False
         return (UVStream handle slot uvm closed))
-    (\ (UVStream handle _ uvm closed) -> withUVManager' uvm $ do
+    (\ (UVStream handle _ uvm closed) -> withUVManager_ uvm $ do
         c <- readIORef closed
         when c throwECLOSED
         writeIORef closed True
-        hs_uv_handle_close handle) -- handle is free in uv_close callback
+        hs_uv_handle_close handle)
 
 instance Input UVStream where
     -- readInput :: HasCallStack => UVStream -> Ptr Word8 ->  Int -> IO Int
@@ -307,7 +307,7 @@ instance Input UVStream where
         c <- readIORef closed
         when c throwECLOSED
         m <- getBlockMVar uvm slot
-        withUVManager' uvm $ do
+        withUVManager_ uvm $ do
             throwUVIfMinus_ (hs_uv_read_start handle)
             pokeBufferTable uvm slot buf len
             tryTakeMVar m
@@ -322,15 +322,43 @@ instance Output UVStream where
     writeOutput (UVStream handle _ uvm closed) buf len = do
         c <- readIORef closed
         when c throwECLOSED
-        slot <- withUVManager' uvm $ do
-            slot <- throwUVIfMinus $ hs_uv_write handle buf len
-            tryTakeMVar =<< getBlockMVar uvm slot   -- clear the parking spot
-            return slot
-        throwUVIfMinus_  $ takeMVar =<< getBlockMVar uvm slot
+        m <- withUVManager_ uvm $ do
+            slot <- getUVSlot uvm (hs_uv_write handle buf len)
+            m <- getBlockMVar uvm slot
+            tryTakeMVar m
+            return m
+        throwUVIfMinus_  (takeMVar m)
 
 --------------------------------------------------------------------------------
 
-newtype UVFile = UVFile (IORefU UVFD)
+withUVManagerWrap :: HasCallStack
+                  => UVManager -> (Ptr UVLoop -> IO UVSlotUnSafe) -> IO Int
+withUVManagerWrap uvm f = do
+    m <- withUVManager uvm $ \ loop -> do
+        slot <- getUVSlot uvm (f loop)
+        m <- getBlockMVar uvm slot
+        tryTakeMVar m
+        return m
+    throwUVIfMinus (takeMVar m)
+
+withUVManagerWrap_ :: HasCallStack
+                   => UVManager -> (Ptr UVLoop -> IO UVSlotUnSafe) -> IO ()
+withUVManagerWrap_ uvm f = do
+    m <- withUVManager uvm $ \ loop -> do
+        slot <- getUVSlot uvm (f loop)
+        m <- getBlockMVar uvm slot
+        tryTakeMVar m
+        return m
+    throwUVIfMinus_ (takeMVar m)
+
+--------------------------------------------------------------------------------
+
+data UVFile = UVFile
+    { uvfFD :: UVFD
+    , uvfClosed :: IORef Bool
+    }
+
+newtype UVFileT = UVFileT UVFile
 
 --------------------------------------------------------------------------------
 

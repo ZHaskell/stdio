@@ -84,14 +84,8 @@ initClient ClientConfig{..} = do
             withSockAddr clientLocalAddr' $ \ localPtr ->
                 throwUVIfMinus_ (uv_tcp_bind handle localPtr 0)
         when clientNoDelay $ throwUVIfMinus_ (uv_tcp_nodelay handle 1)
+        withUVManagerWrap uvm $ \ _ -> hs_uv_tcp_connect handle targetPtr
 
-        m <- withUVManager' uvm $ do
-            slot <- throwUVIfMinus $ hs_uv_tcp_connect handle targetPtr
-            m <- getBlockMVar uvm slot
-            tryTakeMVar m
-            return m
-
-        throwUVIfMinus_ (takeMVar m)
     return client
 
 --------------------------------------------------------------------------------
@@ -137,16 +131,16 @@ startServer ServerConfig{..} = do
             acceptBuf <- newPinnedPrimArray (fromIntegral aCCEPT_BUFFER_SIZE)
             let acceptBufPtr = (coerce (mutablePrimArrayContents acceptBuf :: Ptr UVFD))
 
-            withUVManager' serverManager $ do
-                throwUVIfMinus_ (uv_tcp_bind serverHandle addrPtr 0)
+            withUVManager_ serverManager $ do
                 pokeBufferTable serverManager serverSlot acceptBufPtr 0
+                throwUVIfMinus_ (uv_tcp_bind serverHandle addrPtr 0)
                 throwUVIfMinus_ (hs_uv_listen serverHandle (fromIntegral serverBackLog))
 
             forever $ do
                 takeMVar m
 
                 -- we lock uv manager here in case of next uv_run overwrite current accept buffer
-                acceptBufCopy <- withUVManager' serverManager $ do
+                acceptBufCopy <- withUVManager_ serverManager $ do
                     tryTakeMVar m
                     accepted <- peekBufferTable serverManager serverSlot
                     acceptBuf' <- newPrimArray accepted
@@ -165,7 +159,7 @@ startServer ServerConfig{..} = do
                     else void . forkBa $ do
                         uvm <- getUVManager
                         withResource (initTCPStream uvm) $ \ client -> do
-                            withUVManager' (uvsManager client) $ do
+                            withUVManager_ (uvsManager client) $ do
                                 throwUVIfMinus_
                                     (hs_uv_tcp_open (uvsHandle client) fd)
                                 when serverWorkerNoDelay . throwUVIfMinus_ $
@@ -173,6 +167,6 @@ startServer ServerConfig{..} = do
                             serverWorker client
 
                 when (accepted == fromIntegral aCCEPT_BUFFER_SIZE) $
-                    withUVManager' serverManager $ uvListenResume serverHandle
+                    withUVManager_ serverManager $ uvListenResume serverHandle
 
 --------------------------------------------------------------------------------
