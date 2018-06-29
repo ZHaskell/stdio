@@ -41,7 +41,6 @@
 void hs_alloc_cb(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf){
     HsInt slot = (HsInt)handle->data;
     hs_loop_data* loop_data = handle->loop->data;
-    assert(slot < loop_data->size);
     buf->base = loop_data->buffer_table[slot];      // fetch buffer_table from buffer_table table
     buf->len = loop_data->buffer_size_table[slot];  // we ignore suggested_size completely
 }
@@ -50,8 +49,6 @@ void hs_alloc_cb(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf){
 void hs_read_cb (uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf){
     HsInt slot = (HsInt)stream->data;
     hs_loop_data* loop_data = stream->loop->data;
-    assert(slot < loop_data->size);
-
     if (nread != 0) {
         loop_data->buffer_size_table[slot] = nread;
         loop_data->event_queue[loop_data->event_counter] = slot; // push the slot to event queue
@@ -68,23 +65,17 @@ void hs_write_cb(uv_write_t* req, int status){
     HsInt slot = (HsInt)req->data;
     uv_loop_t* loop = req->handle->loop;
     hs_loop_data* loop_data = loop->data;
-    assert(slot < loop_data->size);
-
     loop_data->buffer_size_table[slot] = (HsInt)status;      // 0 in case of success, < 0 otherwise.
-
     loop_data->event_queue[loop_data->event_counter] = slot;   // push the slot to event queue
     loop_data->event_counter += 1;
-
-    free_slot(loop, slot);  // free the uv_req_t
-
+    free_slot(loop_data, slot);  // free the uv_req_t
 }
 
 HsInt hs_uv_write(uv_stream_t* handle, char* buf, HsInt buf_siz){
     uv_loop_t* loop = handle->loop;
     hs_loop_data* loop_data = loop->data;
-    HsInt slot = alloc_slot(loop);
-    assert(slot > 0);
-    assert(slot < loop_data->size);
+    HsInt slot = alloc_slot(loop_data);
+    if (slot < 0) return UV_ENOMEM;
     uv_write_t* req = 
         (uv_write_t*)fetch_uv_struct(loop_data, slot);
     req->data = (void*)slot;
@@ -97,7 +88,7 @@ HsInt hs_uv_write(uv_stream_t* handle, char* buf, HsInt buf_siz){
     int r = uv_write(req, handle, &buf_t, 1, hs_write_cb); // we never use writev: we do our own
                                                            // user-space buffering in haskell.
     if (r < 0) {
-        free_slot(loop, slot);  // free the uv_req_t, the callback won't fired
+        free_slot(loop_data, slot);  // free the uv_req_t, the callback won't fired
         return (HsInt)r;
     } else return slot;
 }
@@ -143,26 +134,23 @@ void hs_connect_cb(uv_connect_t* req, int status){
     HsInt slot = (HsInt)req->data;
     uv_loop_t* loop = req->handle->loop;
     hs_loop_data* loop_data = loop->data;  // uv_connect_t has handle field
-    assert(slot < loop_data->size);
-
     loop_data->buffer_size_table[slot] = status;             // 0 in case of success, < 0 otherwise.
     loop_data->event_queue[loop_data->event_counter] = slot; // push the slot to event queue
     loop_data->event_counter += 1;
-
-    free_slot(loop, slot);  // free the uv_req_t
-    
+    free_slot(loop_data, slot);  // free the uv_req_t
 }
 
 HsInt hs_uv_tcp_connect(uv_tcp_t* handle, const struct sockaddr* addr){
     uv_loop_t* loop = handle->loop;
     hs_loop_data* loop_data = loop->data;
-    HsInt slot = alloc_slot(loop);
+    HsInt slot = alloc_slot(loop_data);
+    if (slot < 0) return UV_ENOMEM;
     uv_connect_t* req = 
         (uv_connect_t*)fetch_uv_struct(loop_data, slot);
     req->data = (void*)slot;
     int r = uv_tcp_connect(req, handle, addr, hs_connect_cb);
     if (r < 0) {
-        free_slot(loop, slot);  // free the uv_req_t, the callback won't fired
+        free_slot(loop_data, slot);  // free the uv_req_t, the callback won't fired
         return r;
     } else return slot;
 }
@@ -265,7 +253,6 @@ int32_t hs_uv_accept(uv_stream_t* server) {
 void hs_listen_cb(uv_stream_t* server, int status){
     HsInt slot = (HsInt)server->data;
     hs_loop_data* loop_data = server->loop->data;
-    assert(slot < loop_data->size);
 
     // fetch accept buffer from buffer_table table
     int32_t* accept_buf = (int32_t*)loop_data->buffer_table[slot];     
@@ -330,7 +317,6 @@ void hs_accept_check_cb(uv_check_t* check){
     uv_stream_t* server=(uv_stream_t*)check->data;
     HsInt slot = (HsInt)server->data;
     hs_loop_data* loop_data = server->loop->data;
-    assert(slot < loop_data->size);
 
     if (loop_data->buffer_size_table[slot] > 0){
         loop_data->event_queue[loop_data->event_counter] = slot; // push the slot to event queue

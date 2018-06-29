@@ -102,9 +102,8 @@ uv_loop_t* hs_uv_loop_init(HsInt siz){
 }
 
 // resize a loop's data to given slot size, return NULL on fail.
-uv_loop_t* hs_uv_loop_resize(uv_loop_t* loop, HsInt siz){
+hs_loop_data* hs_uv_loop_resize(hs_loop_data* loop_data, HsInt siz){
     HsInt i;
-    hs_loop_data* loop_data = loop->data;
     loop_data->resize += 1;
     HsInt* event_queue_new       = realloc(loop_data->event_queue, (siz*sizeof(HsInt)));
     char** buffer_table_new       = realloc(loop_data->buffer_table, (siz*sizeof(char*)));
@@ -136,27 +135,24 @@ uv_loop_t* hs_uv_loop_resize(uv_loop_t* loop, HsInt siz){
         loop_data->uv_struct_table    = uv_struct_table_new;
         uv_struct_table_new[loop_data->resize] = uv_struct_table_block;
         loop_data->size               = siz;
-        return loop;
+        return loop_data;
     }
 }
 
 // allocate free slot, resize loop data if neccessary 
 // return -1 on resize failure, slot otherwise.
-HsInt alloc_slot(uv_loop_t* loop){
-    hs_loop_data* loop_data = loop->data;
+HsInt alloc_slot(hs_loop_data* loop_data){
     HsInt r = loop_data->free_slot;
     loop_data->free_slot = loop_data->slot_table[r];
     // the slot exceed range, we should resize
     if (r == loop_data->size-1 &&
-        hs_uv_loop_resize(loop, (loop_data->size) * 2) == NULL) {
+        hs_uv_loop_resize(loop_data, (loop_data->size) * 2) == NULL) {
         return -1;
     }
     return r;
 }
 
-void free_slot(uv_loop_t* loop, HsInt slot){
-    hs_loop_data* loop_data = loop->data;
-    assert(slot < loop_data->size);
+void free_slot(hs_loop_data* loop_data, HsInt slot){
     loop_data->slot_table[slot] = loop_data->free_slot;
     loop_data->free_slot = slot;
 }
@@ -228,7 +224,8 @@ int32_t hs_uv_fileno(uv_handle_t* handle){
 // Initialize a uv_handle_t, with data field set to an unique slot
 uv_handle_t* hs_uv_handle_alloc(uv_loop_t* loop){
     hs_loop_data* loop_data = loop->data;
-    HsInt slot = alloc_slot(loop);
+    HsInt slot = alloc_slot(loop_data);
+    if (slot < 0) return NULL;
     uv_handle_t* handle = 
         (uv_handle_t*)fetch_uv_struct(loop_data, slot);
     handle->loop = loop;
@@ -238,7 +235,8 @@ uv_handle_t* hs_uv_handle_alloc(uv_loop_t* loop){
 
 // Free uv_handle_t only, used when handle initialization failed.
 void hs_uv_handle_free(uv_handle_t* handle){
-    free_slot(handle->loop, (HsInt)handle->data);
+    uv_loop_t* loop = handle->loop;
+    free_slot(loop->data, (HsInt)handle->data);
 }
 
 // Close and free uv_handle_t

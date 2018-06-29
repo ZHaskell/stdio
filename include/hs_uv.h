@@ -110,8 +110,8 @@ typedef struct {
 
 uv_loop_t* hs_uv_loop_init(HsInt siz);
 void hs_uv_loop_close(uv_loop_t* loop);
-HsInt alloc_slot(uv_loop_t* loop);
-void free_slot(uv_loop_t* loop, HsInt slot);
+HsInt alloc_slot(hs_loop_data* loop_data);
+void free_slot(hs_loop_data* loop_data, HsInt slot);
 hs_uv_struct* fetch_uv_struct(hs_loop_data* loop_data, HsInt slot);
 
 ////////////////////////////////////////////////////////////////////////////////
