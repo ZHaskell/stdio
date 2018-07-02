@@ -32,6 +32,7 @@
 #include <assert.h>
 #include <HsFFI.h>  // for HsInt
 #include <stdlib.h> // for malloc, free, etc.
+#include <string.h> // for fs path
 
 #if !defined(_WIN32)
 
@@ -234,8 +235,13 @@ void hs_uv_cancel(uv_loop_t* loop, HsInt slot);
 
 ////////////////////////////////////////////////////////////////////////////////
 // stream
+int hs_uv_listen(uv_stream_t* stream, int backlog);
+void hs_uv_listen_resume(uv_stream_t* server);
 int hs_uv_read_start(uv_stream_t* handle);
 HsInt hs_uv_write(uv_stream_t* handle, char* buf, HsInt buf_size);
+uv_check_t* hs_uv_accept_check_alloc(uv_stream_t* server);
+int hs_uv_accept_check_init(uv_check_t* check);
+void hs_uv_accept_check_close(uv_check_t* check);
 
 ////////////////////////////////////////////////////////////////////////////////
 // tcp
@@ -243,7 +249,6 @@ int hs_uv_tcp_open(uv_tcp_t* handle, int sock);
 HsInt hs_uv_tcp_connect(uv_tcp_t* handle, const struct sockaddr* addr);
 
 #if defined(_WIN32)
-
 #define UV_HANDLE_READING                       0x00000100
 #define UV_HANDLE_BOUND                         0x00000200
 #define UV_HANDLE_LISTENING                     0x00000800
@@ -261,11 +266,8 @@ enum {
 #define UV_HANDLE_TCP_ACCEPT_STATE_CHANGING     0x10000000
 extern unsigned int uv_simultaneous_server_accepts;
 extern void uv_tcp_queue_accept(uv_tcp_t* handle, uv_tcp_accept_t* req);
-
 #else
-
 void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events);
-
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -486,14 +488,16 @@ int32_t hs_uv_fs_open(const char* path, int flags, int mode);
 int hs_uv_fs_close(int32_t file);
 HsInt hs_uv_fs_read(int32_t file, char* buffer, HsInt buffer_size, int64_t offset);
 HsInt hs_uv_fs_write(int32_t file, char* buffer, HsInt buffer_size, int64_t offset);
-int hs_uv_fs_unlink(char* path);
-int hs_uv_fs_mkdir(char* path, int mode);
+int hs_uv_fs_unlink(const char* path);
+int hs_uv_fs_mkdir(const char* path, int mode);
+int hs_uv_fs_mkdtemp(const char* tpl, HsInt tpl_size, char* temp_path);
 
 ////////////////////////////////////////////////////////////////////////////////
 // fs, thread pool version
-HsInt hs_uv_fs_open_threaded(uv_loop_t* loop, const char* path, int flags, int mode);
-HsInt hs_uv_fs_close_threaded(uv_loop_t* loop, int32_t file);
-HsInt hs_uv_fs_read_threaded(uv_loop_t* loop, int32_t file, char* buffer, HsInt buffer_size, int64_t offset);
-HsInt hs_uv_fs_write_threaded(uv_loop_t* loop, int32_t file, char* buffer, HsInt buffer_size, int64_t offset);
-HsInt hs_uv_fs_unlink_threaded(uv_loop_t* loop, char* path);
-HsInt hs_uv_fs_mkdir_threaded(uv_loop_t* loop, char* path, int mode);
+HsInt hs_uv_fs_open_threaded(const char* path, int flags, int mode, uv_loop_t* loop);
+HsInt hs_uv_fs_close_threaded(int32_t file, uv_loop_t* loop);
+HsInt hs_uv_fs_read_threaded(int32_t file, char* buffer, HsInt buffer_size, int64_t offset, uv_loop_t* loop);
+HsInt hs_uv_fs_write_threaded(int32_t file, char* buffer, HsInt buffer_size, int64_t offset, uv_loop_t* loop);
+HsInt hs_uv_fs_unlink_threaded(const char* path, uv_loop_t* loop);
+HsInt hs_uv_fs_mkdir_threaded(const char* path, int mode, uv_loop_t* loop);
+HsInt hs_uv_fs_mkdtemp_threaded(const char* tpl, HsInt tpl_size, char* temp_path, uv_loop_t* loop);

@@ -371,6 +371,7 @@ c2w :: Char -> Word8
 {-# INLINE c2w #-}
 c2w (C# c#) = W8# (int2Word# (ord# c#))
 
+-- | This
 vASCII :: Q.QuasiQuoter
 vASCII = Q.QuasiQuoter
     (asciiLiteral $ \ len addr -> [| bytesFromAddr len $(addr) |])
@@ -442,7 +443,7 @@ createN n0 fill = runST (do
 -- | /O(1)/. The empty vector.
 --
 empty :: Vec v a => v a
-{-# INLINE empty #-}
+{-# NOINLINE empty #-}
 empty = create 0 (\_ -> return ())
 
 -- | /O(1)/. Single element vector.
@@ -851,11 +852,12 @@ foldr1' f = \ (VecPat ba s l) ->
 concat :: forall v a . Vec v a => [v a] -> v a
 {-# INLINE concat #-}
 concat vs = case pre 0 0 vs of
-    (0, _)  -> empty
-    (1, _)  -> let Just v = List.find (not . null) vs in v -- there must be a not null vector
-    (_, l') -> create l' (copy vs 0)
+    (0, _) -> empty
+    (1, _) -> let Just v = List.find (not . null) vs in v -- there must be a not null vector
+    (_, l) -> create l (copy vs 0)
   where
     -- pre scan to decide if we really need to copy and calculate total length
+    -- we don't accumulate another result list, since it's rare to got empty
     pre :: Int -> Int -> [v a] -> (Int, Int)
     pre !nacc !lacc [] = (nacc, lacc)
     pre !nacc !lacc (v@(VecPat _ _ l):vs)

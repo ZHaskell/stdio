@@ -19,7 +19,6 @@ module System.IO.Net.SockAddr
   , sockAddrFamily
   , peekSockAddr
   , withSockAddr
-  , initSockAddr
    -- ** IPv4 address
   , InetAddr
   , inetAny
@@ -305,18 +304,6 @@ withSockAddr sa@(SockAddrInet6 _ _ _ _) f = do
     allocaBytesAligned 
         (#size struct sockaddr_in6) 
         (#alignment struct sockaddr_in6) $ \ p -> pokeSockAddr p sa >> f p
-
-initSockAddr :: SockAddr -> Resource (Ptr SockAddr)
-initSockAddr sa@(SockAddrInet _ _) = do
-    p <- initBytesAligned 
-        (#size struct sockaddr_in) (#alignment struct sockaddr_in)
-    liftIO $ pokeSockAddr p sa
-    return p
-initSockAddr sa@(SockAddrInet6 _ _ _ _) = do
-    p <- initBytesAligned 
-            (#size struct sockaddr_in6) (#alignment struct sockaddr_in6)
-    liftIO $ pokeSockAddr p sa
-    return p
 
 -- The peek32 and poke32 functions work around the fact that the RFCs
 -- don't require 32-bit-wide address fields to be present.  We can

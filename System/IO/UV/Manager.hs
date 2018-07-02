@@ -297,9 +297,9 @@ initUVStream init uvm = initResource
         return (UVStream handle slot uvm closed))
     (\ (UVStream handle _ uvm closed) -> withUVManager_ uvm $ do
         c <- readIORef closed
-        when c throwECLOSED
-        writeIORef closed True
-        hs_uv_handle_close handle)
+        unless c $ do
+            writeIORef closed True
+            hs_uv_handle_close handle)
 
 instance Input UVStream where
     -- readInput :: HasCallStack => UVStream -> Ptr Word8 ->  Int -> IO Int
@@ -350,15 +350,6 @@ withUVManagerWrap_ uvm f = do
         tryTakeMVar m
         return m
     throwUVIfMinus_ (takeMVar m)
-
---------------------------------------------------------------------------------
-
-data UVFile = UVFile
-    { uvfFD :: UVFD
-    , uvfClosed :: IORef Bool
-    }
-
-newtype UVFileT = UVFileT UVFile
 
 --------------------------------------------------------------------------------
 

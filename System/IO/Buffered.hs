@@ -43,12 +43,48 @@ import GHC.Stack.Compat
 
 -- | Input device
 --
--- Convention: 'input' should return 0 on EOF.
+-- Laws: 'readInput' should return 0 on EOF.
+--
+-- Note: 'readInput' is considered not thread-safe, thus A 'Input' device
+-- can only be used with a single 'BufferedInput', If multiple 'BufferedInput' s
+-- are opened on a same 'Input' device, the behaviour will be undefined.
+-- The reasons for this limitation are:
+--
+--  * In libuv only regular file read can be read concurrently by providing
+--    different @uv_fs_t@ and offset, but concurrent reads on regular files
+--    are never performant either on spinning disk or SSDs due to readahead
+--    optimization.
+--
+--  * For devices which have no concept of offset, conncurrent read does not
+--    make sense since there's no way to make sure each read is start from
+--    a message's boundary.
+--
+-- On device doesn't support cancelling read request (basically everything except
+-- regular file), If async exception arrives during 'readInput', the underlying
+-- read operation will not be cancelled, but it may affect afterward operations.
+--
 --
 class Input i where
     readInput :: HasCallStack => i -> Ptr Word8 -> Int -> IO Int
 
 -- | Output device
+--
+-- Laws: 'writeOutput' should not return until all data are written (may not
+-- necessarily flushed to hardware, that should be done in device specific way).
+
+-- Note: Differ from 'Input' devices, 'writeOutput' are required to be thread-safe, thus
+-- multiple 'BufferedOutput' can be opened on a same 'Output' device.  The decision
+-- is because:
+--
+--  * Libuv supports many devices' concurrent write operations with 'uv_req_t'.
+--
+--  * Unlike read, queued write operations will not messed up each message's
+--    boundary, thus still useful on device with no concept of offset.
+--
+-- On device doesn't support cancelling write request (basically everything except
+-- regular file), If async exception arrives during 'writeOutput', the underlying
+-- write operation will not be cancelled, but it will not affect afterward operations.
+-- We simply stop waiting for it to finish on haskell side.
 --
 class Output o where
     writeOutput :: HasCallStack => o -> Ptr Word8 -> Int -> IO ()

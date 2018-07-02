@@ -23,6 +23,8 @@ import System.IO.Net.SockAddr (SockAddr, SocketFamily(..))
 --------------------------------------------------------------------------------
 -- Type alias
 type UVSlot = Int
+-- | UVSlotUnSafe wrap a slot which may not have a 'MVar' in blocking table, 
+--   i.e. the blocking table need to be resized.
 newtype UVSlotUnSafe = UVSlotUnSafe { unsafeGetSlot :: UVSlot }
 type UVFD = Int32
 
@@ -101,6 +103,19 @@ foreign import ccall unsafe hs_uv_handle_close :: Ptr UVHandle -> IO ()
 -- foreign import ccall unsafe hs_uv_cancel :: Ptr UVLoop -> UVSlot -> IO ()
 
 --------------------------------------------------------------------------------
+-- stream
+
+foreign import ccall unsafe hs_uv_listen  :: Ptr UVHandle -> CInt -> IO CInt
+foreign import ccall unsafe hs_uv_listen_resume :: Ptr UVHandle -> IO ()
+
+foreign import ccall unsafe hs_uv_read_start :: Ptr UVHandle -> IO CInt
+foreign import ccall unsafe hs_uv_write :: Ptr UVHandle -> Ptr Word8 -> Int -> IO UVSlotUnSafe
+
+foreign import ccall unsafe hs_uv_accept_check_alloc :: Ptr UVHandle -> IO (Ptr UVHandle)
+foreign import ccall unsafe hs_uv_accept_check_init :: Ptr UVHandle -> IO CInt
+foreign import ccall unsafe hs_uv_accept_check_close :: Ptr UVHandle -> IO ()
+
+--------------------------------------------------------------------------------
 -- tcp
 foreign import ccall unsafe hs_uv_tcp_open :: Ptr UVHandle -> UVFD -> IO CInt
 foreign import ccall unsafe uv_tcp_init :: Ptr UVLoop -> Ptr UVHandle -> IO CInt
@@ -112,21 +127,11 @@ uV_TCP_IPV6ONLY :: CUInt
 uV_TCP_IPV6ONLY = #{const UV_TCP_IPV6ONLY}
 foreign import ccall unsafe uv_tcp_bind :: Ptr UVHandle -> Ptr SockAddr -> CUInt -> IO CInt
 foreign import ccall unsafe hs_uv_tcp_connect :: Ptr UVHandle -> Ptr SockAddr -> IO UVSlotUnSafe
-foreign import ccall unsafe hs_uv_listen  :: Ptr UVHandle -> CInt -> IO CInt
-foreign import ccall unsafe "hs_uv_listen_resume" uvListenResume :: Ptr UVHandle -> IO ()
 foreign import ccall unsafe hs_set_socket_reuse :: Ptr UVHandle -> IO CInt
-
-foreign import ccall unsafe hs_uv_accept_check_init :: Ptr UVHandle -> IO (Ptr UVHandle)
-foreign import ccall unsafe hs_uv_accept_check_close :: Ptr UVHandle -> IO ()
 
 --------------------------------------------------------------------------------
 -- pipe
 foreign import ccall unsafe uv_pipe_init :: Ptr UVLoop -> Ptr UVHandle -> CInt -> IO CInt
-
---------------------------------------------------------------------------------
--- stream
-foreign import ccall unsafe hs_uv_read_start :: Ptr UVHandle -> IO CInt
-foreign import ccall unsafe hs_uv_write :: Ptr UVHandle -> Ptr Word8 -> Int -> IO UVSlotUnSafe
 
 --------------------------------------------------------------------------------
 -- tty
@@ -148,26 +153,29 @@ newtype UVFileFlag = UVFileFlag CInt
     deriving (Bounded, Enum, Eq, Integral, Num, Ord, Read, Real, Show, FiniteBits, Bits, Storable)
 
 -- non-threaded functions
-foreign import ccall unsafe hs_uv_fs_open :: CString -> UVFileFlag -> UVFileMode -> IO UVFD
-foreign import ccall unsafe hs_uv_fs_close :: UVFD -> IO CInt
-foreign import ccall unsafe hs_uv_fs_read :: UVFD -> Ptr Word8 -> CInt -> CInt -> IO CInt
-foreign import ccall unsafe hs_uv_fs_write :: UVFD -> Ptr Word8 -> CInt -> CInt -> IO CInt
-foreign import ccall unsafe hs_uv_fs_unlink :: CString -> IO CInt
-foreign import ccall unsafe hs_uv_fs_mkdir :: CString -> UVFileMode -> IO CInt
+foreign import ccall unsafe hs_uv_fs_open    :: CString -> UVFileFlag -> UVFileMode -> IO UVFD
+foreign import ccall unsafe hs_uv_fs_close   :: UVFD -> IO CInt
+foreign import ccall unsafe hs_uv_fs_read    :: UVFD -> Ptr Word8 -> Int -> Int64 -> IO Int
+foreign import ccall unsafe hs_uv_fs_write   :: UVFD -> Ptr Word8 -> Int -> Int64 -> IO Int
+foreign import ccall unsafe hs_uv_fs_unlink  :: CString -> IO CInt
+foreign import ccall unsafe hs_uv_fs_mkdir   :: CString -> UVFileMode -> IO CInt
+foreign import ccall unsafe hs_uv_fs_mkdtemp :: CString -> Int -> CString -> IO CInt
 
 -- threaded functions
 foreign import ccall unsafe hs_uv_fs_open_threaded 
-    :: Ptr UVLoop -> CString -> UVFileFlag -> UVFileMode -> IO UVSlotUnSafe
+    :: CString -> UVFileFlag -> UVFileMode -> Ptr UVLoop -> IO UVSlotUnSafe
 foreign import ccall unsafe hs_uv_fs_close_threaded 
-    :: Ptr UVLoop -> UVFD -> IO UVSlotUnSafe
+    :: UVFD -> Ptr UVLoop -> IO UVSlotUnSafe
 foreign import ccall unsafe hs_uv_fs_read_threaded  
-    :: Ptr UVLoop -> UVFD -> Ptr Word8 -> CInt -> CInt -> IO UVSlotUnSafe
+    :: UVFD -> Ptr Word8 -> Int -> Int64 -> Ptr UVLoop -> IO UVSlotUnSafe
 foreign import ccall unsafe hs_uv_fs_write_threaded 
-    :: Ptr UVLoop -> UVFD -> Ptr Word8 -> CInt -> CInt -> IO UVSlotUnSafe
+    :: UVFD -> Ptr Word8 -> Int -> Int64 -> Ptr UVLoop -> IO UVSlotUnSafe
 foreign import ccall unsafe hs_uv_fs_unlink_threaded
-    :: Ptr UVLoop -> CString -> IO UVSlotUnSafe
+    :: CString -> Ptr UVLoop -> IO UVSlotUnSafe
 foreign import ccall unsafe hs_uv_fs_mkdir_threaded 
-    :: Ptr UVLoop -> CString -> UVFileMode -> IO UVSlotUnSafe
+    :: CString -> UVFileMode -> Ptr UVLoop -> IO UVSlotUnSafe
+foreign import ccall unsafe hs_uv_fs_mkdtemp_threaded 
+    :: CString -> Int -> CString -> Ptr UVLoop -> IO UVSlotUnSafe
 
 #{enum UVFileFlag, UVFileFlag,
     uV_FS_O_APPEND       = UV_FS_O_APPEND,

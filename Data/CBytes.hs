@@ -1,4 +1,6 @@
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE UnliftedFFITypes #-}
 {-# LANGUAGE BangPatterns #-}
 
@@ -12,20 +14,36 @@ import Control.Monad.Primitive
 import Data.Foldable (foldlM)
 import Data.IORef
 import Data.Word
+import qualified Data.List as List
 import Data.String (IsString(..))
 import Data.Text.UTF8Codec (encodeCBytesChar)
 import qualified Data.Vector as V
 import GHC.CString
 import GHC.Stack.Compat
 import GHC.Ptr
+import Foreign.Storable (peekElemOff)
 import Control.Monad
 import Control.Monad.ST
 import Data.Bits
 import System.IO.Unsafe (unsafeDupablePerformIO)
 import qualified System.IO.Exception as E
+import Prelude hiding (reverse,head,tail,last,init,null
+    ,length,map,lines,foldl,foldr,unlines
+    ,concat,any,take,drop,splitAt,takeWhile
+    ,dropWhile,span,break,elem,filter,maximum
+    ,minimum,all,concatMap,foldl1,foldr1
+    ,scanl,scanl1,scanr,scanr1
+    ,readFile,writeFile,appendFile,replicate
+    ,getContents,getLine,putStr,putStrLn,interact
+    ,zip,zipWith,unzip,notElem
+    )
+#if MIN_VERSION_base(4,9,0)
+import Data.Semigroup           (Semigroup(..))
+#endif
+import Data.Monoid              (Monoid(..))
 
--- | A efficient wrapper for null-terminated string which can be automatically freed
--- by ghc garbage collector.
+-- | A efficient wrapper for immutable null-terminated string which can be
+-- automatically freed by ghc garbage collector.
 --
 -- The main design target of this type is to ease the bridging of C FFI APIs, since most
 -- of the unix APIs use null-terminated string. On windows you're encouraged to use a
@@ -34,7 +52,7 @@ import qualified System.IO.Exception as E
 --
 -- We neither guarantee to store length info, nor support O(1) slice for 'CBytes':
 -- This will defeat the purpose of null-terminated string which is to save memory,
--- and 'strlen' runs very fast.
+-- We do save the length if it's created on GHC heap though.
 --
 -- It can be used with @OverloadedString@, literal encoding is UTF-8 with some modifications:
 -- @\NUL@ char is encoded to 'C0 80', and '\xD800' ~ '\xDFFF' is encoded as a three bytes
@@ -43,12 +61,31 @@ import qualified System.IO.Exception as E
 --
 -- Note most of the unix API is not unicode awared though, you may find a `scandir` call
 -- return a filename which is not proper encoded in any unicode encoding at all.
--- But still, UTF-8 is recommanded to be used everywhere, so we use that assumption in
+-- But still, UTF-8 is recommanded to be used everywhere, and we use this assumption in
 -- various places, such as displaying 'CBytes' and converting literals.
 --
 data CBytes
-    = CBytesOnHeap  {-# UNPACK #-} !(MutablePrimArray RealWorld Word8)   -- ^ On heap pinned 'MutablePrimArray'
-    | CBytesLiteral {-# UNPACK #-} !CString                              -- ^ String literals with static address
+    = CBytesOnHeap  {-# UNPACK #-} !(PrimArray Word8)   -- ^ On heap pinned 'PrimArray'
+    | CBytesLiteral {-# UNPACK #-} !CString             -- ^ String literals with static address
+
+-- | Create a 'CBytes' with IO action.
+--
+-- Note: The initial content of the 'CString' is random, it doesn't even have
+-- a proper '\NUL' ternimator, user should take the responsibility to do a
+-- proper initialization and return the actual length.
+--
+create :: HasCallStack
+       => Int  -- capacity, includeing the '\NUL' terminator
+       -> (CString -> IO Int)  -- initialization function,
+                               -- write the pointer, return the length
+       -> IO CBytes
+{-# INLINE create #-}
+create n fill = do
+    mba <- newPrimArray n :: IO (MutablePrimArray RealWorld Word8)
+    l <- withMutablePrimArrayContents mba (fill . castPtr)
+    writePrimArray mba l 0 -- the '\NUL' ternimator
+    shrinkMutablePrimArray mba (l+1)
+    CBytesOnHeap <$> unsafeFreezePrimArray mba
 
 instance Show CBytes where
     show = unpackCBytes
@@ -76,6 +113,65 @@ instance Ord CBytes where
                 r <- c_strcmp pA pB
                 return (r `compare` 0)
 
+instance Semigroup CBytes where
+    (<>) = append
+
+append :: CBytes -> CBytes -> CBytes
+append strA strB
+    | lenA == 0 = strB
+    | lenB == 0 = strA
+    | otherwise = unsafeDupablePerformIO $ do
+        mpa <- newPinnedPrimArray (lenA+lenB+1)
+        withCBytes strA $ \ pa ->
+            withCBytes strB $ \ pb -> do
+                copyMutablePrimArrayFromPtr mpa 0    (castPtr pa) lenA
+                copyMutablePrimArrayFromPtr mpa lenA (castPtr pb) lenB
+                writePrimArray mpa (lenA + lenB) 0     -- the \NUL terminator
+                pa <- unsafeFreezePrimArray mpa
+                return (CBytesOnHeap pa)
+  where
+    lenA = length strA
+    lenB = length strB
+
+instance Monoid CBytes where
+    mempty  = empty
+    mappend = append
+    mconcat = concat
+
+empty :: CBytes
+empty = CBytesLiteral (Ptr "\0"#)
+
+concat :: [CBytes] -> CBytes
+concat bs = case pre 0 0 bs of
+    (0, _) -> empty
+    (1, _) -> let Just b = List.find (not . null) bs in b -- there must be a not empty CBytes
+    (_, l) -> runST $ do
+        buf <- newPrimArray (l+1)
+        copy bs 0 buf
+        writePrimArray buf l 0 -- the \NUL terminator
+        CBytesOnHeap <$> unsafeFreezePrimArray buf
+  where
+    -- pre scan to decide if we really need to copy and calculate total length
+    -- we don't accumulate another result list, since it's rare to got empty
+    pre :: Int -> Int -> [CBytes] -> (Int, Int)
+    pre !nacc !lacc [] = (nacc, lacc)
+    pre !nacc !lacc (b:bs)
+        | length b <= 0 = pre nacc lacc bs
+        | otherwise     = pre (nacc+1) (length b + lacc) bs
+
+    copy :: [CBytes] -> Int -> MutablePrimArray s Word8 -> ST s ()
+    copy [] !_ !_       = return ()
+    copy (b:bs) !i !mba = do
+        let l = length b
+        when (l /= 0) (case b of
+            CBytesOnHeap ba ->
+                copyPrimArray mba i ba 0 l
+            CBytesLiteral p ->
+                copyMutablePrimArrayFromPtr mba i (castPtr p) l)
+        copy bs (i+l) mba
+
+
+
 instance IsString CBytes where
     {-# INLINE fromString #-}
     fromString = packCBytes
@@ -89,21 +185,23 @@ instance IsString CBytes where
         packCBytes (unpackCStringUtf8# addr#) = CBytesLiteral (Ptr addr#)
  #-}
 
--- | Pack a 'String' into null-terminated 'CByte'.
+-- | Pack a 'String' into null-terminated 'CBytes'.
 --
 packCBytes :: String -> CBytes
 {-# NOINLINE [1] packCBytes #-}
-packCBytes s = unsafeDupablePerformIO $ do
+packCBytes s = runST $ do
     mba <- newPrimArray V.defaultInitSize
     (SP2 i mba') <- foldlM go (SP2 0 mba) s
-    writePrimArray mba' i 0     -- the null terminator
+    writePrimArray mba' i 0     -- the \NUL terminator
     shrinkMutablePrimArray mba' (i+1)
-    return (CBytesOnHeap mba')
+    ba <- unsafeFreezePrimArray mba'
+    return (CBytesOnHeap ba)
   where
     -- It's critical that this function get specialized and unboxed
     -- Keep an eye on its core!
-    go :: SP2 -> Char -> IO SP2
-    go (SP2 i mba) !c = do
+    go :: SP2 s -> Char -> ST s (SP2 s)
+    go sp          '\NUL' = return sp
+    go (SP2 i mba) !c     = do
         siz <- getSizeofMutablePrimArray mba
         if i < siz - 4  -- we need at least 5 bytes for safety due to extra '\0' byte
         then do
@@ -116,12 +214,23 @@ packCBytes s = unsafeDupablePerformIO $ do
             return (SP2 i' mba')
 
 
-data SP2 = SP2 {-# UNPACK #-}!Int {-# UNPACK #-}!(MutablePrimArray RealWorld Word8)
+data SP2 s = SP2 {-# UNPACK #-}!Int {-# UNPACK #-}!(MutablePrimArray s Word8)
 
 unpackCBytes :: CBytes -> String
 {-# INLINABLE unpackCBytes #-}
+-- TODO: rewrite with our own decoder
 unpackCBytes cbytes = unsafeDupablePerformIO . withCBytes cbytes $ \ (Ptr addr#) ->
     return (unpackCStringUtf8# addr#)
+
+--------------------------------------------------------------------------------
+
+null :: CBytes -> Bool
+null (CBytesOnHeap pa) = indexArr pa 0 == 0
+null (CBytesLiteral p) = unsafeDupablePerformIO (peekElemOff p 0) == 0
+
+length :: CBytes -> Int
+length (CBytesOnHeap pa) = sizeofArr pa - 1
+length (CBytesLiteral p) = fromIntegral $ unsafeDupablePerformIO (c_strlen p)
 
 --------------------------------------------------------------------------------
 
@@ -135,10 +244,12 @@ fromCStringMaybe cstring = do
     if cstring == nullPtr
     then return Nothing
     else do
-        len <- c_strlen cstring
-        mpa@(MutablePrimArray mba#) <- newPinnedPrimArray (fromIntegral len+1)
-        c_strcpy mba# cstring
-        return (Just (CBytesOnHeap mpa))
+        len <- fromIntegral <$> c_strlen cstring
+        mpa <- newPinnedPrimArray (fromIntegral len+1)
+        copyMutablePrimArrayFromPtr mpa 0 (castPtr cstring) len
+        writePrimArray mpa len 0     -- the \NUL terminator
+        pa <- unsafeFreezePrimArray mpa
+        return (Just (CBytesOnHeap pa))
 
 
 -- | Same with 'fromCString', but throw 'E.InvalidArgument' when meet a null pointer.
@@ -152,16 +263,18 @@ fromCString cstring = do
     then E.throwIO (E.InvalidArgument
         (E.IOEInfo "" "unexpected null pointer" callStack))
     else do
-        len <- c_strlen cstring
-        mpa@(MutablePrimArray mba#) <- newPinnedPrimArray (fromIntegral len+1)
-        c_strcpy mba# cstring
-        return (CBytesOnHeap mpa)
+        len <- fromIntegral <$> c_strlen cstring
+        mpa <- newPinnedPrimArray (fromIntegral len+1)
+        copyMutablePrimArrayFromPtr mpa 0 (castPtr cstring) len
+        writePrimArray mpa len 0     -- the \NUL terminator
+        pa <- unsafeFreezePrimArray mpa
+        return (CBytesOnHeap pa)
 
--- | Pass 'CBytes' to foreign function as a @char*@.
+-- | Pass 'CBytes' to foreign function as a @const char*@.
 --
 withCBytes :: CBytes -> (CString -> IO a) -> IO a
 {-# INLINABLE withCBytes #-}
-withCBytes (CBytesOnHeap mba) f = withMutablePrimArrayContents mba (f . castPtr)
+withCBytes (CBytesOnHeap pa) f = withPrimArrayContents pa (f . castPtr)
 withCBytes (CBytesLiteral ptr) f = f ptr
 
 --------------------------------------------------------------------------------

@@ -39,22 +39,23 @@
 
 int32_t hs_uv_fs_open(const char* path, int flags, int mode){
     uv_fs_t req;
-    int r = uv_fs_open(NULL, &req, path, flags, mode, NULL);
+    uv_fs_open(NULL, &req, path, flags, mode, NULL);
     uv_fs_req_cleanup(&req);    // maybe not neccessary
-    return (int32_t)r;
+    return (int32_t)req.result;
 }
 
 int hs_uv_fs_close(int32_t file){
     uv_fs_t req;
-    int r = uv_fs_close(NULL, &req, (uv_file)file, NULL);
-    uv_fs_req_cleanup(&req);
-    return r;
+    uv_fs_close(NULL, &req, (uv_file)file, NULL);
+    uv_fs_req_cleanup(&req);    // maybe not neccessary
+    return (int32_t)req.result;
 }
 
 HsInt hs_uv_fs_read(int32_t file, char* buffer, HsInt buffer_size, int64_t offset){
     uv_fs_t req;
     uv_buf_t buf = { .base = buffer, .len = (size_t)buffer_size };
     uv_fs_read(NULL, &req, (uv_file)file, &buf, 1, offset, NULL);
+    uv_fs_req_cleanup(&req);    // maybe not neccessary
     return (HsInt)req.result;
 }
 
@@ -65,14 +66,28 @@ HsInt hs_uv_fs_write(int32_t file, char* buffer, HsInt buffer_size, int64_t offs
     return (HsInt)req.result;
 }
 
-int hs_uv_fs_unlink(char* path){
+int hs_uv_fs_unlink(const char* path){
     uv_fs_t req;
-    return uv_fs_unlink(NULL, &req, path, NULL);
+    uv_fs_unlink(NULL, &req, path, NULL);
+    uv_fs_req_cleanup(&req);    // maybe not neccessary
+    return req.result;
 }
 
-int hs_uv_fs_mkdir(char* path, int mode){
+int hs_uv_fs_mkdir(const char* path, int mode){
     uv_fs_t req;
-    return uv_fs_mkdir(NULL, &req, path, mode, NULL);
+    uv_fs_mkdir(NULL, &req, path, mode, NULL);
+    uv_fs_req_cleanup(&req);    // maybe not neccessary
+    return req.result;
+}
+
+int hs_uv_fs_mkdtemp(const char* tpl, HsInt tpl_size, char* temp_path){
+    uv_fs_t req;
+    strcpy(temp_path, tpl);
+    strcpy(temp_path + tpl_size, "XXXXXX");
+    uv_fs_mkdtemp(NULL, &req, temp_path, NULL);
+    strcpy(temp_path, req.path);    // save the temp path
+    uv_fs_req_cleanup(&req);        // maybe not neccessary
+    return req.result;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -90,7 +105,7 @@ void hs_uv_fs_callback(uv_fs_t* req){
     free_slot(loop_data, slot);  // free the uv_req_t
 }
 
-HsInt hs_uv_fs_open_threaded(uv_loop_t* loop, const char* path, int flags, int mode){
+HsInt hs_uv_fs_open_threaded(const char* path, int flags, int mode, uv_loop_t* loop){
     hs_loop_data* loop_data = loop->data;
     HsInt slot = alloc_slot(loop_data);
     if (slot < 0) return UV_ENOMEM;
@@ -98,14 +113,14 @@ HsInt hs_uv_fs_open_threaded(uv_loop_t* loop, const char* path, int flags, int m
         (uv_fs_t*)fetch_uv_struct(loop_data, slot);
     req->data = (void*)slot;
 
-    int r = uv_fs_open(NULL, req, path, flags, mode, hs_uv_fs_callback);
+    int r = uv_fs_open(loop, req, path, flags, mode, hs_uv_fs_callback);
     if (r < 0) {
         free_slot(loop_data, slot);
         return (HsInt)r;
     } else return slot;
 }
 
-HsInt hs_uv_fs_close_threaded(uv_loop_t* loop, int32_t file){
+HsInt hs_uv_fs_close_threaded(int32_t file, uv_loop_t* loop){
     hs_loop_data* loop_data = loop->data;
     HsInt slot = alloc_slot(loop_data);
     if (slot < 0) return UV_ENOMEM;
@@ -119,7 +134,7 @@ HsInt hs_uv_fs_close_threaded(uv_loop_t* loop, int32_t file){
     } else return slot;
 }
 
-HsInt hs_uv_fs_read_threaded(uv_loop_t* loop, int32_t file, char* buffer, HsInt buffer_size, int64_t offset){
+HsInt hs_uv_fs_read_threaded(int32_t file, char* buffer, HsInt buffer_size, int64_t offset, uv_loop_t* loop){
     hs_loop_data* loop_data = loop->data;
     HsInt slot = alloc_slot(loop_data);
     if (slot < 0) return UV_ENOMEM;
@@ -134,7 +149,7 @@ HsInt hs_uv_fs_read_threaded(uv_loop_t* loop, int32_t file, char* buffer, HsInt 
     } else return slot;
 }
 
-HsInt hs_uv_fs_write_threaded(uv_loop_t* loop, int32_t file, char* buffer, HsInt buffer_size, int64_t offset){
+HsInt hs_uv_fs_write_threaded(int32_t file, char* buffer, HsInt buffer_size, int64_t offset, uv_loop_t* loop){
     hs_loop_data* loop_data = loop->data;
     HsInt slot = alloc_slot(loop_data);
     if (slot < 0) return UV_ENOMEM;
@@ -149,7 +164,7 @@ HsInt hs_uv_fs_write_threaded(uv_loop_t* loop, int32_t file, char* buffer, HsInt
     } else return slot;
 }
 
-HsInt hs_uv_fs_unlink_threaded(uv_loop_t* loop, char* path){
+HsInt hs_uv_fs_unlink_threaded(const char* path, uv_loop_t* loop){
     hs_loop_data* loop_data = loop->data;
     HsInt slot = alloc_slot(loop_data);
     if (slot < 0) return UV_ENOMEM;
@@ -163,7 +178,7 @@ HsInt hs_uv_fs_unlink_threaded(uv_loop_t* loop, char* path){
     } else return slot;
 }
 
-HsInt hs_uv_fs_mkdir_threaded(uv_loop_t* loop, char* path, int mode){
+HsInt hs_uv_fs_mkdir_threaded(const char* path, int mode, uv_loop_t* loop){
     hs_loop_data* loop_data = loop->data;
     HsInt slot = alloc_slot(loop_data);
     if (slot < 0) return UV_ENOMEM;
@@ -171,6 +186,36 @@ HsInt hs_uv_fs_mkdir_threaded(uv_loop_t* loop, char* path, int mode){
         (uv_fs_t*)fetch_uv_struct(loop_data, slot);
     req->data = (void*)slot;
     int r = uv_fs_mkdir(loop, req, path, mode, hs_uv_fs_callback);
+    if (r < 0) {
+        free_slot(loop_data, slot);
+        return (HsInt)r;
+    } else return slot;
+}
+
+void hs_uv_fs_mkdtemp_callback(uv_fs_t* req){
+    uv_loop_t* loop = req->loop;
+    hs_loop_data* loop_data = loop->data;
+    HsInt slot = (HsInt)req->data; 
+    // push the slot to event queue
+    loop_data->buffer_size_table[slot] = (HsInt)req->result;
+    loop_data->event_queue[loop_data->event_counter] = slot;
+    loop_data->event_counter += 1;
+    strcpy(loop_data->buffer_table[slot], req->path);  // save the temp path
+    uv_fs_req_cleanup(req);
+    free_slot(loop_data, slot);  // free the uv_req_t
+}
+
+HsInt hs_uv_fs_mkdtemp_threaded(const char* tpl, HsInt tpl_size, char* temp_path, uv_loop_t* loop){
+    hs_loop_data* loop_data = loop->data;
+    HsInt slot = alloc_slot(loop_data);
+    if (slot < 0) return UV_ENOMEM;
+    uv_fs_t* req = 
+        (uv_fs_t*)fetch_uv_struct(loop_data, slot);
+    req->data = (void*)slot;
+    strcpy(temp_path, tpl);
+    strcpy(temp_path + tpl_size, "XXXXXX");
+    loop_data->buffer_table[slot] = temp_path;
+    int r = uv_fs_mkdtemp(loop, req, temp_path, hs_uv_fs_mkdtemp_callback);
     if (r < 0) {
         free_slot(loop_data, slot);
         return (HsInt)r;
