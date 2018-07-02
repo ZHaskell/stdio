@@ -126,9 +126,10 @@ library
         , third_party/libuv/src/win/util.c
         , third_party/libuv/src/win/winapi.c
         , third_party/libuv/src/win/winsock.c
-      cc-options:        -Wall -Wextra -Wno-unused-parameter -Wstrict-prototypes -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0600 -Ithird_party/libuv/src -Ithird_party/libuv/src/win
+      cc-options:        -Wall -Wextra -Wno-unused-parameter -Wstrict-prototypes -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0600
       cpp-options:       -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0600
       include-dirs:      third_party/libuv/include
+                         third_party/libuv/src
       -- The C runtime dependencies are imposed by libuv.
       extra-libraries:   psapi, Iphlpapi, userenv, Ws2_32
     else
