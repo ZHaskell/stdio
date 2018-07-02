@@ -70,24 +70,21 @@ module Foreign.PrimArray
   , withMutablePrimArraySafe
   , withPrimVectorSafe
   , withPrimSafe
-    -- ** FFI resource
-  , initStorable
-  , initBytes
-  , initBytesAligned
+    -- ** Pointer helpers
   , clearPtr
-    -- ** Convert between Addr and Ptr a
-  -- ** re-export
   , addrToPtr
   , ptrToAddr
+  , castPtr
+  -- ** re-export
   , module GHC.Prim
   ) where
 
 import GHC.Prim
 import Data.Primitive
 import Control.Monad.Primitive
-import Data.Primitive.PrimArray
 import Data.Primitive.ByteArray
 import Data.Vector
+import Data.Word
 import Data.Array
 import GHC.Ptr
 import qualified Foreign.Storable as Storable
@@ -143,11 +140,19 @@ withPrimVectorUnsafe (PrimVector arr s l) f = withPrimArrayUnsafe arr $ \ ba# _ 
 
 -- | Create an one element primitive array and use it as a pointer to the primitive element.
 --
-withPrimUnsafe :: forall m a b. (PrimMonad m, Prim a) => (MutableByteArray# (PrimState m) -> m a) -> m a
+-- Return the element and the computation result.
+--
+-- USE THIS FUNCTION WITH UNSAFE FFI CALL ONLY.
+--
+withPrimUnsafe :: forall m a b. (PrimMonad m, Prim a)
+               => (MutableByteArray# (PrimState m) -> m b) -> m (a, b)
 withPrimUnsafe f = do
     mpa@(MutablePrimArray mba#) <- newPrimArray 1    -- All heap objects are WORD aligned
-    f mba#                                           -- so no need to do extra alignment
-    readPrimArray mpa 0
+    !b <- f mba#                                      -- so no need to do extra alignment
+    !a <- readPrimArray mpa 0
+    return (a, b)
+
+--------------------------------------------------------------------------------
 
 -- | Pass primitive array to safe FFI as pointer.
 --
@@ -189,7 +194,7 @@ withMutablePrimArraySafe marr f
 -- The 'PrimVector' version of 'withPrimArraySafe'. The 'Ptr' is already pointed
 -- to the first element, thus no offset is provided.
 --
-withPrimVectorSafe :: forall m a b. (Prim a) => PrimVector a -> (Ptr a -> Int -> IO b) -> IO b
+withPrimVectorSafe :: forall a b. (Prim a) => PrimVector a -> (Ptr a -> Int -> IO b) -> IO b
 withPrimVectorSafe v@(PrimVector arr s l) f
     | isPrimArrayPinned arr =
         withPrimArrayContents arr $ \ ptr ->
@@ -203,41 +208,24 @@ withPrimVectorSafe v@(PrimVector arr s l) f
 
 -- | Create an one element primitive array and use it as a pointer to the primitive element.
 --
-withPrimSafe :: forall m a b. (PrimMonad m, Prim a) => (MutableByteArray# (PrimState m) -> m a) -> m a
+withPrimSafe :: forall a b. Prim a => (Ptr a -> IO b) -> IO (a, b)
 withPrimSafe f = do
-    mpa@(MutablePrimArray mba#) <- newAlignedPinnedPrimArray 1
-    f mba#
-    readPrimArray mpa 0
+    buf <- newAlignedPinnedPrimArray 1
+    !b <- withMutablePrimArrayContents buf $ \ ptr -> f ptr
+    !a <- readPrimArray buf 0
+    return (a, b)
 
 --------------------------------------------------------------------------------
 
--- | Create an pinned byte array and use it as a pointer.
---
-initBytes :: Int -> Resource (Ptr a)
-initBytes siz = addrToPtr . fst <$> initResource
-    (do arr <- newPinnedByteArray siz
-        return (mutableByteArrayContents arr, arr))
-    (\ (_, (MutableByteArray mba#)) -> primitive_ (touch# mba#))
-
--- | Create an pinned/aligned byte array and use it as a pointer.
---
-initBytesAligned :: Int -> Int -> Resource (Ptr a)
-initBytesAligned siz alignment = addrToPtr . fst <$> initResource
-    (do arr <- newAlignedPinnedByteArray siz alignment
-        return (mutableByteArrayContents arr, arr))
-    (\ (_, (MutableByteArray mba#)) -> primitive_ (touch# mba#))
-
--- | Zero a structure.
-clearPtr :: Ptr a -> Int -> IO ()
-clearPtr dest nbytes = memset dest 0 (fromIntegral nbytes)
 foreign import ccall unsafe "string.h" memset :: Ptr a -> CInt -> CSize -> IO ()
 
--- | Create an pinned/aligned byte array and use it as a pointer to a 'Storable' pointer.
+-- | Zero a structure.
 --
-initStorable :: forall a. Storable.Storable a => Resource (Ptr a)
-initStorable = initBytesAligned
-    (Storable.sizeOf (undefined :: a))
-    (Storable.alignment (undefined :: a))
+-- There's no 'Storable' or 'Prim' constraint on 'a' type, thus the length
+-- should be given in bytes.
+--
+clearPtr :: Ptr a -> Int -> IO ()
+clearPtr dest nbytes = memset dest 0 (fromIntegral nbytes)
 
 -- | Cast between raw address and tagged pointer.
 addrToPtr :: Addr -> Ptr a

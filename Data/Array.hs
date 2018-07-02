@@ -532,6 +532,7 @@ copyMutablePrimArrayFromPtr (MutablePrimArray mba#) (I# doff#) (Ptr addr#) (I# n
   where siz# = sizeOf# (undefined :: a)
 
 -- | Yield a pointer to the array's data.
+--
 -- This operation is only safe on /pinned/ primitive arrays allocated by 'newPinnedPrimArray' or
 -- 'newAlignedPinnedPrimArray', and you have to make sure the 'PrimArray' can outlive the 'Ptr'.
 --

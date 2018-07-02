@@ -26,7 +26,7 @@ unitResource = testGroup "resource" [
                                    (\ _ -> void $ atomicSubCounter resCounter 1)
                 resPool = initPool res 100 1
             R.withResource resPool $ \ pool -> do
-                let res = usePool pool
+                let res = initInPool pool
                 replicateConcurrently_ 300 . R.withResource res $ \ _ -> do
                     atomicAddCounter workerCounter 1
                     r <- readIORefU resCounter
@@ -88,7 +88,7 @@ unitResource = testGroup "resource" [
                                    (\ _ -> void $ atomicSubCounter resCounter 1)
                 resPool = initPool res 100 1
             R.withResource resPool $ \ pool -> do
-                let res = usePool pool
+                let res = initInPool pool
                 handle (\ (e :: WorkerException) -> return ()) .
                         replicateConcurrently_ 300 . R.withResource res $ \ i -> do
                     r <- readIORefU resCounter

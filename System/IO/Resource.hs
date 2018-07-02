@@ -28,7 +28,7 @@ module System.IO.Resource (
   , PoolState(..)
   , initPool
   , statPool
-  , usePool
+  , initInPool
 ) where
 
 import Control.Monad
@@ -56,6 +56,16 @@ import Data.IORef.Unboxed
 --
 -- A convention in stdio is that functions returning a 'Resource' should be
 -- named in @initXXX@ format, users are strongly recommended to follow this convention.
+--
+-- There're two additional guarantees we made in stdio:
+--
+--   * All resources in stdio can track its own liveness, throw 'ResourceVanished'
+--     exception using 'throwECLOSED' or 'throwECLOSEDSTM' when used after resource
+--     is closed.
+--
+--   * All resources' clean up action in stdio is idempotent.
+--
+-- Library authors providing 'initXXX' are also encouraged to provide these guarantees.
 --
 newtype Resource a = Resource { acquire :: E.HasCallStack => IO (a, IO ()) }
 
@@ -185,11 +195,16 @@ initPool res limit itime = initResource createPool closePool
         state <- newTVarIO PoolEmpty
         return (Pool res limit itime entries inuse state)
 
-    closePool (Pool _ _ _ entries _ state) = do
-        atomically $ writeTVar state PoolClosed
-        es <- readTVarIO entries
-        forM_ es $ \ (Entry (_, close) _) ->
-            handleAll (\ _ -> return ()) close
+    closePool (Pool _ _ _ entries _ state) = join . atomically $ do
+        c <- readTVar state
+        if c == PoolClosed
+        then return (return ())
+        else do
+            writeTVar state PoolClosed
+            return (do
+                es <- readTVarIO entries
+                forM_ es $ \ (Entry (_, close) _) ->
+                    handleAll (\ _ -> return ()) close)
 
 -- | Get a resource pool's 'PoolState'
 --
@@ -206,14 +221,13 @@ statPool pool = readTVarIO (poolState pool)
 -- You shouldn't use 'withResource' with this resource after you closed the pool,
 -- an 'E.ResourceVanished' with @EPOOLCLOSED@ name will be thrown.
 --
-usePool :: Pool a -> Resource a
-usePool (Pool res limit itime entries inuse state) = fst <$> initResource takeFromPool returnToPool
+initInPool :: Pool a -> Resource a
+initInPool (Pool res limit itime entries inuse state) = fst <$> initResource takeFromPool returnToPool
   where
     takeFromPool = join . atomically $ do
         c <- readTVar state
         if c == PoolClosed
-        then throwSTM $ E.ResourceVanished
-                (E.IOEInfo "EPOOLCLOSED" "resource pool is closed" E.callStack)
+        then E.throwECLOSEDSTM
         else do
             es <- readTVar entries
             case es of

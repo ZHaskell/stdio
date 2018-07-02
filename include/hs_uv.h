@@ -29,10 +29,33 @@
  */
 
 #include <uv.h>
+#include <assert.h>
+#include <HsFFI.h>  // for HsInt
+#include <stdlib.h> // for malloc, free, etc.
+#include <string.h> // for fs path
+
+#if !defined(_WIN32)
+
+#if defined(__sun)
+# include <sys/port.h>
+# include <port.h>
+#endif /* __sun */
+
+#if defined(_AIX)
+# define reqevents events
+# define rtnevents revents
+# include <sys/poll.h>
+#else
+# include <poll.h>
+#endif /* _AIX */
+
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////
 // CONSTANT
 #define ACCEPT_BUFFER_SIZE 1024
+#define INIT_LOOP_SIZE 128
+#define INIT_LOOP_SIZE_BIT 7
 
 #if defined(__linux__) && defined(SO_REUSEPORT)
 #define SO_REUSEPORT_LOAD_BALANCE 1
@@ -49,58 +72,181 @@ int uv_translate_sys_error(int sys_errno);
 
 ////////////////////////////////////////////////////////////////////////////////
 // loop
+//
+// the memory pool item struct, we use the largest possible value,
+// except uv_getnameinfo_t, which is too large than average :(
+//
+// following size data is from libuv v1.12, in bytes
+//                         win  unix
+// uv_timer_t        : 160  152
+// uv_prepare_t      : 120  120
+// uv_check_t        : 120  120
+// uv_idle_t         : 120  120
+// uv_async_t        : 224  128
+// uv_poll_t         : 416  160
+// uv_signal_t       : 264  152
+// uv_process_t      : 264  136
+// uv_tcp_t          : 320  248
+// uv_pipe_t         : 576  264
+// uv_tty_t          : 344  312
+// uv_udp_t          : 424  216
+// uv_fs_event_t     : 272  136
+// uv_fs_poll_t      : 104  104
+// uv_req_t          : 112  64
+// uv_getaddrinfo_t  : 216  160
+// uv_getnameinfo_t  : 1368 1320  !too large
+// uv_shutdown_t     : 128  80
+// uv_write_t        : 176  192
+// uv_connect_t      : 128  96
+// uv_udp_send_t     : 128  320
+// uv_fs_t           : 456  440
+// uv_work_t         : 176  128
+typedef union {
+    uv_timer_t          timer_t      ;
+    uv_prepare_t        prepare_t    ;
+    uv_check_t          check_t      ;
+    uv_idle_t           idle_t       ;
+    uv_async_t          async_t      ;
+    uv_poll_t           poll_t       ;
+    uv_signal_t         signal_t     ;
+    uv_process_t        process_t    ;
+    uv_tcp_t            tcp_t        ;
+    uv_pipe_t           pipe_t       ;
+    uv_tty_t            tty_t        ;
+    uv_udp_t            udp_t        ;
+    uv_fs_event_t       fs_event_t   ;
+    uv_fs_poll_t        fs_poll_t    ;
+    uv_req_t            req_t        ;
+    uv_getaddrinfo_t    getaddrinfo_t;
+//   uv_getnameinfo_t    getnameinfo_t; !too large
+    uv_shutdown_t       shutdown_t   ;
+    uv_write_t          write_t      ;
+    uv_connect_t        connect_t    ;
+    uv_udp_send_t       udp_send_t   ;
+    uv_fs_t             fs_t         ;
+    uv_work_t           work_t       ;
+} hs_uv_struct;
+
 typedef struct {
     // following two fields record events during uv_run, inside callback which
-    // wants to record a event, push the handler's slot into the queue 
-    size_t    event_counter;
-    size_t*   event_queue;
+    // wants to record a event, push the handler's slot into the queue
+    HsInt   event_counter;
+    HsInt*  event_queue;
     // following two fields provide buffers allocated in haskell to uv_alloc_cb,
     // the buffer_size_table are also used to record operation's result
-    char**    buffer_table;
-    ssize_t*  buffer_size_table;
-    // following fields are used to implemented a stable slot allocator, we used
-    // to do slot allocation in haskell, but doing it in C allow us to free slot
-    // in the right place, e.g. uv_close_cb.
-    size_t*   slot_table;
-    size_t    free_slot;
-    size_t    size;  
+    char**  buffer_table;
+    HsInt*  buffer_size_table;
+    // following fields are used to implemented a stable slot allocator
+    // see note below
+    HsInt*  slot_table;
+    HsInt   free_slot;
+    // uv_struct_table field is a memory pool for uv_handle_t / uv_req_t struct,
+    // see note below
+    hs_uv_struct**  uv_struct_table;
+    HsInt   size;
+    size_t  resize;
+    // following fields are handlers used to wake up event loop under threaded and
+    // non-threaded RTS respectively.
+    uv_async_t* async;
+    uv_timer_t* timer;
 } hs_loop_data;
+// Note: the stable pointer allocator
+//
+// we used to do slot allocation in haskell, but doing it in C allow us to free slot
+// in the right place, e.g. uv_close_cb. The allocator use the same algorithm with
+// ghc's stable pointer table. When initialized, it's looked like:
+//
+//  slot_table->[0][1][2][3]...[INIT_LOOP_SIZE-1]
+//               |  |  |  |
+//              =1 =2 =3 =4 ...
+//  free_slot = 0
+//
+// Every time we allocate a slot, we return current free_slot, and set the free_slot to
+// slot_table[free_slot], so after 3 allocation, it's looked like
+//
+//  slot_table->[0][1][2][3]...[INIT_LOOP_SIZE-1]
+//               |  |  |  |
+//              =1 =2 =3 =4 ...
+//  free_slot = 3
+//
+// When we free slot x, we set slot_table[x] to current free_slot, and free_slot
+// to x. Now let's say we return slot 1, it will be looked like
+//
+//  slot_table->[0][1][2][3]...[INIT_LOOP_SIZE-1]
+//               |  |  |  |
+//              =1 =3 =3 =4 ...
+//  free_slot = 1
+//
+// Next time allocation will give 1 back to us, and free_slot will continue point to 3.
+//
+////////////////////////////////////////////////////////////////////////////////
+//
+// Note: uv_handle_t/uv_req_t memory pool
+//
+// The reasons to use a memory pool for uv structs are:
+//
+// 1. A malloc/free per request is inefficient.
+// 2. It's diffcult to manange if we use haskell heap(pinned).
+// 3. uv structs are small mostly.
+//
+// The memory pool is grow on demand, when initialized, it's looked like:
+//
+// uv_struct_table [0]
+//                  |
+//                  V
+//      struct_block[INIT_LOOP_SIZE]
+//
+// After several loop data resize, it will be looked like:
+//
+// uv_struct_table [0]                [1]                [2] ...
+//                  |                  |                  |
+//                  V                  |                  |
+//      struct_block[INIT_LOOP_SIZE]   V                  |
+//                        struct_block[INIT_LOOP_SIZE]    V
+//                                            struct_block[INIT_LOOP_SIZE*2]
+//                                                                            .
+//                                                                            .
+//                                                                            .
+// That is, we keep the total number of items sync with loop->data->size, while
+// not touching previously allocated blocks, so that the structs are never moved.
+//
+// Check fetch_uv_struct below to see how do we get struct's address by slot.
 
-uv_loop_t* hs_uv_loop_init(size_t siz);
-uv_loop_t* hs_uv_loop_resize(uv_loop_t* loop, size_t siz);
+uv_loop_t* hs_uv_loop_init(HsInt siz);
 void hs_uv_loop_close(uv_loop_t* loop);
+HsInt alloc_slot(hs_loop_data* loop_data);
+void free_slot(hs_loop_data* loop_data, HsInt slot);
+hs_uv_struct* fetch_uv_struct(hs_loop_data* loop_data, HsInt slot);
+
+////////////////////////////////////////////////////////////////////////////////
+// wake up
+int hs_uv_wake_up_timer(hs_loop_data* loop_data);
+int hs_uv_wake_up_async(hs_loop_data* loop_data);
 
 ////////////////////////////////////////////////////////////////////////////////
 // handle
-uv_handle_t* hs_uv_handle_alloc(uv_handle_type typ, uv_loop_t* loop);
+uv_handle_t* hs_uv_handle_alloc(uv_loop_t* loop);
 void hs_uv_handle_free(uv_handle_t* handle);
 void hs_uv_handle_close(uv_handle_t* handle);
-uv_handle_t* hs_uv_handle_alloc_no_slot(uv_handle_type typ);
-void hs_uv_handle_free_no_slot(uv_handle_t* handle);
-void hs_uv_handle_close_no_slot(uv_handle_t* handle);
 
 ////////////////////////////////////////////////////////////////////////////////
 // request
-uv_req_t* hs_uv_req_alloc(uv_req_type typ, uv_loop_t* loop);
-void hs_uv_req_free(uv_req_t* req, uv_loop_t* loop);
-uv_req_t* hs_uv_req_alloc_no_slot(uv_req_type typ);
-void hs_uv_req_free_no_slot(uv_req_t* req);
+void hs_uv_cancel(uv_loop_t* loop, HsInt slot);
 
 ////////////////////////////////////////////////////////////////////////////////
 // stream
-int hs_uv_read_start(uv_stream_t* stream);
-int hs_uv_write(uv_write_t* req, uv_stream_t* handle);
-
+int hs_uv_listen(uv_stream_t* stream, int backlog);
+void hs_uv_listen_resume(uv_stream_t* server);
+int hs_uv_read_start(uv_stream_t* handle);
+HsInt hs_uv_write(uv_stream_t* handle, char* buf, HsInt buf_size);
+uv_check_t* hs_uv_accept_check_alloc(uv_stream_t* server);
+int hs_uv_accept_check_init(uv_check_t* check);
+void hs_uv_accept_check_close(uv_check_t* check);
 
 ////////////////////////////////////////////////////////////////////////////////
-// thread-safe wake up
-int hs_uv_timer_wake_start(uv_timer_t* handle, uint64_t timeout);
-int hs_uv_async_wake_init(uv_loop_t* loop, uv_async_t* async);
-
-////////////////////////////////////////////////////////////////////////////////
-// tcp 
+// tcp
 int hs_uv_tcp_open(uv_tcp_t* handle, int sock);
-int hs_uv_tcp_connect(uv_connect_t* req, uv_tcp_t* handle, const struct sockaddr* addr);
+HsInt hs_uv_tcp_connect(uv_tcp_t* handle, const struct sockaddr* addr);
 
 #if defined(_WIN32)
 #define UV_HANDLE_READING                       0x00000100
@@ -109,7 +255,6 @@ int hs_uv_tcp_connect(uv_connect_t* req, uv_tcp_t* handle, const struct sockaddr
 #define UV_HANDLE_CONNECTION                    0x00001000
 #define UV_HANDLE_READABLE                      0x00008000
 #define UV_HANDLE_WRITABLE                      0x00010000
-
 enum {
   UV__SIGNAL_ONE_SHOT = 0x80000,  /* On signal reception remove sighandler */
   UV__HANDLE_INTERNAL = 0x8000,
@@ -121,12 +266,17 @@ enum {
 #define UV_HANDLE_TCP_ACCEPT_STATE_CHANGING     0x10000000
 extern unsigned int uv_simultaneous_server_accepts;
 extern void uv_tcp_queue_accept(uv_tcp_t* handle, uv_tcp_accept_t* req);
-int32_t hs_uv_tcp_accept(uv_tcp_t* server);
-int32_t hs_uv_pipe_accept(uv_pipe_t* server);
+#else
+void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events);
+#endif
+
+////////////////////////////////////////////////////////////////////////////////
+// fs
 
 // we define file open flag here for compatibility on libuv < v1.16
 // see https://github.com/libuv/libuv/commit/4b666bd2d82a51f1c809b2703a91679789c1ec01#diff-a5e63f9b16ca783355e2d83941c3eafb
 
+#if defined(_WIN32)
 /* fs open() flags supported on this platform: */
 #ifndef UV_FS_O_APPEND
 #define UV_FS_O_APPEND       _O_APPEND
@@ -195,55 +345,7 @@ int32_t hs_uv_pipe_accept(uv_pipe_t* server);
 #endif
 
 #else
-ssize_t read(int fd, void *buf, size_t count); 
-int uv__close(int fd); /* preserves errno */
-int uv__stream_open(uv_stream_t* stream, int fd, int flags);
-typedef struct uv__stream_queued_fds_s uv__stream_queued_fds_t;
-void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events);
-struct uv__stream_queued_fds_s {
-  unsigned int size;
-  unsigned int offset;
-  int fds[1];
-};
-void uv__free(void* ptr);
 
-/* handle flags */
-enum {
-  UV_CLOSING              = 0x01,   /* uv_close() called but not finished. */
-  UV_CLOSED               = 0x02,   /* close(2) finished. */
-  UV_STREAM_READING       = 0x04,   /* uv_read_start() called. */
-  UV_STREAM_SHUTTING      = 0x08,   /* uv_shutdown() called but not complete. */
-  UV_STREAM_SHUT          = 0x10,   /* Write side closed. */
-  UV_STREAM_READABLE      = 0x20,   /* The stream is readable */
-  UV_STREAM_WRITABLE      = 0x40,   /* The stream is writable */
-  UV_STREAM_BLOCKING      = 0x80,   /* Synchronous writes. */
-  UV_STREAM_READ_PARTIAL  = 0x100,  /* read(2) read less than requested. */
-  UV_STREAM_READ_EOF      = 0x200,  /* read(2) read EOF. */
-  UV_TCP_NODELAY          = 0x400,  /* Disable Nagle. */
-  UV_TCP_KEEPALIVE        = 0x800,  /* Turn on keep-alive. */
-  UV_TCP_SINGLE_ACCEPT    = 0x1000, /* Only accept() when idle. */
-  UV_HANDLE_IPV6          = 0x10000, /* Handle is bound to a IPv6 socket. */
-  UV_UDP_PROCESSING       = 0x20000, /* Handle is running the send callback queue. */
-  UV_HANDLE_BOUND         = 0x40000  /* Handle is bound to an address and port */
-};
-
-#if defined(__sun)
-# include <sys/port.h>
-# include <port.h>
-#endif /* __sun */
-
-#if defined(_AIX)
-# define reqevents events
-# define rtnevents revents
-# include <sys/poll.h>
-#else
-# include <poll.h>
-#endif /* _AIX */
-
-// we define file open flag here for compatibility on libuv < v1.16
-// see https://github.com/libuv/libuv/commit/4b666bd2d82a51f1c809b2703a91679789c1ec01#diff-a5e63f9b16ca783355e2d83941c3eafb
-
-/* fs open() flags supported on this platform: */
 #ifndef UV_FS_O_APPEND
 #if defined(O_APPEND)
 # define UV_FS_O_APPEND       O_APPEND
@@ -381,5 +483,21 @@ enum {
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
-// fs
-void hs_uv_fs_callback(uv_fs_t* req);
+// fs, none thread pool version
+int32_t hs_uv_fs_open(const char* path, int flags, int mode);
+int hs_uv_fs_close(int32_t file);
+HsInt hs_uv_fs_read(int32_t file, char* buffer, HsInt buffer_size, int64_t offset);
+HsInt hs_uv_fs_write(int32_t file, char* buffer, HsInt buffer_size, int64_t offset);
+int hs_uv_fs_unlink(const char* path);
+int hs_uv_fs_mkdir(const char* path, int mode);
+int hs_uv_fs_mkdtemp(const char* tpl, HsInt tpl_size, char* temp_path);
+
+////////////////////////////////////////////////////////////////////////////////
+// fs, thread pool version
+HsInt hs_uv_fs_open_threaded(const char* path, int flags, int mode, uv_loop_t* loop);
+HsInt hs_uv_fs_close_threaded(int32_t file, uv_loop_t* loop);
+HsInt hs_uv_fs_read_threaded(int32_t file, char* buffer, HsInt buffer_size, int64_t offset, uv_loop_t* loop);
+HsInt hs_uv_fs_write_threaded(int32_t file, char* buffer, HsInt buffer_size, int64_t offset, uv_loop_t* loop);
+HsInt hs_uv_fs_unlink_threaded(const char* path, uv_loop_t* loop);
+HsInt hs_uv_fs_mkdir_threaded(const char* path, int mode, uv_loop_t* loop);
+HsInt hs_uv_fs_mkdtemp_threaded(const char* tpl, HsInt tpl_size, char* temp_path, uv_loop_t* loop);

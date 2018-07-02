@@ -69,6 +69,8 @@ module System.IO.Exception
   , throwOOMIfNull
   , throwUVIfMinus
   , throwUVIfMinus_
+  , throwECLOSED
+  , throwECLOSEDSTM
   , throwUVError
     -- * Re-exports
   , module Control.Exception
@@ -78,6 +80,7 @@ module System.IO.Exception
 
 import Control.Exception hiding (IOException)
 import Control.Monad
+import Control.Concurrent.STM
 import Data.Typeable
 import Data.IORef.Unboxed
 import Foreign.Ptr
@@ -167,6 +170,16 @@ throwUVIfMinus_ f = do
         name <- uvErrName errno'
         desc <- uvStdError errno'
         throwUVError errno' (IOEInfo name desc callStack)
+
+-- | Throw 'E.ResourceVanished' with name 'ECLOSED' and description 'resource is closed'.
+--
+throwECLOSED :: HasCallStack => IO a
+throwECLOSED = throwIO (ResourceVanished
+    (IOEInfo "ECLOSED" "resource is closed" callStack))
+
+throwECLOSEDSTM :: HasCallStack => STM a
+throwECLOSEDSTM = throwSTM (ResourceVanished
+    (IOEInfo "ECLOSED" "resource is closed" callStack))
 
 --------------------------------------------------------------------------------
 

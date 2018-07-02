@@ -40,7 +40,6 @@ cabal build
 ./dist/build/mio/mio +RTS -s
 
 # stdio, if you know your CPU's core number x, append a -Nx
-# you can add env REUSEPORT=True to test stdio's SO_REUSEPORT support on linux
 ./dist/build/libuv/libuv +RTS -s
 
 # golang

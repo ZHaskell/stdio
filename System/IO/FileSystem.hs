@@ -21,29 +21,55 @@ Otherwise you may block RTS's capability thus all the other threads live on it.
 -}
 
 module System.IO.FileSystem
-  ( UVFileFlag(..)
+  ( UVFileFlag
+  , uV_FS_O_APPEND
+  , uV_FS_O_CREAT
+  , uV_FS_O_DIRECT
+  , uV_FS_O_DIRECTORY
+  , uV_FS_O_DSYNC
+  , uV_FS_O_EXCL
+  , uV_FS_O_EXLOCK
+  , uV_FS_O_NOATIME
+  , uV_FS_O_NOCTTY
+  , uV_FS_O_NOFOLLOW
+  , uV_FS_O_NONBLOCK
+  , uV_FS_O_RDONLY
+  , uV_FS_O_RDWR
+  , uV_FS_O_SYMLINK
+  , uV_FS_O_SYNC
+  , uV_FS_O_TRUNC
+  , uV_FS_O_WRONLY
+  , uV_FS_O_RANDOM
+  , uV_FS_O_SHORT_LIVED
+  , uV_FS_O_SEQUENTIAL
+  , uV_FS_O_TEMPORARY
   , UVFileMode
   , defaultMode
   -- * Operations
-  , open
-  , read
-  , readT
-  , write
+  , initUVFile
+  , initUVFileT
+  , mkdir
+  , mkdirT
+  , unlink
+  , unlinkT
+  , mkdtemp
+  , mkdtempT
   ) where
 
 import Prelude hiding (read)
 
 import Control.Monad (void)
 import Control.Monad.IO.Class
-import Data.Word (Word8)
-import System.IO (FilePath)
+import Control.Concurrent.STM.TVar
+import Control.Monad.STM
+import Control.Monad
+import Data.CBytes as CBytes
+import System.IO.Buffered
 import System.IO.Exception
 import System.IO.Resource
 import System.IO.UV.Manager
 import System.IO.UV.Internal
-import Foreign.Marshal.Alloc
 import Foreign.Ptr
-import Foreign.C
 
 --------------------------------------------------------------------------------
 -- File
@@ -52,68 +78,181 @@ import Foreign.C
 defaultMode :: UVFileMode
 defaultMode = 0o666
 
+data UVFile = UVFile
+    { uvfFD      :: {-# UNPACK #-} !UVFD
+    , uvfCounter :: {-# UNPACK #-} !(TVar Int)
+    }
+
+instance Input UVFile where
+    -- readInput :: HasCallStack => UVFile -> Ptr Word8 -> Int -> IO Int
+    readInput (UVFile fd counter) buf bufSiz =
+        bracket_ (atomically $ do
+                    s <- readTVar counter
+                    if s >= 0 then modifyTVar' counter (+1)
+                              else throwECLOSEDSTM)
+                 (atomically $ modifyTVar' counter (subtract 1))
+                 go
+      where
+        -- use -1 offset to use fd's default offset
+        go = throwUVIfMinus $ hs_uv_fs_read fd buf bufSiz (-1)
+
+instance Output UVFile where
+    -- writeOutput :: HasCallStack => UVFile -> Ptr Word8 -> Int -> IO ()
+    writeOutput (UVFile fd counter) buf bufSiz =
+        bracket_ (atomically $ do
+                    s <- readTVar counter
+                    if s >= 0 then modifyTVar' counter (+1)
+                              else throwECLOSEDSTM)
+                 (atomically $ modifyTVar' counter (subtract 1))
+                 (go buf bufSiz)
+      where
+        -- use -1 offset to use fd's default offset
+        go buf bufSiz = do
+            written <- throwUVIfMinus
+                (hs_uv_fs_write fd buf bufSiz (-1))
+            when (written < bufSiz)
+                (go (buf `plusPtr` written) (bufSiz - written))
+
+-- | Threaded newtype wrapper for 'UVFile'
+--
+newtype UVFileT = UVFileT { getUVFile :: UVFile }
+
+instance Input UVFileT where
+    -- readInput :: HasCallStack => UVFileT -> Ptr Word8 -> Int -> IO Int
+    readInput (UVFileT (UVFile fd counter)) buf bufSiz =
+        bracket_ (atomically $ do
+                    s <- readTVar counter
+                    if s >= 0 then modifyTVar' counter (+1)
+                              else throwECLOSEDSTM)
+                 (atomically $ modifyTVar' counter (subtract 1))
+                 go
+      where
+        -- use -1 offset to use fd's default offset
+        go = do
+            uvm <- getUVManager
+            withUVManagerWrap uvm (hs_uv_fs_read_threaded fd buf bufSiz (-1))
+
+instance Output UVFileT where
+    -- writeOutput :: HasCallStack => UVFileT -> Ptr Word8 -> Int -> IO ()
+    writeOutput (UVFileT (UVFile fd counter)) buf bufSiz =
+        bracket_ (atomically $ do
+                    s <- readTVar counter
+                    if s >= 0 then modifyTVar' counter (+1)
+                              else throwECLOSEDSTM)
+                 (atomically $ modifyTVar' counter (subtract 1))
+                 (go buf bufSiz)
+      where
+        -- use -1 offset to use fd's default offset
+        go buf bufSiz = do
+            uvm <- getUVManager
+            written <- withUVManagerWrap uvm
+                (hs_uv_fs_write_threaded fd buf bufSiz (-1))
+            when (written < bufSiz)
+                (go (buf `plusPtr` written) (bufSiz - written))
+
 -- | Open a file and get the descriptor
-open :: HasCallStack
-     => FilePath
+initUVFile :: HasCallStack
+     => CBytes
      -> UVFileFlag
      -> UVFileMode
      -- ^ Sets the file mode (permission and sticky bits),
      -- but only if the file was created, see 'defaultMode'.
-     -> Resource UVFD
-open path flags mode = do
-    path' <- initResource (newCString path) free
+     -> Resource UVFile
+initUVFile path flags mode = do
     initResource
-        (hs_uv_fs_open path' flags mode)
-        (void . hs_uv_fs_close)
+        (do fd <- withCBytes path $ \ p ->
+                throwUVIfMinus $ hs_uv_fs_open p flags mode
+            counter <- newTVarIO 0
+            return (UVFile fd counter))
+        (\ (UVFile fd counter) -> join . atomically $ do
+            s <- readTVar counter
+            case s `compare` 0 of
+                GT -> retry -- don't close until no one is using it
+                EQ -> do swapTVar counter (-1)
+                         return (void $ hs_uv_fs_close fd)
+                LT -> return (return ()))
 
--- | Read a file, non-threaded version
-read :: UVFD
-     -> Int
-     -> Int
-     -> Resource (Ptr Word8)
-read fd size offset = do
-    let size' = fromIntegral size
-        offset' = fromIntegral offset
-    buf <- initResource (mallocBytes size :: IO (Ptr Word8)) free
-    liftIO $ throwUVIfMinus_ $ hs_uv_fs_read fd buf size' offset'
-    return buf
+-- | Open a file and get the descriptor
+initUVFileT :: HasCallStack
+     => CBytes
+     -> UVFileFlag
+     -> UVFileMode
+     -- ^ Sets the file mode (permission and sticky bits),
+     -- but only if the file was created, see 'defaultMode'.
+     -> Resource UVFileT
+initUVFileT path flags mode = do
+    initResource
+        (do uvm <- getUVManager
+            fd <- withCBytes path $ \ p ->
+                withUVManagerWrap uvm (hs_uv_fs_open_threaded p flags mode)
+            counter <- newTVarIO 0
+            return (UVFileT (UVFile (fromIntegral fd) counter)))
+        (\ (UVFileT (UVFile fd counter)) -> join . atomically $ do
+            s <- readTVar counter
+            case s `compare` 0 of
+                GT -> retry -- don't close until no one is using it
+                EQ -> do swapTVar counter (-1)
+                         -- there's no need to wait for closing finish
+                         -- so just put the closing into the thread pool
+                         return (do
+                            uvm <- getUVManager
+                            void . withUVManagerWrap uvm $
+                                hs_uv_fs_close_threaded fd)
+                LT -> return (return ()))
 
--- | Read a file, threaded version
--- The buffer shouldn't be read before the request is completed
-readT :: UVManager
-      -> UVFD
-      -> Int
-      -> Int
-      -> Resource (Ptr UVFSReq, Ptr Word8)
-readT mgr fd size offset = do
-    let size' = fromIntegral size
-        offset' = fromIntegral offset
-    req <- initUVFS (\_ _ _ -> return ()) mgr
-    buf <- initResource (mallocBytes size :: IO (Ptr Word8)) free
-    liftIO $ withUVManager mgr $ \loop ->
-        throwUVIfMinus_ $ hs_uv_fs_read_threaded loop req fd buf size' offset'
-    return (req, buf)
+mkdir :: HasCallStack => CBytes -> UVFileMode -> IO ()
+mkdir path mode = throwUVIfMinus_ . withCBytes path $ \ p ->
+     hs_uv_fs_mkdir p mode
 
--- | Read a file, non-threaded version
-write :: UVFD
-      -> Ptr Word8
-      -> Int
-      -> Int
-      -> IO ()
-write fd buf size offset = do
-    let size' = fromIntegral size
-        offset' = fromIntegral offset
-    throwUVIfMinus_ $ hs_uv_fs_write fd buf size' offset'
+mkdirT :: HasCallStack => CBytes -> UVFileMode -> IO ()
+mkdirT path mode = do
+    uvm <- getUVManager
+    withCBytes path $ \ p ->
+        withUVManagerWrap_ uvm (hs_uv_fs_mkdir_threaded p mode)
+
+unlink :: HasCallStack => CBytes -> IO ()
+unlink path = throwUVIfMinus_ (withCBytes path hs_uv_fs_unlink)
+
+unlinkT :: HasCallStack => CBytes -> IO ()
+unlinkT path = do
+    uvm <- getUVManager
+    withCBytes path $ \ p ->
+        withUVManagerWrap_ uvm (hs_uv_fs_unlink_threaded p)
+
+-- | Equivalent to <mkdtemp http://linux.die.net/man/3/mkdtemp>
+--
+-- Creates a temporary directory in the most secure manner possible.
+-- There are no race conditions in the directory’s creation.
+-- The directory is readable, writable, and searchable only by the creating user ID.
+-- The user of mkdtemp() is responsible for deleting the temporary directory and
+-- its contents when done with it.
+--
+-- Note: the argument is the prefix of the temporary directory,
+-- so no need to add XXXXXX ending.
+--
+mkdtemp :: HasCallStack => CBytes -> IO CBytes
+mkdtemp path = do
+    let size = CBytes.length path
+    withCBytes path $ \ p ->
+        CBytes.create (size+7) $ \ p' -> do  -- we append "XXXXXX\NUL" in C
+            throwUVIfMinus_ (hs_uv_fs_mkdtemp p size p')
+            return (size+6)
+
+mkdtempT :: HasCallStack => CBytes -> IO CBytes
+mkdtempT path = do
+    let size = CBytes.length path
+    withCBytes path $ \ p ->
+        CBytes.create (size+7) $ \ p' -> do  -- we append "XXXXXX\NUL" in C
+            uvm <- getUVManager
+            withUVManagerWrap_ uvm (hs_uv_fs_mkdtemp_threaded p size p')
+            return (size+6)
+
+-- | Resource wrapper for 'mkdtemp' with automatically removal.
+--
+-- initTempDir :: CBytes -> Resource CBytes
+
 
 {-
-
-data UVFile = UVFile
-    { uvFileFd     :: {-# UNPACK #-} UVFD
-    , uvFileReq    :: {-# UNPACK #-} UVReq
-    , uvFileSlot   :: {-# UNPACK #-} Int
-    }
-
-newtype UVFileT = UVFileT { uvFile :: UVFile }
 
 --------------------------------------------------------------------------------
 --

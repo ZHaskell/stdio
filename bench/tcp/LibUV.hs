@@ -20,9 +20,7 @@ import Text.Read                        (readMaybe)
 main :: IO ()
 main = do
     portStr <- lookupEnv "PORT"
-    reuseStr <- lookupEnv "REUSEPORT"
     let port = maybe 8888 id (readMaybe =<< portStr)
-        reuse = maybe False id (readMaybe =<< reuseStr)
     let conf = defaultServerConfig{
             serverAddr = SockAddrInet port inetAny
         ,   serverWorker = \ uvs ->  do
@@ -32,7 +30,6 @@ main = do
 
                 -- do not print ECONNRESET for fairness
                 catch (echo uvs recvbuf) (\ (e::SomeException) -> return ())
-        ,   serverReusePortIfAvailable = reuse
         }
 
     startServer conf

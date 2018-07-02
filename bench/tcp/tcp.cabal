@@ -24,7 +24,9 @@ executable libuv
                         System.IO.UV.Internal
   -- other-extensions:    
   c-sources:          ../../cbits/bytes.c
-                      ../../cbits/hs_uv.c
+                      ../../cbits/hs_uv_file.c
+                      ../../cbits/hs_uv_base.c
+                      ../../cbits/hs_uv_stream.c
 
   build-depends:       base >=4.9 && <5.0
                     ,   stm

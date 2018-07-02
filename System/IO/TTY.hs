@@ -25,9 +25,14 @@ module System.IO.TTY(
   ) where
 
 import System.IO.UV.Manager
+import System.IO.UV.Internal
 import System.IO.Exception
 import System.IO.Unsafe
 import System.IO.Resource
+
+initTTYStream :: HasCallStack => UVFD -> UVManager -> Resource UVStream
+initTTYStream fd = initUVStream (\ loop handle ->
+    throwUVIfMinus_ (uv_tty_init loop handle (fromIntegral fd)))
 
 stdin :: UVStream
 {-# NOINLINE stdin #-}

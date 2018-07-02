@@ -83,7 +83,7 @@ encodeChar# mba# i# c# = case (int2Word# (ord# c#)) of
 -- '\NUL' is encoded as two bytes @C0 80@ , '\xD800' ~ '\xDFFF' is encoded as a three bytes normal utf-8 codepoint.
 -- This function assumed there're enough space for encoded bytes, and return the advanced index.
 --
-encodeCBytesChar :: MutablePrimArray RealWorld Word8 -> Int -> Char -> IO Int
+encodeCBytesChar :: (PrimMonad m) => MutablePrimArray (PrimState m) Word8 -> Int -> Char -> m Int
 {-# INLINE encodeCBytesChar #-}
 encodeCBytesChar (MutablePrimArray mba#) (I# i#) (C# c#) = primitive (\ s# ->
     let (# s1#, j# #) = encodeCBytesChar# mba# i# c# s# in (# s1#, (I# j#) #))
