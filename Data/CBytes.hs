@@ -113,8 +113,15 @@ instance Ord CBytes where
                 r <- c_strcmp pA pB
                 return (r `compare` 0)
 
+#if MIN_VERSION_base(4,9,0)
 instance Semigroup CBytes where
     (<>) = append
+#endif
+
+instance Monoid CBytes where
+    mempty  = empty
+    mappend = append
+    mconcat = concat
 
 append :: CBytes -> CBytes -> CBytes
 append strA strB
@@ -132,11 +139,6 @@ append strA strB
   where
     lenA = length strA
     lenB = length strB
-
-instance Monoid CBytes where
-    mempty  = empty
-    mappend = append
-    mconcat = concat
 
 empty :: CBytes
 empty = CBytesLiteral (Ptr "\0"#)
@@ -169,8 +171,6 @@ concat bs = case pre 0 0 bs of
             CBytesLiteral p ->
                 copyMutablePrimArrayFromPtr mba i (castPtr p) l)
         copy bs (i+l) mba
-
-
 
 instance IsString CBytes where
     {-# INLINE fromString #-}

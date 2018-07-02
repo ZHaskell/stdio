@@ -18,7 +18,9 @@ bug-reports:         https://github.com/haskell-stdio/stdio/issues
 
 extra-source-files:  ChangeLog.md
                      include/hs_uv.h
-                     cbits/hs_uv.c
+                     cbits/hs_uv_base.c
+                     cbits/hs_uv_stream.c
+                     cbits/hs_uv_file.c
                      cbits/bytes.c
 
 source-repository head

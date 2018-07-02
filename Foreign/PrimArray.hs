@@ -70,12 +70,11 @@ module Foreign.PrimArray
   , withMutablePrimArraySafe
   , withPrimVectorSafe
   , withPrimSafe
-    -- ** FFI helper
-  , clearByteArray
+    -- ** Pointer helpers
   , clearPtr
-    -- ** Convert between Addr and Ptr a
   , addrToPtr
   , ptrToAddr
+  , castPtr
   -- ** re-export
   , module GHC.Prim
   ) where
@@ -142,6 +141,8 @@ withPrimVectorUnsafe (PrimVector arr s l) f = withPrimArrayUnsafe arr $ \ ba# _ 
 -- | Create an one element primitive array and use it as a pointer to the primitive element.
 --
 -- Return the element and the computation result.
+--
+-- USE THIS FUNCTION WITH UNSAFE FFI CALL ONLY.
 --
 withPrimUnsafe :: forall m a b. (PrimMonad m, Prim a)
                => (MutableByteArray# (PrimState m) -> m b) -> m (a, b)
@@ -219,10 +220,10 @@ withPrimSafe f = do
 foreign import ccall unsafe "string.h" memset :: Ptr a -> CInt -> CSize -> IO ()
 
 -- | Zero a structure.
-clearByteArray :: Ptr a -> Int -> IO ()
-clearByteArray dest nbytes = memset dest 0 (fromIntegral nbytes)
-
--- | Zero a structure.
+--
+-- There's no 'Storable' or 'Prim' constraint on 'a' type, thus the length
+-- should be given in bytes.
+--
 clearPtr :: Ptr a -> Int -> IO ()
 clearPtr dest nbytes = memset dest 0 (fromIntegral nbytes)
 
