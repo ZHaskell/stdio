@@ -162,22 +162,8 @@ HsInt hs_uv_tcp_connect(uv_tcp_t* handle, const struct sockaddr* addr){
 // TODO research on accepting fds sent by IPC pipes.
 //
 #if defined(_WIN32)
-int32_t hs_uv_accept(uv_tcp_t* server) {
-    int fd;
-    switch (server->type) {
-        case UV_TCP:
-            fd = hs_uv_tcp_accept((uv_tcp_t*)server);
-            break;
-        case UV_NAMED_PIPE:
-            fd = hs_uv_pipe_accept((uv_pipe_t*)server);
-            break;
-        default:
-            assert(0);
-    }
-    return fd;
-}
 int32_t hs_uv_tcp_accept(uv_tcp_t* server) {
-  int32_t fd = 0;
+  int32_t fd = -1;
 
   uv_tcp_accept_t* req = server->tcp.serv.pending_accepts;
 
@@ -220,18 +206,18 @@ int32_t hs_uv_tcp_accept(uv_tcp_t* server) {
   }
   return fd;
 }
-int hs_uv_pipe_accept(uv_pipe_t* server) {
+int32_t hs_uv_pipe_accept(uv_pipe_t* server) {
+    int32_t fd = -1;
+
     uv_loop_t* loop = server->loop;
     uv_pipe_accept_t* req;
-
-    int fd;
     req = server->pipe.serv.pending_accepts;
     if (!req) {
       /* No valid connections found, so we error out. */
       return WSAEWOULDBLOCK;
     }
 
-    fd = req->pipeHandle;
+    fd = (int32_t)req->pipeHandle;
 
     /* Prepare the req to pick up a new connection */
     server->pipe.serv.pending_accepts = req->next_pending;
@@ -239,6 +225,20 @@ int hs_uv_pipe_accept(uv_pipe_t* server) {
     req->pipeHandle = INVALID_HANDLE_VALUE;
     if (!(server->flags & UV__HANDLE_CLOSING)) {
         uv_pipe_queue_accept(loop, server, req, FALSE);
+    }
+    return fd;
+}
+int32_t hs_uv_accept(uv_stream_t* server) {
+    int32_t fd;
+    switch (server->type) {
+        case UV_TCP:
+            fd = hs_uv_tcp_accept((uv_tcp_t*)server);
+            break;
+        case UV_NAMED_PIPE:
+            fd = hs_uv_pipe_accept((uv_pipe_t*)server);
+            break;
+        default:
+            assert(0);
     }
     return fd;
 }
@@ -260,7 +260,7 @@ void hs_listen_cb(uv_stream_t* server, int status){
 
     if (status == 0) {
         if (accepted_number < ACCEPT_BUFFER_SIZE - 1) {
-            accept_buf[accepted_number] = (int32_t)hs_uv_accept(server);       
+            accept_buf[accepted_number] = hs_uv_accept(server);       
             loop_data->buffer_size_table[slot] = accepted_number + 1;
         } else {
 #if defined(_WIN32)
@@ -285,7 +285,7 @@ void hs_listen_cb(uv_stream_t* server, int status){
             //
             // do last accept without clearing server->accepted_fd
             // libuv will take this as a no accepting, thus call uv__io_stop for us.
-            accept_buf[accepted_number] = (int32_t)hs_uv_accept(server);       
+            accept_buf[accepted_number] = hs_uv_accept(server);       
             // set back accepted_fd so that libuv break from accept loop
             // upon next resuming, we clear this accepted_fd with -1 and call uv__io_start
             server->accepted_fd = accept_buf[accepted_number];
