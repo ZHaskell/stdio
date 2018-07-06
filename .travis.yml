@@ -10,19 +10,18 @@ env:
  - CABALVER=2.2  GHCVER=8.4.3
  - CABALVER=head GHCVER=head   # see section about GHC HEAD snapshots
 
-# matrix:
-   # allow_failures:
+matrix:
+   allow_failures:
+     - CABALVER=head GHCVER=head
+
 
 # Note: the distinction between `before_install` and `install` is not important.
 before_install:
  - travis_retry sudo add-apt-repository -y ppa:hvr/ghc
  - travis_retry sudo apt-get update
  - travis_retry sudo apt-get install cabal-install-$CABALVER ghc-$GHCVER # see note about happy/alex
- - git clone https://github.com/libuv/libuv.git && cd libuv && git checkout tags/v1.11.0 && sh autogen.sh && ./configure && make && sudo make install && cd ..
- - export PATH=/usr/local/lib:$PATH
- - export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
- - export EXTRA_OPT="--extra-lib-dirs=/usr/local/include --extra-lib-dirs=/usr/local/lib"
  - export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:$PATH
+ - travis_retry sudo apt-get install libuv1 libuv1-dev
 
 install:
  - git submodule update --init
