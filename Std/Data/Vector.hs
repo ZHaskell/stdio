@@ -360,7 +360,7 @@ c2w (C# c#) = W8# (int2Word# (ord# c#))
 -- | This
 bytes :: QQ.QuasiQuoter
 bytes = QQ.QuasiQuoter
-    (asciiLiteral $ \ l addr -> [| PrimVector (QQ.word8ArrayFromAddr l $(addr)) l 0 |])
+    (asciiLiteral $ \ l addr -> [| PrimVector (QQ.word8ArrayFromAddr l $(addr)) 0 l |])
     (error "Cannot use bytes as a pattern")
     (error "Cannot use bytes as a type")
     (error "Cannot use bytes as a dec")
