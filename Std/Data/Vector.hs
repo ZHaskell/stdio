@@ -47,7 +47,6 @@ module Std.Data.Vector (
   , PrimVector(..)
   -- ** 'Word8' vector
   , Bytes
-  , pattern BytesPat
   , w2c, c2w
   -- * Basic creating
   , create, creating, createN
@@ -361,12 +360,10 @@ c2w (C# c#) = W8# (int2Word# (ord# c#))
 -- | This
 bytes :: QQ.QuasiQuoter
 bytes = QQ.QuasiQuoter
-    (asciiLiteral $ \ l addr -> [| PrimArray (QQ.word8ArrayFromAddr l $(addr)) l 0 |])
+    (asciiLiteral $ \ l addr -> [| PrimVector (QQ.word8ArrayFromAddr l $(addr)) l 0 |])
     (error "Cannot use bytes as a pattern")
     (error "Cannot use bytes as a type")
     (error "Cannot use bytes as a dec")
-
-pattern BytesPat ba s l <- (toArr -> (PrimArray ba,s,l))
 
 --------------------------------------------------------------------------------
 -- Basic creating
@@ -849,7 +846,7 @@ concat vs = case pre 0 0 vs of
                                          copy vs (i+l) mba
 
 -- | Map a function over a vector and concatenate the results
-concatMap :: (Vec v1 a, Vec v2 b) => (a -> v2 b) -> v1 a -> v2 b
+concatMap :: (Vec v a) => (a -> v a) -> v a -> v a
 {-# INLINE concatMap #-}
 concatMap f = concat . foldr' ((:) . f) []
 

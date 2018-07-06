@@ -3,15 +3,15 @@
 
 module Unit.Resource where
 
-import Test.Tasty
-import Test.Tasty.HUnit
-import Control.Concurrent.Async
-import Control.Concurrent
-import Control.Exception
-import Control.Monad
-import Data.Typeable
-import Data.IORef.Unboxed
-import System.IO.Resource as R
+import           Control.Concurrent
+import           Control.Concurrent.Async
+import           Control.Exception
+import           Control.Monad
+import           Data.IORef.Unboxed
+import           Data.Typeable
+import           Std.IO.Resource          as R
+import           Test.Tasty
+import           Test.Tasty.HUnit
 
 data WorkerException = WorkerException deriving (Typeable, Show)
 

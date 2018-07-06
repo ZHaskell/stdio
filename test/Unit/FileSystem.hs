@@ -4,18 +4,18 @@
 
 module Unit.FileSystem where
 
-import Data.Bits
-import Data.Vector as V
-import Test.Tasty hiding (withResource)
-import Test.Tasty.HUnit
-import Control.Concurrent.MVar (readMVar)
-import Foreign.Marshal.Array
-import Foreign.Ptr
-import System.IO.Exception
-import System.IO.FileSystem as FS
-import System.IO.Resource
-import System.IO.Buffered
-import System.IO.UV.Manager
+import           Control.Concurrent.MVar (readMVar)
+import           Data.Bits
+import           Std.Data.Vector         as V
+import           Foreign.Marshal.Array
+import           Foreign.Ptr
+import           Std.IO.Buffered
+import           Std.IO.Exception
+import           Std.IO.FileSystem       as FS
+import           Std.IO.Resource
+import           Std.IO.UV.Manager
+import           Test.Tasty              hiding (withResource)
+import           Test.Tasty.HUnit
 
 unitFileSystem :: TestTree
 unitFileSystem = testGroup "filesystem operations" [
@@ -25,8 +25,8 @@ unitFileSystem = testGroup "filesystem operations" [
             mode = defaultMode
             filename = "stdio-unit"
 
-            content = [vASCII|Hello world!|]
-            content2 = [vASCII|quick fox jumps over the lazy dog|]
+            content = [bytes|Hello world!|]
+            content2 = [bytes|quick fox jumps over the lazy dog|]
             size = V.length content
             size2 = V.length content2
 
