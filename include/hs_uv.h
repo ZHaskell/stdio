@@ -140,6 +140,8 @@ typedef struct {
     // see note below
     HsInt*  slot_table;
     HsInt   free_slot;
+    HsInt*  free_slot_queue;
+    HsInt   free_slot_counter;
     // uv_struct_table field is a memory pool for uv_handle_t / uv_req_t struct,
     // see note below
     hs_uv_struct**  uv_struct_table;
@@ -150,7 +152,7 @@ typedef struct {
     uv_async_t* async;
     uv_timer_t* timer;
 } hs_loop_data;
-// Note: the stable pointer allocator
+// Note: the slot allocator
 //
 // we used to do slot allocation in haskell, but doing it in C allow us to free slot
 // in the right place, e.g. uv_close_cb. The allocator use the same algorithm with
@@ -178,6 +180,18 @@ typedef struct {
 //  free_slot = 1
 //
 // Next time allocation will give 1 back to us, and free_slot will continue point to 3.
+//
+// But in practice, we never directly return a free slot back to slot_table, because
+// the haskell thread allocating slot may be paused by RTS before its takeMVar parking its
+// TSO since parking itself need an allocation. Now if uv_run fired its callback and 
+// free the slot, next registration will got the same slot, and mess up with previous
+// haskell thread. In order to solve this race condition, we free a slot in two steps:
+//
+// 1. free_slot will first push slot to free_slot_queue, and increase free_slot_counter.
+// 2. before uv_run we loop through this queue and put these free slots back to slot_table.
+//
+// With this scheme, slots will be held one scheduler loop longer, thus ensure the haskell
+// thread can successfully wait on its 'MVar', and in turn make sure it will be resumed.
 //
 ////////////////////////////////////////////////////////////////////////////////
 //
@@ -217,6 +231,7 @@ void hs_uv_loop_close(uv_loop_t* loop);
 HsInt alloc_slot(hs_loop_data* loop_data);
 void free_slot(hs_loop_data* loop_data, HsInt slot);
 hs_uv_struct* fetch_uv_struct(hs_loop_data* loop_data, HsInt slot);
+int hs_uv_run(uv_loop_t* loop, uv_run_mode mode);
 
 ////////////////////////////////////////////////////////////////////////////////
 // wake up

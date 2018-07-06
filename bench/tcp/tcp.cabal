@@ -17,11 +17,11 @@ cabal-version:       >=1.10
 
 executable libuv
   main-is:             LibUV.hs
-  other-modules:        System.IO.Buffered
-                        System.IO.TCP
-                        System.IO.Net.SockAddr
-                        System.IO.UV.Exception
-                        System.IO.UV.Internal
+  other-modules:        Std.IO.Buffered
+                        Std.IO.TCP
+                        Std.IO.SockAddr
+                        Std.IO.UV.Errno
+                        Std.IO.UV.FFI
   -- other-extensions:    
   c-sources:          ../../cbits/bytes.c
                       ../../cbits/hs_uv_file.c
