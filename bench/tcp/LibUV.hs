@@ -3,16 +3,15 @@
 
 module Main where
 
-import System.IO.TCP
-import System.IO.Buffered
+import Std.IO.TCP
+import Std.IO.Buffered
 import Control.Concurrent
 import Foreign.ForeignPtr
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Internal as B
 import GHC.ForeignPtr
 import Control.Monad
-import System.IO.Exception
-import System.IO
+import Std.IO.Exception
 import Data.IORef.Unboxed
 import System.Environment
 import Text.Read                        (readMaybe)

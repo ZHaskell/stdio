@@ -1,12 +1,12 @@
 module Unit.LowResTimer where
 
-import Test.Tasty
-import Test.Tasty.HUnit
-import Control.Concurrent.Async
-import Control.Concurrent
-import Control.Monad
-import Data.IORef.Unboxed
-import System.LowResTimer
+import           Control.Concurrent
+import           Control.Concurrent.Async
+import           Control.Monad
+import           Data.IORef.Unboxed
+import           Std.IO.LowResTimer
+import           Test.Tasty
+import           Test.Tasty.HUnit
 
 unitLowResTimer :: TestTree
 unitLowResTimer = testGroup "low resolution timers" [

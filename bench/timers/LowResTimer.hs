@@ -3,7 +3,7 @@ module Main where
 import Control.Concurrent.STM
 import Control.Concurrent
 import Control.Monad
-import System.LowResTimer
+import Std.IO.LowResTimer
 
 main :: IO ()
 main = do

@@ -29,54 +29,37 @@ source-repository head
 
 
 library
-    exposed-modules:        Data.Primitive.PrimArrayQ
-                            Data.Primitive.BitTwiddle
-                            Data.Vector
-                            Data.Array
-                            Data.Array.Checked
-                            Data.CBytes
-                            Data.Parser
-                            Data.Text
-                            Data.Text.UTF8Codec
+    exposed-modules:        Std.Data.PrimArray.QQ
+                            Std.Data.PrimArray.BitTwiddle
+                            Std.Data.Vector
+                            Std.Data.Array
+                            Std.Data.Array.Checked
+                            Std.Data.CBytes
+                            Std.Data.Parser
+                            Std.Data.Text
+                            Std.Data.Text.UTF8Codec
+                            Std.Data.Binary
+                            Std.Data.Builder
 
-                            Data.Binary
-                            Data.Builder
+                            Std.Foreign.PrimArray
 
-                            System.IO.Resource
+                            Std.IO.Resource
+                            Std.IO.LowResTimer
+                            Std.IO.Exception 
+                            Std.IO.Buffered
+                            Std.IO.TTY
+                            Std.IO.FileSystem
+                            Std.IO.TCP
+                            Std.IO.SockAddr
+                            Std.IO.UV.Errno
+                            Std.IO.UV.FFI
+                            Std.IO.UV.Manager
 
-                            Foreign.PrimArray
-                            GHC.Stack.Compat
+    -- other-modules:         
 
-                            System.IO.Exception 
-                            System.IO.Buffered
-                            -- System.IO.File
-                            -- System.IO.Handle
-                            System.LowResTimer
-
-                            
-                            System.IO.UV.Exception 
-                            System.IO.UV.Internal
-                            System.IO.UV.Manager
-
-                            System.IO.TTY
-                            -- System.IO.Log
-
-                            System.IO.FileSystem
-                            System.IO.TCP
-                            System.IO.Net.SockAddr
-
-                            -- System.IO.Socket
-                            -- System.IO.Socket.Address
-                            -- System.IO.Socket.Base
-                            -- System.IO.Socket.TCP
-                            -- System.IO.Socket.Exception
-
-
-
-    -- other-modules:          System.IO.UV
     -- other-extensions:    
 
-    build-depends:          base >=4.7 && <5.0
+    build-depends:          base >=4.9 && <5.0
                         ,   ghc-prim  >= 0.4
                         ,   primitive >= 0.6.4
                         ,   deepseq
@@ -143,26 +126,6 @@ library
     build-tools:         hsc2hs
     -- ghc-options:        -Wall
 
-benchmark bench
-    build-depends:      base
-                    ,   binary
-                    ,   deepseq
-                    ,   bytestring
-                    ,   vector
-                    ,   text
-                    ,   stdio
-                    ,   ghc-prim
-                    ,   primitive
-                    ,   criterion
-                    ,   stm
-
-    default-language: Haskell2010
-    hs-source-dirs:   bench
-    main-is:          Main.hs
-    type:             exitcode-stdio-1.0
-    ghc-options:      -O2 -threaded
-
-
 test-suite test
     type: exitcode-stdio-1.0
     main-is: Main.hs
@@ -180,7 +143,6 @@ test-suite test
                   , tasty-hunit
                   , QuickCheck >= 2.10
                   , async
-                  , temporary
                   , unboxed-ref
 
 

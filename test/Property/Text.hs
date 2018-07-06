@@ -3,15 +3,15 @@
 
 module Property.Text where
 
-import Test.Tasty
-import Test.Tasty.QuickCheck
-import Test.QuickCheck.Property
-import Test.QuickCheck.Function
-import Test.QuickCheck
-import qualified Data.Vector as V
-import qualified Data.Text as T
-import Data.Char
-import qualified Data.List as List
+import           Data.Char
+import qualified Data.List                as List
+import qualified Std.Data.Text            as T
+import qualified Std.Data.Vector          as V
+import           Test.QuickCheck
+import           Test.QuickCheck.Function
+import           Test.QuickCheck.Property
+import           Test.Tasty
+import           Test.Tasty.QuickCheck
 
 propertyText :: TestTree
 propertyText = testGroup "text property" [
