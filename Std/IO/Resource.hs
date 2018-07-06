@@ -163,8 +163,9 @@ withResource' resource k = do
 --------------------------------------------------------------------------------
 
 -- | A single resource pool entry.
-data Entry a = Entry (a, IO ()) -- ^ the resource and clean up action
-                     {-# UNPACK #-} !Int        -- ^ the life remaining
+data Entry a = Entry
+    (a, IO ())             -- the resource and clean up action
+    {-# UNPACK #-} !Int    -- the life remaining
 
 data PoolState = PoolClosed | PoolScanning | PoolEmpty deriving (Eq, Show)
 
