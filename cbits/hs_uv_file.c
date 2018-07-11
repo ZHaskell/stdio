@@ -44,11 +44,11 @@ int32_t hs_uv_fs_open(const char* path, int flags, int mode){
     return (int32_t)req.result;
 }
 
-int hs_uv_fs_close(int32_t file){
+HsInt hs_uv_fs_close(int32_t file){
     uv_fs_t req;
     uv_fs_close(NULL, &req, (uv_file)file, NULL);
     uv_fs_req_cleanup(&req);    // maybe not neccessary
-    return (int32_t)req.result;
+    return (HsInt)req.result;
 }
 
 HsInt hs_uv_fs_read(int32_t file, char* buffer, HsInt buffer_size, int64_t offset){
@@ -66,28 +66,53 @@ HsInt hs_uv_fs_write(int32_t file, char* buffer, HsInt buffer_size, int64_t offs
     return (HsInt)req.result;
 }
 
-int hs_uv_fs_unlink(const char* path){
+HsInt hs_uv_fs_unlink(const char* path){
     uv_fs_t req;
     uv_fs_unlink(NULL, &req, path, NULL);
     uv_fs_req_cleanup(&req);    // maybe not neccessary
-    return req.result;
+    return (HsInt)req.result;
 }
 
-int hs_uv_fs_mkdir(const char* path, int mode){
+HsInt hs_uv_fs_mkdir(const char* path, int mode){
     uv_fs_t req;
     uv_fs_mkdir(NULL, &req, path, mode, NULL);
     uv_fs_req_cleanup(&req);    // maybe not neccessary
-    return req.result;
+    return (HsInt)req.result;
 }
 
-int hs_uv_fs_mkdtemp(const char* tpl, HsInt tpl_size, char* temp_path){
+HsInt hs_uv_fs_mkdtemp(const char* tpl, HsInt tpl_size, char* temp_path){
     uv_fs_t req;
     strcpy(temp_path, tpl);
     strcpy(temp_path + tpl_size, "XXXXXX");
     uv_fs_mkdtemp(NULL, &req, temp_path, NULL);
     strcpy(temp_path, req.path);    // save the temp path
     uv_fs_req_cleanup(&req);        // maybe not neccessary
-    return req.result;
+    return (HsInt)req.result;
+}
+
+HsInt hs_uv_fs_rmdir(const char* path){
+    uv_fs_t req;
+    uv_fs_rmdir(NULL, &req, path, NULL);
+    uv_fs_req_cleanup(&req);    // maybe not neccessary
+    return (HsInt)req.result;
+}
+
+void hs_uv_fs_scandir_cleanup(uv_dirent_t** dents, HsInt n){
+    int i;
+    for (i=0; i<n; i++){
+        uv__fs_scandir_free(dents[i]);
+    }
+    uv__fs_scandir_free(dents);
+}
+
+HsInt hs_uv_fs_scandir(const char* path, uv_dirent_t*** dents){
+    uv_fs_t req;
+    uv_fs_scandir(NULL, &req, path, 0, NULL);
+    *dents = req.ptr;
+#if defined(_WIN32)
+    uv__free(req->file.pathw);      //  we clean up dents later
+#endif
+    return (HsInt)req.result;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -196,11 +221,14 @@ void hs_uv_fs_mkdtemp_callback(uv_fs_t* req){
     uv_loop_t* loop = req->loop;
     hs_loop_data* loop_data = loop->data;
     HsInt slot = (HsInt)req->data; 
-    // push the slot to event queue
-    loop_data->buffer_size_table[slot] = (HsInt)req->result;
-    loop_data->event_queue[loop_data->event_counter] = slot;
-    loop_data->event_counter += 1;
-    strcpy(loop_data->buffer_table[slot], req->path);  // save the temp path
+    char* path = loop_data->buffer_table[slot];
+    if (path != NULL) {
+        // push the slot to event queue
+        loop_data->buffer_size_table[slot] = (HsInt)req->result;
+        loop_data->event_queue[loop_data->event_counter] = slot;
+        loop_data->event_counter += 1;
+        strcpy(path, req->path);  // save the temp path
+    }
     uv_fs_req_cleanup(req);
     free_slot(loop_data, slot);  // free the uv_req_t
 }
@@ -216,6 +244,67 @@ HsInt hs_uv_fs_mkdtemp_threaded(const char* tpl, HsInt tpl_size, char* temp_path
     strcpy(temp_path + tpl_size, "XXXXXX");
     loop_data->buffer_table[slot] = temp_path;
     int r = uv_fs_mkdtemp(loop, req, temp_path, hs_uv_fs_mkdtemp_callback);
+    if (r < 0) {
+        free_slot(loop_data, slot);
+        return (HsInt)r;
+    } else return slot;
+}
+
+HsInt hs_uv_fs_rmdir_threaded(const char* path, uv_loop_t* loop){
+    hs_loop_data* loop_data = loop->data;
+    HsInt slot = alloc_slot(loop_data);
+    if (slot < 0) return UV_ENOMEM;
+    uv_fs_t* req = 
+        (uv_fs_t*)fetch_uv_struct(loop_data, slot);
+    req->data = (void*)slot;
+    int r = uv_fs_rmdir(loop, req, path, hs_uv_fs_callback);
+    if (r < 0) {
+        free_slot(loop_data, slot);
+        return (HsInt)r;
+    } else return slot;
+}
+
+void hs_uv_fs_scandir_callback(uv_fs_t* req){
+    uv_loop_t* loop = req->loop;
+    hs_loop_data* loop_data = loop->data;
+    HsInt slot = (HsInt)req->data; 
+    uv_dirent_t*** dents = (uv_dirent_t***)loop_data->buffer_table[slot];
+    if (dents != NULL) {
+        *dents = req->ptr;
+        // save the dent struct array pointer
+        // push the slot to event queue
+        loop_data->buffer_size_table[slot] = (HsInt)req->result;
+        loop_data->event_queue[loop_data->event_counter] = slot;
+        loop_data->event_counter += 1;
+    } else {
+        hs_uv_fs_scandir_extra_cleanup(dents, (HsInt)req->result);
+    }
+#if defined(_WIN32)
+    uv__free(req->file.pathw);  //  we clean up dents later 
+#endif
+    free_slot(loop_data, slot);  // free the uv_req_t
+}
+
+void hs_uv_fs_scandir_extra_cleanup(uv_dirent_t*** dents_p, HsInt n){
+    int i;
+    uv_dirent_t** dents = *dents_p;
+    if (dents != NULL) {
+        for (i=0; i<n; i++){
+            uv__fs_scandir_free(dents[i]);
+        }
+        uv__fs_scandir_free(dents);
+    }
+}
+
+HsInt hs_uv_fs_scandir_threaded(const char* path, uv_dirent_t*** dents, uv_loop_t* loop){
+    hs_loop_data* loop_data = loop->data;
+    HsInt slot = alloc_slot(loop_data);
+    if (slot < 0) return UV_ENOMEM;
+    uv_fs_t* req = 
+        (uv_fs_t*)fetch_uv_struct(loop_data, slot);
+    req->data = (void*)slot;
+    loop_data->buffer_table[slot] = (char*)dents;
+    int r = uv_fs_scandir(loop, req, path, 0, hs_uv_fs_scandir_callback);
     if (r < 0) {
         free_slot(loop_data, slot);
         return (HsInt)r;

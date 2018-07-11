@@ -49,6 +49,8 @@
 # include <poll.h>
 #endif /* _AIX */
 
+#include <dirent.h>
+
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -497,15 +499,81 @@ void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events);
 
 #endif
 
+#if defined(_WIN32)
+typedef struct uv__dirent_s {
+  int d_type;
+  char d_name[1];
+} hs_uv__dirent_t;
+#define HAVE_DIRENT_TYPES
+#define UV__DT_DIR     UV_DIRENT_DIR
+#define UV__DT_FILE    UV_DIRENT_FILE
+#define UV__DT_LINK    UV_DIRENT_LINK
+#define UV__DT_FIFO    UV_DIRENT_FIFO
+#define UV__DT_SOCKET  UV_DIRENT_SOCKET
+#define UV__DT_CHAR    UV_DIRENT_CHAR
+#define UV__DT_BLOCK   UV_DIRENT_BLOCK
+#else
+typedef struct dirent hs_uv__dirent_t;
+#if defined(DT_UNKNOWN)
+# define HAVE_DIRENT_TYPES
+# if defined(DT_REG)
+#  define UV__DT_FILE DT_REG
+# else
+#  define UV__DT_FILE -1
+# endif
+# if defined(DT_DIR)
+#  define UV__DT_DIR DT_DIR
+# else
+#  define UV__DT_DIR -2
+# endif
+# if defined(DT_LNK)
+#  define UV__DT_LINK DT_LNK
+# else
+#  define UV__DT_LINK -3
+# endif
+# if defined(DT_FIFO)
+#  define UV__DT_FIFO DT_FIFO
+# else
+#  define UV__DT_FIFO -4
+# endif
+# if defined(DT_SOCK)
+#  define UV__DT_SOCKET DT_SOCK
+# else
+#  define UV__DT_SOCKET -5
+# endif
+# if defined(DT_CHR)
+#  define UV__DT_CHAR DT_CHR
+# else
+#  define UV__DT_CHAR -6
+# endif
+# if defined(DT_BLK)
+#  define UV__DT_BLOCK DT_BLK
+# else
+#  define UV__DT_BLOCK -7
+# endif
+#endif
+#endif
+
+#ifdef _WIN32
+void uv__free(void* p);
+# define uv__fs_scandir_free uv__free
+#else
+# define uv__fs_scandir_free free
+#endif
+void hs_uv_fs_scandir_cleanup(uv_dirent_t** dents, HsInt n);
+void hs_uv_fs_scandir_extra_cleanup(uv_dirent_t*** dents_p, HsInt n);
+
 ////////////////////////////////////////////////////////////////////////////////
 // fs, none thread pool version
 int32_t hs_uv_fs_open(const char* path, int flags, int mode);
-int hs_uv_fs_close(int32_t file);
+HsInt hs_uv_fs_close(int32_t file);
 HsInt hs_uv_fs_read(int32_t file, char* buffer, HsInt buffer_size, int64_t offset);
 HsInt hs_uv_fs_write(int32_t file, char* buffer, HsInt buffer_size, int64_t offset);
-int hs_uv_fs_unlink(const char* path);
-int hs_uv_fs_mkdir(const char* path, int mode);
-int hs_uv_fs_mkdtemp(const char* tpl, HsInt tpl_size, char* temp_path);
+HsInt hs_uv_fs_unlink(const char* path);
+HsInt hs_uv_fs_mkdir(const char* path, int mode);
+HsInt hs_uv_fs_mkdtemp(const char* tpl, HsInt tpl_size, char* temp_path);
+HsInt hs_uv_fs_rmdir(const char* path);
+HsInt hs_uv_fs_scandir(const char* path, uv_dirent_t*** dents);
 
 ////////////////////////////////////////////////////////////////////////////////
 // fs, thread pool version
@@ -516,3 +584,5 @@ HsInt hs_uv_fs_write_threaded(int32_t file, char* buffer, HsInt buffer_size, int
 HsInt hs_uv_fs_unlink_threaded(const char* path, uv_loop_t* loop);
 HsInt hs_uv_fs_mkdir_threaded(const char* path, int mode, uv_loop_t* loop);
 HsInt hs_uv_fs_mkdtemp_threaded(const char* tpl, HsInt tpl_size, char* temp_path, uv_loop_t* loop);
+HsInt hs_uv_fs_rmdir_threaded(const char* path, uv_loop_t* loop);
+HsInt hs_uv_fs_scandir_threaded(const char* path, uv_dirent_t*** dents, uv_loop_t* loop);

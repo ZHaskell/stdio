@@ -103,7 +103,7 @@ atMost :: Int  -- ^ size bound
           -> (A.MutablePrimArray (PrimState IO) Word8 -> Int -> IO Int)  -- ^ the writer which return a new offset
                                                                            -- for next write
           -> Builder
-atMost n f = ensureFree n `append`
+atMost n f = ensureN n `append`
     Builder (\ _  k (Buffer buf offset ) ->
         f buf offset >>= \ offset' -> k (Buffer buf offset')
     )
@@ -133,7 +133,7 @@ bytes bs@(V.PrimVector arr s l) = Builder go
                     | otherwise -> action bs >> k buffer
     {-# NOINLINE go #-}
     copy strategy k =
-        runBuilder (ensureFree l) strategy ( \ (Buffer buf offset) -> do
+        runBuilder (ensureN l) strategy ( \ (Buffer buf offset) -> do
                 A.copyArr buf offset arr s l
                 k (Buffer buf (offset+l))
             )
@@ -141,8 +141,8 @@ bytes bs@(V.PrimVector arr s l) = Builder go
 {-# INLINE bytes #-}
 
 -- | Ensure that there are at least @n@ many elements available.
-ensureFree :: Int -> Builder
-ensureFree !n = Builder $ \ strategy k buffer@(Buffer buf offset) -> do
+ensureN :: Int -> Builder
+ensureN !n = Builder $ \ strategy k buffer@(Buffer buf offset) -> do
     siz <- A.sizeofMutableArr buf  -- You may think doing this will be slow
                                    -- but this value lives in CPU cache for most of the time
     if siz - offset >= n
@@ -153,7 +153,7 @@ ensureFree !n = Builder $ \ strategy k buffer@(Buffer buf offset) -> do
     handleBoundary (InsertChunk chunkSiz) n k buffer = insertChunk chunkSiz n k buffer
     handleBoundary (OneShotAction action) n k buffer = oneShotAction action n k buffer
     {-# NOINLINE handleBoundary #-}
-{-# INLINE ensureFree #-}
+{-# INLINE ensureN #-}
 
 --------------------------------------------------------------------------------
 --

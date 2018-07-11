@@ -2,7 +2,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {-|
 Module      : Std.IO.FileSystem
@@ -57,6 +57,8 @@ module Std.IO.FileSystem
   , unlinkT
   , mkdtemp
   , mkdtempT
+  , scandir
+  , scandirT
   ) where
 
 import           Control.Concurrent.STM.TVar
@@ -66,8 +68,11 @@ import           Control.Monad.IO.Class
 import           Control.Monad.STM
 import           Data.Word
 import           Data.Int
+import           Data.Primitive.Ptr             (readOffPtr)
+import           GHC.Generics
 import           Std.Data.CBytes                 as CBytes
 import           Foreign.Ptr
+import           Std.Foreign.PrimArray          (withPrimSafe, withPrimUnsafe)
 import           Std.IO.Buffered
 import           Std.IO.Exception
 import           Std.IO.Resource
@@ -139,7 +144,7 @@ readUVFileT (UVFileT (UVFile fd counter)) buf bufSiz off =
                           else throwECLOSEDSTM)
              (atomically $ modifyTVar' counter (subtract 1))
              (do uvm <- getUVManager
-                 withUVManagerWrap uvm
+                 withUVRequest uvm
                     (hs_uv_fs_read_threaded fd buf bufSiz off))
 
 instance Output UVFileT where
@@ -158,14 +163,14 @@ writeUVFileT (UVFileT (UVFile fd counter)) buf bufSiz off =
     -- use -1 offset to use fd's default offset
     go buf bufSiz = do
         uvm <- getUVManager
-        written <- withUVManagerWrap uvm
+        written <- withUVRequest uvm
             (hs_uv_fs_write_threaded fd buf bufSiz (-1))
         when (written < bufSiz)
             (go (buf `plusPtr` written) (bufSiz-written))
 
     go' buf bufSiz off = do
         uvm <- getUVManager
-        written <- withUVManagerWrap uvm
+        written <- withUVRequest uvm
             (hs_uv_fs_write_threaded fd buf bufSiz (-1))
         when (written < bufSiz) $ do
             go' (buf `plusPtr` written)
@@ -252,7 +257,7 @@ initUVFileT path flags mode = do
     initResource
         (do uvm <- getUVManager
             fd <- withCBytes path $ \ p ->
-                withUVManagerWrap uvm (hs_uv_fs_open_threaded p flags mode)
+                withUVRequest uvm (hs_uv_fs_open_threaded p flags mode)
             counter <- newTVarIO 0
             return (UVFileT (UVFile (fromIntegral fd) counter)))
         (\ (UVFileT (UVFile fd counter)) -> join . atomically $ do
@@ -264,7 +269,7 @@ initUVFileT path flags mode = do
                          -- so just put the closing into the thread pool
                          return (do
                             uvm <- getUVManager
-                            void . withUVManagerWrap uvm $
+                            void . withUVRequest uvm $
                                 hs_uv_fs_close_threaded fd)
                 LT -> return (return ()))
 
@@ -278,7 +283,7 @@ mkdirT :: HasCallStack => CBytes -> UVFileMode -> IO ()
 mkdirT path mode = do
     uvm <- getUVManager
     withCBytes path $ \ p ->
-        void $ withUVManager uvm (hs_uv_fs_mkdir_threaded p mode)
+        void $ withUVRequest uvm (hs_uv_fs_mkdir_threaded p mode)
 
 unlink :: HasCallStack => CBytes -> IO ()
 unlink path = throwUVIfMinus_ (withCBytes path hs_uv_fs_unlink)
@@ -287,7 +292,7 @@ unlinkT :: HasCallStack => CBytes -> IO ()
 unlinkT path = do
     uvm <- getUVManager
     withCBytes path $ \ p ->
-        void $ withUVManager uvm (hs_uv_fs_unlink_threaded p)
+        void $ withUVRequest uvm (hs_uv_fs_unlink_threaded p)
 
 -- | Equivalent to <mkdtemp http://linux.die.net/man/3/mkdtemp>
 --
@@ -314,19 +319,9 @@ mkdtempT path = do
     withCBytes path $ \ p ->
         CBytes.create (size+7) $ \ p' -> do  -- we append "XXXXXX\NUL" in C
             uvm <- getUVManager
-            void $ withUVManager uvm (hs_uv_fs_mkdtemp_threaded p size p')
+            void $ withUVRequest uvm (hs_uv_fs_mkdtemp_threaded p size p')
             return (size+6)
 
--- | Resource wrapper for 'mkdtemp' with automatically removal.
---
--- initTempDir :: CBytes -> Resource CBytes
-
-
-{-
-
---------------------------------------------------------------------------------
---
---
 data DirEntType
     = DirEntUnknown
     | DirEntFile
@@ -340,45 +335,43 @@ data DirEntType
 
 fromUVDirEntType :: UVDirEntType -> DirEntType
 fromUVDirEntType t
-    | t == uV_DIRENT_FILE   = DirEntFile
-    | t == uV_DIRENT_DIR    = DirEntDir
-    | t == uV_DIRENT_LINK   = DirEntLink
-    | t == uV_DIRENT_FIFO   = DirEntFIFO
-    | t == uV_DIRENT_SOCKET = DirEntSocket
-    | t == uV_DIRENT_CHAR   = DirEntChar
-    | t == uV_DIRENT_BLOCK  = DirEntBlock
+    | t == uV__DT_FILE   = DirEntFile
+    | t == uV__DT_DIR    = DirEntDir
+    | t == uV__DT_LINK   = DirEntLink
+    | t == uV__DT_FIFO   = DirEntFIFO
+    | t == uV__DT_SOCKET = DirEntSocket
+    | t == uV__DT_CHAR   = DirEntChar
+    | t == uV__DT_BLOCK  = DirEntBlock
     | otherwise             = DirEntUnknown
 
-scandir :: CBytes -> IO [(CBytes, DirEntType)]
-scandir path = withCBytes path $ \ p ->
-    withResource (initUVReqNoSlot uV_FS) $ \ req -> do
-        uvFSScandir p False nullPtr req
-        loopScanDirReq req
+scandir :: HasCallStack => CBytes -> IO [(CBytes, DirEntType)]
+scandir path = do
+    uvm <- getUVManager
+    bracket
+        (withCBytes path $ \ p -> do
+            withPrimUnsafe $ \ dents ->
+                throwUVIfMinus (hs_uv_fs_scandir p dents))
+        (\ (dents, n) -> hs_uv_fs_scandir_cleanup dents n)
+        (\ (dents, n) -> forM [0..n-1] $ \ i -> do
+            dent <- readOffPtr dents i
+            (path, typ) <- peekUVDirEnt dent
+            let !typ' = fromUVDirEntType typ
+            !path' <- fromCString path
+            return (path', typ'))
 
-scandirT :: CBytes -> IO [(CBytes, DirEntType)]
+scandirT :: HasCallStack => CBytes -> IO [(CBytes, DirEntType)]
 scandirT path = do
     uvm <- getUVManager
-    withCBytes path $ \ p ->
-        withResource (initUVReq uV_FS (uvFSScandir p True) uvm) $ \ req -> do
-            slot <- peekUVReqData req
-            lock <- getBlockMVar uvm slot
-            takeMVar lock
-            loopScanDirReq req
-
-loopScanDirReq :: Ptr UVReq -> IO [(CBytes, DirEntType)]
-loopScanDirReq req = do
-    withResource initUVDirEnt $ \ ent -> do
-        r <- uv_fs_scandir_next req ent
-        if r == uV_EOF
-        then return []
-        else if r < 0
-            then do
-                throwUVIfMinus_ $ return r
-                return []
-            else do
-                (path, typ) <- peekUVDirEnt ent
-                let !typ' = fromUVDirEntType typ
-                !path' <- fromCString path
-                !rest <- loopScanDirReq req
-                return ((path', typ') : rest)
--}
+    bracket
+        (withCBytes path $ \ p ->
+            withPrimSafe $ \ dents ->
+                withUVRequestEx uvm
+                    (hs_uv_fs_scandir_threaded p dents)
+                    (hs_uv_fs_scandir_extra_cleanup dents))
+        (\ (dents, n) -> hs_uv_fs_scandir_cleanup dents n)
+        (\ (dents, n) -> forM [0..n-1] $ \ i -> do
+            dent <- readOffPtr dents i
+            (path, typ) <- peekUVDirEnt dent
+            let !typ' = fromUVDirEntType typ
+            !path' <- fromCString path
+            return (path', typ'))

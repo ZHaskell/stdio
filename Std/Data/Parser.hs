@@ -25,14 +25,14 @@ import Control.Applicative
 --
 -- * failure: with the error message
 --
--- * continuation: that need for more inp data
+-- * continuation: that need for more input data
 --
 -- * success: the remaining unparsed data and the parser value
 --
 data Result a
     = Success !V.Bytes a
     | Failure !V.Bytes [String]
-    | NeedMore (Maybe V.Bytes -> Result a)
+    | NeedMore (V.Bytes -> Result a)
 
 instance Functor Result where
     fmap f (Success s a)   = Success s (f a)
@@ -46,34 +46,34 @@ instance Show a => Show (Result a) where
 
 -- | Simple parser structure
 newtype Parser a = Parser
-    { runParser :: forall r . V.Bytes
+    { runParser :: forall r . V.Bytes         -- Current input
                 -> (V.Bytes -> a -> Result r) -- The success continuation
-                -> Result r                     -- We don't need failure continuation
-    }                                             -- since the failure is written on the ParseResult tag
+                -> Result r                   -- We don't need failure continuation
+    }                                         -- since the failure is written on the Result's tag
 
 
 instance Monad Parser where
   return = pure
   {-# INLINE return #-}
-  Parser pa >>= f = Parser (\ inp k -> pa inp (\ inp' a -> runParser (f a) inp' k))
+  Parser pa >>= f = Parser (\ input k -> pa input (\ input' a -> runParser (f a) input' k))
   {-# INLINE (>>=) #-}
-  fail str = Parser (\ inp _ -> Failure inp [str])
+  fail str = Parser (\ input _ -> Failure input [str])
   {-# INLINE fail #-}
 
 instance Fail.MonadFail Parser where
-  fail str = Parser (\ inp _ -> Failure inp [str])
+  fail str = Parser (\ input _ -> Failure input [str])
   {-# INLINE fail #-}
 
 instance Applicative Parser where
-    pure x = Parser (\ inp k -> k inp x)
+    pure x = Parser (\ input k -> k input x)
     {-# INLINE pure #-}
     pf <*> pa = do { f <- pf; a <- pa; return (f a) }
     {-# INLINE (<*>) #-}
 
 instance Functor Parser where
-    fmap f (Parser pa) = Parser (\ inp k -> pa inp (\ inp' a -> k inp' (f a)))
+    fmap f (Parser pa) = Parser (\ input k -> pa input (\ input' a -> k input' (f a)))
     {-# INLINE fmap #-}
-    a <$ Parser pb = Parser (\ inp k -> pb inp (\ inp' _ -> k inp' a))
+    a <$ Parser pb = Parser (\ input k -> pb input (\ input' _ -> k input' a))
     {-# INLINE (<$) #-}
 
 instance MonadPlus Parser where
@@ -81,55 +81,57 @@ instance MonadPlus Parser where
     mplus = (<|>)
 
 instance Alternative Parser where
-    empty = Parser (\ inp _ -> Failure inp ["Data.Parser(Alternative).empty"])
+    empty = Parser (\ input _ -> Failure input ["Std.Data.Parser(Alternative).empty"])
     {-# INLINE empty #-}
     f <|> g = do
         (r, bs) <- runAndKeepTrack f
         case r of
-            Success inp x -> Parser (\ _ k -> k inp x)
+            Success input x -> Parser (\ _ k -> k input x)
             Failure _ _ -> pushBack bs >> g
             _ -> error "Binary: impossible"
     {-# INLINE (<|>) #-}
 
--- | Run a parser and keep track of all the inp it consumes.
+-- | Run a parser and keep track of all the input it consumes.
 -- Once it's finished, return the final result (always 'Success' or 'Failure') and
 -- all consumed chunks.
 --
 runAndKeepTrack :: Parser a -> Parser (Result a, [V.Bytes])
 {-# INLINE runAndKeepTrack #-}
-runAndKeepTrack (Parser pa) = Parser $ \ inp k0 ->
-    let r0 = pa inp (\ inp' a -> Success inp' a) in go [] r0 k0
+runAndKeepTrack (Parser pa) = Parser $ \ input k0 ->
+    let r0 = pa input (\ input' a -> Success input' a) in go [] r0 k0
   where
     go !acc r k0 = case r of
-        NeedMore k -> NeedMore (\ minp -> go (maybe acc (:acc) minp) (k minp) k0)
-        Success inp' _    -> k0 inp' (r, reverse acc)
-        Failure inp' _    -> k0 inp' (r, reverse acc)
+        NeedMore k -> NeedMore (\ input -> go (input:acc) (k input) k0)
+        Success input' _    -> k0 input' (r, reverse acc)
+        Failure input' _    -> k0 input' (r, reverse acc)
 
 pushBack :: [V.Bytes] -> Parser ()
 {-# INLINE pushBack #-}
-pushBack [] = Parser (\ inp k -> k inp ())
-pushBack bs = Parser (\ inp k -> k (V.concat (inp : bs)) ())
+pushBack [] = Parser (\ input k -> k input ())
+pushBack bs = Parser (\ input k -> k (V.concat (input : bs)) ())
 
-{-
 parse :: V.Bytes -> Parser a -> Result a
 parse input (Parser p) = p input (\ input' a -> Success input' a)
 
 -- | Ensure that there are at least @n@ bytes available. If not, the
--- computation will escape with 'Partial'.
+-- computation will escape with 'NeedMore'.
 ensureN :: Int -> Parser ()
-ensureN !n0 = C $ \inp ks -> do
-  if V.length inp >= n0
-    then ks inp ()
-    else runCont (withInputChunks n0 enoughChunks onSucc onFail >>= put) inp ks
-  where -- might look a bit funny, but plays very well with GHC's inliner.
-        -- GHC won't inline recursive functions, so we make ensureN non-recursive
-    enoughChunks n str
-      | V.length str >= n = Right (str,V.empty)
-      | otherwise = Left (n - V.length str)
-    -- Sometimes we will produce leftovers lists of the form [V.empty, nonempty]
-    -- where `nonempty` is a non-empty ByteString. In this case we can avoid a copy
-    -- by simply dropping the empty prefix. In principle ByteString might want
-    -- to gain this optimization as well
-    onSucc = V.concat . dropWhile V.null
-    onFail bss = C $ \_ _ -> Failure (V.concat bss) "not enough bytes"
--}
+ensureN !n0 = Parser $ \ input ks -> do
+    let l = V.length input
+    if l >= n0
+    then ks input ()
+    else NeedMore (go ks [] l)
+  where
+    go ks acc l = \ input' -> do
+        let l' = V.length input'
+        if l' == 0
+        then Failure
+            (V.concat (reverse (input':acc)))
+            ["Std.Data.Parser.ensureN: Not enough bytes"]
+        else do
+            let l'' = l + l'
+            if l'' < n0
+            then NeedMore (go ks (input':acc) l'')
+            else do
+                let input'' = V.concat (reverse (input':acc))
+                ks input'' ()

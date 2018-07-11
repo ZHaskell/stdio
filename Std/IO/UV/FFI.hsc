@@ -26,6 +26,7 @@ import           Foreign.C.String
 import           Foreign.C.Types
 import           Foreign.Ptr
 import           Foreign.Storable
+import           Std.Foreign.PrimArray
 import           Std.IO.Exception
 import           Std.IO.SockAddr    (SockAddr, SocketFamily (..))
 import           System.Posix.Types (CSsize (..))
@@ -212,32 +213,30 @@ foreign import ccall unsafe hs_uv_fs_mkdtemp_threaded
     uV_FS_O_SEQUENTIAL   = UV_FS_O_SEQUENTIAL,
     uV_FS_O_TEMPORARY    = UV_FS_O_TEMPORARY}
 
-newtype UVDirEntType = UVDirEntType CInt
+newtype UVDirEntType = UVDirEntType CChar
     deriving (Bounded, Enum, Eq, Integral, Num, Ord, Read, Real, Show, FiniteBits, Bits, Storable)
 
 #{enum UVDirEntType, UVDirEntType,
-    uV_DIRENT_UNKNOWN = UV_DIRENT_UNKNOWN,
-    uV_DIRENT_FILE    = UV_DIRENT_FILE,
-    uV_DIRENT_DIR     = UV_DIRENT_DIR,
-    uV_DIRENT_LINK    = UV_DIRENT_LINK,
-    uV_DIRENT_FIFO    = UV_DIRENT_FIFO,
-    uV_DIRENT_SOCKET  = UV_DIRENT_SOCKET,
-    uV_DIRENT_CHAR    = UV_DIRENT_CHAR,
-    uV_DIRENT_BLOCK   = UV_DIRENT_BLOCK}
-{-
+    uV__DT_FILE    = UV__DT_FILE,
+    uV__DT_DIR     = UV__DT_DIR,
+    uV__DT_LINK    = UV__DT_LINK,
+    uV__DT_FIFO    = UV__DT_FIFO,
+    uV__DT_SOCKET  = UV__DT_SOCKET,
+    uV__DT_CHAR    = UV__DT_CHAR,
+    uV__DT_BLOCK   = UV__DT_BLOCK}
+
 data UVDirEnt
 
-initUVDirEnt :: Resource (Ptr UVDirEnt)
-initUVDirEnt = initResource hs_uv_dirent_alloc hs_uv_dirent_free
-
 peekUVDirEnt :: Ptr UVDirEnt -> IO (CString, UVDirEntType)
-peekUVDirEnt p = (,) 
-    <$> (#{peek struct uv_dirent_s, name          } p)
-    <*> (#{peek struct uv_dirent_s, type          } p)
+#ifdef HAVE_DIRENT_TYPES
+peekUVDirEnt p = (,) (#{ptr hs_uv__dirent_t, d_name } p) <$> (#{peek hs_uv__dirent_t, d_type } p)
+#else
+peekUVDirEnt p = return ((#{ptr hs_uv__dirent_t,  d_name } p), #{const DT_UNKNOWN})
+#endif
 
-foreign import ccall unsafe hs_uv_dirent_alloc :: IO (Ptr UVDirEnt)
-foreign import ccall unsafe hs_uv_dirent_free :: Ptr UVDirEnt -> IO ()
-
-foreign import ccall unsafe uv_fs_scandir :: Ptr UVLoop -> CString -> CInt -> UVFSCallBack -> IO CInt
-foreign import ccall unsafe uv_fs_scandir_next :: UVSlot -> Ptr UVDirEnt -> IO CInt
--}
+foreign import ccall unsafe hs_uv_fs_scandir_extra_cleanup :: Ptr (Ptr (Ptr UVDirEnt)) -> Int -> IO ()
+foreign import ccall unsafe hs_uv_fs_scandir_cleanup :: Ptr (Ptr UVDirEnt) -> Int -> IO ()
+foreign import ccall unsafe hs_uv_fs_scandir
+    :: CString -> MutableByteArray## RealWorld -> IO Int
+foreign import ccall unsafe hs_uv_fs_scandir_threaded
+    :: CString -> Ptr (Ptr (Ptr UVDirEnt)) -> Ptr UVLoop -> IO UVSlotUnSafe

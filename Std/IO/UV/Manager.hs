@@ -35,7 +35,8 @@ module Std.IO.UV.Manager
   , pokeBufferTable
   , withUVManager
   , withUVManager_
-  , withUVManagerWrap
+  , withUVRequest
+  , withUVRequestEx
   -- * handle/request resources
   , initUVStream
   , UVStream(..)
@@ -324,8 +325,6 @@ instance Input UVStream where
             | r == fromIntegral uV_EOF -> return 0
             | r < 0 ->  throwUVIfMinus (return r)
 
-cancelUVReq :: UVManager -> UVSlot -> IO ()
-cancelUVReq uvm slot = withUVManager uvm $ \ loop -> hs_uv_cancel loop slot
 
 instance Output UVStream where
     -- writeOutput :: HasCallStack => UVStream -> Ptr Word8 -> Int -> IO ()
@@ -338,19 +337,42 @@ instance Output UVStream where
             tryTakeMVar m
             return (slot, m)
         -- cancel uv_write_t will also close the stream
-        throwUVIfMinus_  (takeMVar m `onException` cancelUVReq uvm slot)
+        throwUVIfMinus_  (takeMVar m `onException` closeUVStream uvs)
 
 --------------------------------------------------------------------------------
 
-withUVManagerWrap :: HasCallStack
+cancelUVReq :: UVManager -> UVSlot -> (Int -> IO ()) -> IO ()
+cancelUVReq uvm slot extra_cleanup = withUVManager uvm $ \ loop -> do
+    m <- getBlockMVar uvm slot
+    r <- tryTakeMVar m
+    case r of
+        Just r' -> extra_cleanup r'             -- It's too late
+        _ -> do
+            pokeBufferTable uvm slot nullPtr 0  -- doing this let libuv side knows that
+                                                -- we won't keep buffer alive in callbacks
+            hs_uv_cancel loop slot              -- on the same time, we cancel the io
+                                                -- with our best efforts
+
+withUVRequest :: HasCallStack
                   => UVManager -> (Ptr UVLoop -> IO UVSlotUnSafe) -> IO Int
-withUVManagerWrap uvm f = do
+withUVRequest uvm f = do
     (slot, m) <- withUVManager uvm $ \ loop -> mask_ $ do
         slot <- getUVSlot uvm (f loop)
         m <- getBlockMVar uvm slot
         tryTakeMVar m
         return (slot, m)
-    throwUVIfMinus (takeMVar m `onException` cancelUVReq uvm slot)
+    throwUVIfMinus (takeMVar m `onException` cancelUVReq uvm slot no_extra_cleanup)
+  where no_extra_cleanup = const $ return ()
+
+withUVRequestEx :: HasCallStack
+                  => UVManager -> (Ptr UVLoop -> IO UVSlotUnSafe) -> (Int -> IO ()) -> IO Int
+withUVRequestEx uvm f extra_cleanup = do
+    (slot, m) <- withUVManager uvm $ \ loop -> mask_ $ do
+        slot <- getUVSlot uvm (f loop)
+        m <- getBlockMVar uvm slot
+        tryTakeMVar m
+        return (slot, m)
+    throwUVIfMinus (takeMVar m `onException` cancelUVReq uvm slot extra_cleanup)
 
 --------------------------------------------------------------------------------
 

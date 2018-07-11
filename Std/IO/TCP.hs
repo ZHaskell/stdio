@@ -82,7 +82,7 @@ initClient ClientConfig{..} = do
                 throwUVIfMinus_ (uv_tcp_bind handle localPtr 0)
         -- safe without withUVManager
         when clientNoDelay $ throwUVIfMinus_ (uv_tcp_nodelay handle 1)
-        withUVManagerWrap uvm $ \ _ -> hs_uv_tcp_connect handle targetPtr
+        withUVRequest uvm $ \ _ -> hs_uv_tcp_connect handle targetPtr
     return client
 
 --------------------------------------------------------------------------------
