@@ -27,7 +27,7 @@ build_script:
   - git submodule update --init
   - cabal install Cabal
   - cabal install --only-dependencies --enable-tests --enable-benchmarks
-  - cabal configure --enable-tests --enable-benchmarks
+  - cabal configure --enable-tests --enable-benchmarks -v3
   - cabal build   # this builds all libraries and executables (including tests/benchmarks)
   - cabal test
   # - cabal check

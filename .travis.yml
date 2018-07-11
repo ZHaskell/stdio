@@ -36,7 +36,7 @@ install:
 # Here starts the actual work to be performed for the package under test; any command which exits with a non-zero exit code causes the build to fail.
 script:
  - if [ -f configure.ac ]; then autoreconf -i; fi
- - cabal configure --enable-tests --enable-benchmarks $EXTRA_OPT -v2
+ - cabal configure --enable-tests --enable-benchmarks $EXTRA_OPT -v3
  - cabal build   # this builds all libraries and executables (including tests/benchmarks)
  - cabal test
  # - cabal check
