@@ -51,7 +51,7 @@
 
 #include <dirent.h>
 
-#endif
+#endif /* _WIN32 */
 
 ////////////////////////////////////////////////////////////////////////////////
 // CONSTANT
@@ -294,6 +294,7 @@ void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events);
 // see https://github.com/libuv/libuv/commit/4b666bd2d82a51f1c809b2703a91679789c1ec01#diff-a5e63f9b16ca783355e2d83941c3eafb
 
 #if defined(_WIN32)
+
 /* fs open() flags supported on this platform: */
 #ifndef UV_FS_O_APPEND
 #define UV_FS_O_APPEND       _O_APPEND
@@ -361,7 +362,7 @@ void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events);
 #define UV_FS_O_SYNC         0x8000000 /* FILE_FLAG_WRITE_THROUGH */
 #endif
 
-#else
+#else /* _WIN32 */
 
 #ifndef UV_FS_O_APPEND
 #if defined(O_APPEND)
@@ -497,13 +498,12 @@ void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events);
 #define UV_FS_O_TEMPORARY     0
 #endif
 
-#endif
+#endif /* _WIN32 */
+
+typedef struct uv__dirent_s hs_uv__dirent_t;
 
 #if defined(_WIN32)
-typedef struct uv__dirent_s {
-  int d_type;
-  char d_name[1];
-} hs_uv__dirent_t;
+
 #define HAVE_DIRENT_TYPES
 #define UV__DT_DIR     UV_DIRENT_DIR
 #define UV__DT_FILE    UV_DIRENT_FILE
@@ -512,8 +512,9 @@ typedef struct uv__dirent_s {
 #define UV__DT_SOCKET  UV_DIRENT_SOCKET
 #define UV__DT_CHAR    UV_DIRENT_CHAR
 #define UV__DT_BLOCK   UV_DIRENT_BLOCK
-#else
-typedef struct dirent hs_uv__dirent_t;
+
+#else /* _WIN32 */
+
 #if defined(DT_UNKNOWN)
 # define HAVE_DIRENT_TYPES
 # if defined(DT_REG)
@@ -551,15 +552,16 @@ typedef struct dirent hs_uv__dirent_t;
 # else
 #  define UV__DT_BLOCK -7
 # endif
-#endif
-#endif
+#endif /* DT_UNKNOWN */
+
+#endif /* _WIN32 */
 
 #if defined(_WIN32)
 void uv__free(void* p);
 # define uv__fs_scandir_free uv__free
-#else
+#else /* _WIN32 */
 # define uv__fs_scandir_free free
-#endif
+#endif /* _WIN32 */
 
 void hs_uv_fs_scandir_cleanup(uv_dirent_t** dents, HsInt n);
 void hs_uv_fs_scandir_extra_cleanup(uv_dirent_t*** dents_p, HsInt n);

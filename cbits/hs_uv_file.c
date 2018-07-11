@@ -110,7 +110,7 @@ HsInt hs_uv_fs_scandir(const char* path, uv_dirent_t*** dents){
     uv_fs_scandir(NULL, &req, path, 0, NULL);
     *dents = req.ptr;
 #if defined(_WIN32)
-    uv__free(req->file.pathw);      //  we clean up dents later
+    uv__free(req.file.pathw);      //  we clean up dents later
 #endif
     return (HsInt)req.result;
 }

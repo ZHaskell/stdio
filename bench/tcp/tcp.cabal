@@ -83,8 +83,8 @@ executable libuv
       , ../../third_party/libuv/src/win/util.c
       , ../../third_party/libuv/src/win/winapi.c
       , ../../third_party/libuv/src/win/winsock.c
-    ghc-options: -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0600
     cc-options: -Wall -Wextra -Wno-unused-parameter -Wstrict-prototypes -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0600
+    cpp-options: -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0600
     extra-libraries:   psapi, Iphlpapi, userenv
 
   else
