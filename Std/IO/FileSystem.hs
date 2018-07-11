@@ -26,6 +26,8 @@ module Std.IO.FileSystem
   , initUVFile
   , initUVFileT
     -- * opening constant
+  , UVFileMode
+  , defaultMode
   , UVFileFlag
   , uV_FS_O_APPEND
   , uV_FS_O_CREAT
@@ -48,8 +50,6 @@ module Std.IO.FileSystem
   , uV_FS_O_SHORT_LIVED
   , uV_FS_O_SEQUENTIAL
   , uV_FS_O_TEMPORARY
-  , UVFileMode
-  , defaultMode
   -- * filesystem operations
   , mkdir
   , mkdirT
@@ -57,8 +57,16 @@ module Std.IO.FileSystem
   , unlinkT
   , mkdtemp
   , mkdtempT
+  , rmdir
+  , rmdirT
   , scandir
   , scandirT
+  , stat
+  , statT
+  , lstat
+  , lstatT
+  , fstat
+  , fstatT
   ) where
 
 import           Control.Concurrent.STM.TVar
@@ -68,10 +76,11 @@ import           Control.Monad.IO.Class
 import           Control.Monad.STM
 import           Data.Word
 import           Data.Int
-import           Data.Primitive.Ptr             (readOffPtr)
 import           GHC.Generics
 import           Std.Data.CBytes                 as CBytes
 import           Foreign.Ptr
+import           Foreign.Storable               (peekElemOff)
+import           Foreign.Marshal.Alloc          (allocaBytes)
 import           Std.Foreign.PrimArray          (withPrimSafe, withPrimUnsafe)
 import           Std.IO.Buffered
 import           Std.IO.Exception
@@ -322,6 +331,16 @@ mkdtempT path = do
             void $ withUVRequest uvm (hs_uv_fs_mkdtemp_threaded p size p')
             return (size+6)
 
+rmdir :: HasCallStack => CBytes -> IO ()
+rmdir path = throwUVIfMinus_ (withCBytes path hs_uv_fs_rmdir)
+
+rmdirT :: HasCallStack => CBytes -> IO ()
+rmdirT path = do
+    uvm <- getUVManager
+    withCBytes path (void . withUVRequest uvm . hs_uv_fs_rmdir_threaded)
+
+--------------------------------------------------------------------------------
+
 data DirEntType
     = DirEntUnknown
     | DirEntFile
@@ -353,7 +372,7 @@ scandir path = do
                 throwUVIfMinus (hs_uv_fs_scandir p dents))
         (\ (dents, n) -> hs_uv_fs_scandir_cleanup dents n)
         (\ (dents, n) -> forM [0..n-1] $ \ i -> do
-            dent <- readOffPtr dents i
+            dent <- peekElemOff dents i
             (path, typ) <- peekUVDirEnt dent
             let !typ' = fromUVDirEntType typ
             !path' <- fromCString path
@@ -370,8 +389,63 @@ scandirT path = do
                     (hs_uv_fs_scandir_extra_cleanup dents))
         (\ (dents, n) -> hs_uv_fs_scandir_cleanup dents n)
         (\ (dents, n) -> forM [0..n-1] $ \ i -> do
-            dent <- readOffPtr dents i
+            dent <- peekElemOff dents i
             (path, typ) <- peekUVDirEnt dent
             let !typ' = fromUVDirEntType typ
             !path' <- fromCString path
             return (path', typ'))
+
+--------------------------------------------------------------------------------
+
+stat :: HasCallStack => CBytes -> IO UVStat
+stat path = do
+    withCBytes path $ \ p ->
+         allocaBytes uvStatSize $ \ stat -> do
+            throwUVIfMinus_ (hs_uv_fs_stat p stat)
+            peekUVStat stat
+
+statT :: HasCallStack => CBytes -> IO UVStat
+statT path = do
+    withCBytes path $ \ p ->
+         allocaBytes uvStatSize $ \ stat -> do
+            uvm <- getUVManager
+            void $ withUVRequest uvm (hs_uv_fs_stat_threaded p stat)
+            peekUVStat stat
+
+lstat :: HasCallStack => CBytes -> IO UVStat
+lstat path = do
+    withCBytes path $ \ p ->
+         allocaBytes uvStatSize $ \ stat -> do
+            throwUVIfMinus_ (hs_uv_fs_lstat p stat)
+            peekUVStat stat
+
+lstatT :: HasCallStack => CBytes -> IO UVStat
+lstatT path = do
+    withCBytes path $ \ p ->
+         allocaBytes uvStatSize $ \ stat -> do
+            uvm <- getUVManager
+            void $ withUVRequest uvm (hs_uv_fs_lstat_threaded p stat)
+            peekUVStat stat
+
+fstat :: HasCallStack => UVFile -> IO UVStat
+fstat (UVFile fd counter) = do
+    bracket_ (atomically $ do
+                s <- readTVar counter
+                if s >= 0 then modifyTVar' counter (+1)
+                          else throwECLOSEDSTM)
+             (atomically $ modifyTVar' counter (subtract 1))
+             (allocaBytes uvStatSize $ \ stat -> do
+                throwUVIfMinus_ (hs_uv_fs_fstat fd stat)
+                peekUVStat stat)
+
+fstatT :: HasCallStack => UVFileT -> IO UVStat
+fstatT (UVFileT (UVFile fd counter)) = do
+    bracket_ (atomically $ do
+                s <- readTVar counter
+                if s >= 0 then modifyTVar' counter (+1)
+                          else throwECLOSEDSTM)
+             (atomically $ modifyTVar' counter (subtract 1))
+             (allocaBytes uvStatSize $ \ stat -> do
+                uvm <- getUVManager
+                void $ withUVRequest uvm (hs_uv_fs_fstat_threaded fd stat)
+                peekUVStat stat)

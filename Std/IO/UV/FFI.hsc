@@ -26,6 +26,7 @@ import           Foreign.C.String
 import           Foreign.C.Types
 import           Foreign.Ptr
 import           Foreign.Storable
+import           GHC.Prim
 import           Std.Foreign.PrimArray
 import           Std.IO.Exception
 import           Std.IO.SockAddr    (SockAddr, SocketFamily (..))
@@ -161,18 +162,19 @@ foreign import ccall unsafe uv_tty_init :: Ptr UVLoop -> Ptr UVHandle -> CInt ->
 --------------------------------------------------------------------------------
 -- fs
 
-type UVFileMode = Int32
+type UVFileMode = CInt
 newtype UVFileFlag = UVFileFlag CInt
     deriving (Bounded, Enum, Eq, Integral, Num, Ord, Read, Real, Show, FiniteBits, Bits, Storable)
 
 -- non-threaded functions
 foreign import ccall unsafe hs_uv_fs_open    :: CString -> UVFileFlag -> UVFileMode -> IO UVFD
-foreign import ccall unsafe hs_uv_fs_close   :: UVFD -> IO CInt
+foreign import ccall unsafe hs_uv_fs_close   :: UVFD -> IO Int
 foreign import ccall unsafe hs_uv_fs_read    :: UVFD -> Ptr Word8 -> Int -> Int64 -> IO Int
 foreign import ccall unsafe hs_uv_fs_write   :: UVFD -> Ptr Word8 -> Int -> Int64 -> IO Int
-foreign import ccall unsafe hs_uv_fs_unlink  :: CString -> IO CInt
-foreign import ccall unsafe hs_uv_fs_mkdir   :: CString -> UVFileMode -> IO CInt
-foreign import ccall unsafe hs_uv_fs_mkdtemp :: CString -> Int -> CString -> IO CInt
+foreign import ccall unsafe hs_uv_fs_unlink  :: CString -> IO Int
+foreign import ccall unsafe hs_uv_fs_mkdir   :: CString -> UVFileMode -> IO Int
+foreign import ccall unsafe hs_uv_fs_rmdir   :: CString -> IO Int
+foreign import ccall unsafe hs_uv_fs_mkdtemp :: CString -> Int -> CString -> IO Int
 
 -- threaded functions
 foreign import ccall unsafe hs_uv_fs_open_threaded 
@@ -187,6 +189,8 @@ foreign import ccall unsafe hs_uv_fs_unlink_threaded
     :: CString -> Ptr UVLoop -> IO UVSlotUnSafe
 foreign import ccall unsafe hs_uv_fs_mkdir_threaded 
     :: CString -> UVFileMode -> Ptr UVLoop -> IO UVSlotUnSafe
+foreign import ccall unsafe hs_uv_fs_rmdir_threaded 
+    :: CString -> Ptr UVLoop -> IO UVSlotUnSafe
 foreign import ccall unsafe hs_uv_fs_mkdtemp_threaded 
     :: CString -> Int -> CString -> Ptr UVLoop -> IO UVSlotUnSafe
 
@@ -234,9 +238,77 @@ peekUVDirEnt p = (,) (#{ptr hs_uv__dirent_t, d_name } p) <$> (#{peek hs_uv__dire
 peekUVDirEnt p = return ((#{ptr hs_uv__dirent_t,  d_name } p), #{const DT_UNKNOWN})
 #endif
 
-foreign import ccall unsafe hs_uv_fs_scandir_extra_cleanup :: Ptr (Ptr (Ptr UVDirEnt)) -> Int -> IO ()
-foreign import ccall unsafe hs_uv_fs_scandir_cleanup :: Ptr (Ptr UVDirEnt) -> Int -> IO ()
+foreign import ccall unsafe hs_uv_fs_scandir_cleanup
+    :: Ptr (Ptr UVDirEnt) -> Int -> IO ()
 foreign import ccall unsafe hs_uv_fs_scandir
     :: CString -> MutableByteArray## RealWorld -> IO Int
+foreign import ccall unsafe hs_uv_fs_scandir_extra_cleanup 
+    :: Ptr (Ptr (Ptr UVDirEnt)) -> Int -> IO ()
 foreign import ccall unsafe hs_uv_fs_scandir_threaded
     :: CString -> Ptr (Ptr (Ptr UVDirEnt)) -> Ptr UVLoop -> IO UVSlotUnSafe
+
+data UVTimeSpec = UVTimeSpec 
+    { uvtSecond     :: {-# UNPACK #-} !CLong
+    , uvtNanoSecond :: {-# UNPACK #-} !CLong
+    } deriving (Show, Eq)
+
+instance Storable UVTimeSpec where
+    sizeOf _  = #{size uv_timespec_t}
+    alignment _ = #{alignment uv_timespec_t}
+    peek p = UVTimeSpec <$> (#{peek uv_timespec_t, tv_sec } p)
+                        <*> (#{peek uv_timespec_t, tv_nsec } p)
+    poke p (UVTimeSpec sec nsec) = do
+        (#{poke uv_timespec_t, tv_sec  } p sec)
+        (#{poke uv_timespec_t, tv_nsec } p nsec)
+
+data UVStat = UVStat
+    { stDev      :: {-# UNPACK #-} !Word64
+    , stMode     :: {-# UNPACK #-} !Word64
+    , stNlink    :: {-# UNPACK #-} !Word64
+    , stUid      :: {-# UNPACK #-} !Word64
+    , stGid      :: {-# UNPACK #-} !Word64
+    , stRdev     :: {-# UNPACK #-} !Word64
+    , stIno      :: {-# UNPACK #-} !Word64
+    , stSize     :: {-# UNPACK #-} !Word64
+    , stBlksize  :: {-# UNPACK #-} !Word64
+    , stBlocks   :: {-# UNPACK #-} !Word64
+    , stFlags    :: {-# UNPACK #-} !Word64
+    , stGen      :: {-# UNPACK #-} !Word64
+    , stAtim     :: {-# UNPACK #-} !UVTimeSpec
+    , stMtim     :: {-# UNPACK #-} !UVTimeSpec
+    , stCtim     :: {-# UNPACK #-} !UVTimeSpec
+    , stBirthtim :: {-# UNPACK #-} !UVTimeSpec
+    } deriving (Show, Eq)
+
+uvStatSize :: Int
+uvStatSize = #{size uv_stat_t}
+
+peekUVStat :: Ptr UVStat -> IO UVStat
+peekUVStat p = UVStat
+    <$> (#{peek uv_stat_t, st_dev          } p)
+    <*> (#{peek uv_stat_t, st_mode         } p)
+    <*> (#{peek uv_stat_t, st_nlink        } p)
+    <*> (#{peek uv_stat_t, st_uid          } p)
+    <*> (#{peek uv_stat_t, st_gid          } p)
+    <*> (#{peek uv_stat_t, st_rdev         } p)
+    <*> (#{peek uv_stat_t, st_ino          } p)
+    <*> (#{peek uv_stat_t, st_size         } p)
+    <*> (#{peek uv_stat_t, st_blksize      } p)
+    <*> (#{peek uv_stat_t, st_blocks       } p)
+    <*> (#{peek uv_stat_t, st_flags        } p)
+    <*> (#{peek uv_stat_t, st_gen          } p)
+    <*> (#{peek uv_stat_t, st_atim         } p)
+    <*> (#{peek uv_stat_t, st_mtim         } p)
+    <*> (#{peek uv_stat_t, st_ctim         } p)
+    <*> (#{peek uv_stat_t, st_birthtim     } p)
+
+foreign import ccall unsafe hs_uv_fs_stat :: CString -> Ptr UVStat -> IO Int
+foreign import ccall unsafe hs_uv_fs_fstat :: UVFD -> Ptr UVStat -> IO Int
+foreign import ccall unsafe hs_uv_fs_lstat :: CString -> Ptr UVStat -> IO Int
+
+foreign import ccall unsafe hs_uv_fs_stat_threaded
+    :: CString -> Ptr UVStat -> Ptr UVLoop -> IO UVSlotUnSafe
+foreign import ccall unsafe hs_uv_fs_fstat_threaded
+    :: UVFD -> Ptr UVStat -> Ptr UVLoop -> IO UVSlotUnSafe
+foreign import ccall unsafe hs_uv_fs_lstat_threaded
+    :: CString -> Ptr UVStat -> Ptr UVLoop -> IO UVSlotUnSafe

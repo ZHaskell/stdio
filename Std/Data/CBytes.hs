@@ -138,8 +138,8 @@ append strA strB
         mpa <- newPinnedPrimArray (lenA+lenB+1)
         withCBytes strA $ \ pa ->
             withCBytes strB $ \ pb -> do
-                copyMutablePrimArrayFromPtr mpa 0    (castPtr pa) lenA
-                copyMutablePrimArrayFromPtr mpa lenA (castPtr pb) lenB
+                copyPtrToMutablePrimArray mpa 0    (castPtr pa) lenA
+                copyPtrToMutablePrimArray mpa lenA (castPtr pb) lenB
                 writePrimArray mpa (lenA + lenB) 0     -- the \NUL terminator
                 pa <- unsafeFreezePrimArray mpa
                 return (CBytesOnHeap pa)
@@ -176,7 +176,7 @@ concat bs = case pre 0 0 bs of
             CBytesOnHeap ba ->
                 copyPrimArray mba i ba 0 l
             CBytesLiteral p ->
-                copyMutablePrimArrayFromPtr mba i (castPtr p) l)
+                copyPtrToMutablePrimArray mba i (castPtr p) l)
         copy bs (i+l) mba
 
 instance IsString CBytes where
@@ -253,7 +253,7 @@ fromCStringMaybe cstring = do
     else do
         len <- fromIntegral <$> c_strlen cstring
         mpa <- newPinnedPrimArray (fromIntegral len+1)
-        copyMutablePrimArrayFromPtr mpa 0 (castPtr cstring) len
+        copyPtrToMutablePrimArray mpa 0 (castPtr cstring) len
         writePrimArray mpa len 0     -- the \NUL terminator
         pa <- unsafeFreezePrimArray mpa
         return (Just (CBytesOnHeap pa))
@@ -272,7 +272,7 @@ fromCString cstring = do
     else do
         len <- fromIntegral <$> c_strlen cstring
         mpa <- newPinnedPrimArray (fromIntegral len+1)
-        copyMutablePrimArrayFromPtr mpa 0 (castPtr cstring) len
+        copyPtrToMutablePrimArray mpa 0 (castPtr cstring) len
         writePrimArray mpa len 0     -- the \NUL terminator
         pa <- unsafeFreezePrimArray mpa
         return (CBytesOnHeap pa)

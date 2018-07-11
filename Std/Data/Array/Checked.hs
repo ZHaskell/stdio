@@ -52,7 +52,7 @@ module Std.Data.Array.Checked
   , A.MutablePrimArray(..)
   -- * Bound checked primitive array operations
   , newPinnedPrimArray, newAlignedPinnedPrimArray
-  , copyPrimArrayToPtr, copyMutablePrimArrayToPtr, copyMutablePrimArrayFromPtr
+  , copyPrimArrayToPtr, copyMutablePrimArrayToPtr, copyPtrToMutablePrimArray
   -- * No bound checked primitive array operations
   , A.primArrayContents, A.mutablePrimArrayContents, A.withPrimArrayContents, A.withMutablePrimArrayContents
   , A.isPrimArrayPinned, A.isMutablePrimArrayPinned
@@ -234,15 +234,15 @@ copyMutablePrimArrayToPtr ptr marr s l = do
         (s>=0 && l>=0 && (s+l)<=siz)
         (A.copyMutablePrimArrayToPtr ptr marr s l)
 
-copyMutablePrimArrayFromPtr :: (PrimMonad m, Prim a)
+copyPtrToMutablePrimArray :: (PrimMonad m, Prim a)
                             => A.MutablePrimArray (PrimState m) a
                             -> Int
                             -> Ptr a
                             -> Int
                             -> m ()
-{-# INLINE copyMutablePrimArrayFromPtr #-}
-copyMutablePrimArrayFromPtr marr s ptr l = do
+{-# INLINE copyPtrToMutablePrimArray #-}
+copyPtrToMutablePrimArray marr s ptr l = do
     siz <- A.sizeofMutableArr marr
-    check "copyMutablePrimArrayFromPtr: index range out of bounds"
+    check "copyPtrToMutablePrimArray: index range out of bounds"
         (s>=0 && l>=0 && (s+l)<=siz)
-        (A.copyMutablePrimArrayFromPtr marr s ptr l)
+        (A.copyPtrToMutablePrimArray marr s ptr l)

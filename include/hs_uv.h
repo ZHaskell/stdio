@@ -578,6 +578,10 @@ HsInt hs_uv_fs_mkdir(const char* path, int mode);
 HsInt hs_uv_fs_mkdtemp(const char* tpl, HsInt tpl_size, char* temp_path);
 HsInt hs_uv_fs_rmdir(const char* path);
 HsInt hs_uv_fs_scandir(const char* path, uv_dirent_t*** dents);
+HsInt hs_uv_fs_stat(const char* path, uv_stat_t* stat);
+HsInt hs_uv_fs_fstat(int32_t file, uv_stat_t* stat);
+HsInt hs_uv_fs_lstat(const char* path, uv_stat_t* stat);
+
 
 ////////////////////////////////////////////////////////////////////////////////
 // fs, thread pool version
@@ -590,3 +594,7 @@ HsInt hs_uv_fs_mkdir_threaded(const char* path, int mode, uv_loop_t* loop);
 HsInt hs_uv_fs_mkdtemp_threaded(const char* tpl, HsInt tpl_size, char* temp_path, uv_loop_t* loop);
 HsInt hs_uv_fs_rmdir_threaded(const char* path, uv_loop_t* loop);
 HsInt hs_uv_fs_scandir_threaded(const char* path, uv_dirent_t*** dents, uv_loop_t* loop);
+HsInt hs_uv_fs_stat_threaded(const char* path, uv_stat_t* stat, uv_loop_t* loop);
+HsInt hs_uv_fs_fstat_threaded(int32_t file, uv_stat_t* stat, uv_loop_t* loop);
+HsInt hs_uv_fs_lstat_threaded(const char* path, uv_stat_t* stat, uv_loop_t* loop);
+

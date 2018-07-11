@@ -41,7 +41,7 @@ module Std.Data.Array (
   , MutablePrimArray(..)
   , Prim(..)
   , newPinnedPrimArray, newAlignedPinnedPrimArray
-  , copyPrimArrayToPtr, copyMutablePrimArrayToPtr, copyMutablePrimArrayFromPtr
+  , copyPrimArrayToPtr, copyMutablePrimArrayToPtr, copyPtrToMutablePrimArray
   , primArrayContents, mutablePrimArrayContents, withPrimArrayContents, withMutablePrimArrayContents
   , isPrimArrayPinned, isMutablePrimArrayPinned
   -- * Unlifted array type
@@ -60,6 +60,7 @@ import Data.Primitive.ByteArray
 import Data.Primitive.Array
 import Data.Primitive.SmallArray
 import Data.Primitive.UnliftedArray
+import Data.Primitive.Ptr (copyPtrToMutablePrimArray)
 import Foreign.C.Types (CInt(..))
 import GHC.Ptr (Ptr(..))
 import GHC.Types
@@ -513,22 +514,6 @@ newAlignedPinnedPrimArray n = do
     return (MutablePrimArray mba#)
   where siz = sizeOf (undefined :: a)
         align = alignment (undefined :: a)
-
--- | Copy a slice of an mutable primitive array from an address.
--- The offset and length are given in elements of type @a@.
---
-copyMutablePrimArrayFromPtr :: forall m a. (PrimMonad m, Prim a)
-              => MutablePrimArray (PrimState m) a -- ^ destination array
-              -> Int                              -- ^ offset into destination array
-              -> Ptr a                            -- ^ source pointer
-              -> Int                              -- ^ number of prims to copy
-              -> m ()
-{-# INLINE copyMutablePrimArrayFromPtr #-}
-copyMutablePrimArrayFromPtr (MutablePrimArray mba#) (I# doff#) (Ptr addr#) (I# n#) =
-    primitive (\ s# ->
-        let s'# = copyAddrToByteArray# addr# mba# (doff# *# siz#) (n# *# siz#) s#
-        in (# s'#, () #))
-  where siz# = sizeOf# (undefined :: a)
 
 -- | Yield a pointer to the array's data.
 --

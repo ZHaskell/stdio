@@ -115,6 +115,30 @@ HsInt hs_uv_fs_scandir(const char* path, uv_dirent_t*** dents){
     return (HsInt)req.result;
 }
 
+HsInt hs_uv_fs_stat(const char* path, uv_stat_t* stat){
+    uv_fs_t req;
+    uv_fs_stat(NULL, &req, path, NULL);
+    memcpy(stat, &req.statbuf, sizeof(uv_stat_t));
+    uv_fs_req_cleanup(&req);    // maybe not neccessary
+    return (HsInt)req.result;
+}
+
+HsInt hs_uv_fs_fstat(int32_t file, uv_stat_t* stat){
+    uv_fs_t req;
+    uv_fs_fstat(NULL, &req, file, NULL);
+    memcpy(stat, &req.statbuf, sizeof(uv_stat_t));
+    uv_fs_req_cleanup(&req);    // maybe not neccessary
+    return (HsInt)req.result;
+}
+
+HsInt hs_uv_fs_lstat(const char* path, uv_stat_t* stat){
+    uv_fs_t req;
+    uv_fs_lstat(NULL, &req, path, NULL);
+    memcpy(stat, &req.statbuf, sizeof(uv_stat_t));
+    uv_fs_req_cleanup(&req);    // maybe not neccessary
+    return (HsInt)req.result;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // fs, thread pool version
 //
@@ -305,6 +329,67 @@ HsInt hs_uv_fs_scandir_threaded(const char* path, uv_dirent_t*** dents, uv_loop_
     req->data = (void*)slot;
     loop_data->buffer_table[slot] = (char*)dents;
     int r = uv_fs_scandir(loop, req, path, 0, hs_uv_fs_scandir_callback);
+    if (r < 0) {
+        free_slot(loop_data, slot);
+        return (HsInt)r;
+    } else return slot;
+}
+
+void hs_uv_fs_stat_callback(uv_fs_t* req){
+    uv_loop_t* loop = req->loop;
+    hs_loop_data* loop_data = loop->data;
+    HsInt slot = (HsInt)req->data; 
+    uv_stat_t* stat = (uv_stat_t*)loop_data->buffer_table[slot];
+    if (stat != NULL) {
+        // push the slot to event queue
+        loop_data->buffer_size_table[slot] = (HsInt)req->result;
+        loop_data->event_queue[loop_data->event_counter] = slot;
+        loop_data->event_counter += 1;
+        memcpy(stat, &req->statbuf, sizeof(uv_stat_t));  // save the temp path
+    }
+    uv_fs_req_cleanup(req);
+    free_slot(loop_data, slot);  // free the uv_req_t
+}
+
+HsInt hs_uv_fs_stat_threaded(const char* path, uv_stat_t* stat, uv_loop_t* loop){
+    hs_loop_data* loop_data = loop->data;
+    HsInt slot = alloc_slot(loop_data);
+    if (slot < 0) return UV_ENOMEM;
+    uv_fs_t* req = 
+        (uv_fs_t*)fetch_uv_struct(loop_data, slot);
+    req->data = (void*)slot;
+    loop_data->buffer_table[slot] = (char*)stat;
+    int r = uv_fs_stat(loop, req, path, hs_uv_fs_stat_callback);
+    if (r < 0) {
+        free_slot(loop_data, slot);
+        return (HsInt)r;
+    } else return slot;
+}
+
+HsInt hs_uv_fs_fstat_threaded(int32_t file, uv_stat_t* stat, uv_loop_t* loop){
+    hs_loop_data* loop_data = loop->data;
+    HsInt slot = alloc_slot(loop_data);
+    if (slot < 0) return UV_ENOMEM;
+    uv_fs_t* req = 
+        (uv_fs_t*)fetch_uv_struct(loop_data, slot);
+    req->data = (void*)slot;
+    loop_data->buffer_table[slot] = (char*)stat;
+    int r = uv_fs_fstat(loop, req, file, hs_uv_fs_stat_callback);
+    if (r < 0) {
+        free_slot(loop_data, slot);
+        return (HsInt)r;
+    } else return slot;
+}
+
+HsInt hs_uv_fs_lstat_threaded(const char* path, uv_stat_t* stat, uv_loop_t* loop){
+    hs_loop_data* loop_data = loop->data;
+    HsInt slot = alloc_slot(loop_data);
+    if (slot < 0) return UV_ENOMEM;
+    uv_fs_t* req = 
+        (uv_fs_t*)fetch_uv_struct(loop_data, slot);
+    req->data = (void*)slot;
+    loop_data->buffer_table[slot] = (char*)stat;
+    int r = uv_fs_lstat(loop, req, path, hs_uv_fs_stat_callback);
     if (r < 0) {
         free_slot(loop_data, slot);
         return (HsInt)r;

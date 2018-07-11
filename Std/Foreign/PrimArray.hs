@@ -77,12 +77,14 @@ module Std.Foreign.PrimArray
   , castPtr
   -- ** re-export
   , module GHC.Prim
+  , module Data.Primitive.Ptr
   ) where
 
 import           Control.Monad.Primitive
 import           Data.Primitive
 import           Data.Primitive.ByteArray
 import           Data.Primitive.PrimArray
+import           Data.Primitive.Ptr
 import           Data.Word
 import           Foreign.C.Types
 import           GHC.Prim

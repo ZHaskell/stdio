@@ -79,7 +79,7 @@ import           Unsafe.Coerce
 -- {-# NOINLINE word8ArrayFromAddr #-}
 -- word8ArrayFromAddr l# addr# = unsafeDupablePerformIO $ do
 --     mba <- newPrimArray (I# l)
---     copyMutablePrimArrayFromPtr mba 0 (Ptr addr#) l
+--     copyPtrToMutablePrimArray mba 0 (Ptr addr#) l
 --     unsafeFreezePrimArray mba
 -- @@@
 --
@@ -108,7 +108,7 @@ word8ArrayFromAddr :: Int -> Addr# -> PrimArray Word8
 {-# NOINLINE word8ArrayFromAddr #-}
 word8ArrayFromAddr l addr# = unsafeDupablePerformIO $ do
     mba <- newPrimArray l
-    copyMutablePrimArrayFromPtr mba 0 (Ptr addr#) l
+    copyPtrToMutablePrimArray mba 0 (Ptr addr#) l
     unsafeFreezePrimArray mba
 
 int8ArrayFromAddr :: Int -> Addr# -> PrimArray Int8
@@ -244,7 +244,7 @@ word16ArrayFromAddr l addr# = unsafeDupablePerformIO $ do
     go l (Ptr addr#) mba 0
     unsafeFreezePrimArray mba :: IO (PrimArray Word16)
   where
-    go l ptr mba idx = copyMutablePrimArrayFromPtr mba 0 ptr l
+    go l ptr mba idx = copyPtrToMutablePrimArray mba 0 ptr l
 
 int16ArrayFromAddr :: Int -> Addr# -> PrimArray Int16
 int16ArrayFromAddr l addr# = unsafeCoerce (word16ArrayFromAddr l addr#)
@@ -307,7 +307,7 @@ word32ArrayFromAddr l addr# = unsafeDupablePerformIO $ do
     go l (Ptr addr#) mba 0
     unsafeFreezePrimArray mba :: IO (PrimArray Word32)
   where
-    go l ptr mba !idx = copyMutablePrimArrayFromPtr mba 0 ptr l
+    go l ptr mba !idx = copyPtrToMutablePrimArray mba 0 ptr l
 
 int32ArrayFromAddr :: Int -> Addr# -> PrimArray Int32
 int32ArrayFromAddr l addr# = unsafeCoerce (word32ArrayFromAddr l addr#)
@@ -377,7 +377,7 @@ word64ArrayFromAddr l addr# = unsafeDupablePerformIO $ do
     go l (Ptr addr#) mba 0
     unsafeFreezePrimArray mba :: IO (PrimArray Word64)
   where
-    go l ptr mba !idx = copyMutablePrimArrayFromPtr mba 0 ptr l
+    go l ptr mba !idx = copyPtrToMutablePrimArray mba 0 ptr l
 
 int64ArrayFromAddr :: Int -> Addr# -> PrimArray Int64
 int64ArrayFromAddr l addr# = unsafeCoerce (word64ArrayFromAddr l addr#)
