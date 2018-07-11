@@ -554,12 +554,13 @@ typedef struct dirent hs_uv__dirent_t;
 #endif
 #endif
 
-#ifdef _WIN32
+#if defined(_WIN32)
 void uv__free(void* p);
 # define uv__fs_scandir_free uv__free
 #else
 # define uv__fs_scandir_free free
 #endif
+
 void hs_uv_fs_scandir_cleanup(uv_dirent_t** dents, HsInt n);
 void hs_uv_fs_scandir_extra_cleanup(uv_dirent_t*** dents_p, HsInt n);
 
