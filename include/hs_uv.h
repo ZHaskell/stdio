@@ -500,7 +500,7 @@ void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events);
 
 #endif /* _WIN32 */
 
-typedef struct uv__dirent_s hs_uv__dirent_t;
+typedef uv__dirent_t hs_uv__dirent_t;
 
 #if defined(_WIN32)
 
@@ -555,6 +555,7 @@ typedef struct uv__dirent_s hs_uv__dirent_t;
 #endif /* DT_UNKNOWN */
 
 #endif /* _WIN32 */
+
 
 #if defined(_WIN32)
 void uv__free(void* p);
