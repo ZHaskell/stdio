@@ -84,6 +84,8 @@ library
           third_party/libuv/src/fs-poll.c
         , third_party/libuv/src/inet.c
         , third_party/libuv/src/threadpool.c
+        , third_party/libuv/src/timer.c
+        , third_party/libuv/src/uv-data-getter-setters.c
         , third_party/libuv/src/uv-common.c
         , third_party/libuv/src/version.c
         , third_party/libuv/src/win/async.c
@@ -106,7 +108,6 @@ library
         , third_party/libuv/src/win/stream.c
         , third_party/libuv/src/win/tcp.c
         , third_party/libuv/src/win/thread.c
-        , third_party/libuv/src/win/timer.c
         , third_party/libuv/src/win/tty.c
         , third_party/libuv/src/win/udp.c
         , third_party/libuv/src/win/util.c
