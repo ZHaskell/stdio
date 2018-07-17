@@ -35,10 +35,11 @@ library
                             Std.Data.Array
                             Std.Data.Array.Checked
                             Std.Data.CBytes
-                            Std.Data.Parser
                             Std.Data.Text
                             Std.Data.Text.UTF8Codec
+
                             Std.Data.Binary
+                            Std.Data.Parser
                             Std.Data.Builder
 
                             Std.Foreign.PrimArray
@@ -59,7 +60,7 @@ library
 
     -- other-extensions:    
 
-    build-depends:          base >=4.9 && <5.0
+    build-depends:          base >=4.12 && <5.0
                         ,   ghc-prim  >= 0.4
                         ,   primitive >= 0.6.4
                         ,   deepseq

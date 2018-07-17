@@ -1,4 +1,5 @@
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE MagicHash #-}
@@ -70,7 +71,7 @@ type ParseStep s r = ByteArray# -> Int# -> Int# -> State# s -> (# State# s, Resu
 newtype Parser a = Parser { runParser :: forall s r. (a -> ParseStep s r) -> ParseStep s r }
 
 instance Functor Parser where
-    fmap f (Parser p) = Parser (\ k -> p (k . f))
+    fmap f (Parser p) = Parser (\ k -> p (\ x -> k (f x)))
     {-# INLINE fmap #-}
     a <$ (Parser p) = Parser (\ k -> p (\ _ -> k a))
     {-# INLINE (<$) #-}
@@ -78,7 +79,7 @@ instance Functor Parser where
 instance Applicative Parser where
     pure x = Parser (\ k -> k x)
     {-# INLINE pure #-}
-    (Parser pa) <*> (Parser pb) = Parser (\ k -> pa (\ bc -> pb (k . bc)))
+    (Parser pa) <*> (Parser pb) = Parser (\ k -> pa (\ bc -> pb (\ b -> k (bc b))))
     {-# INLINE (<*>) #-}
 
 instance Monad Parser where
@@ -86,6 +87,8 @@ instance Monad Parser where
   {-# INLINE return #-}
   (Parser p) >>= f = Parser (\ k -> p (\ a -> runParser (f a) k))
   {-# INLINE (>>=) #-}
+  (Parser p) >> (Parser q) = Parser (\ k -> p (\ _ ->  q k))
+  {-# INLINE (>>) #-}
   fail str = Parser (failure [str])
   {-# INLINE fail #-}
 
@@ -139,30 +142,30 @@ parseIO (V.Bytes ba# offset# l#) (Parser p) = IO (p success ba# offset# l#)
 -- | Ensure that there are at least @n@ bytes available. If not, the
 -- computation will escape with 'NeedMore'.
 ensureN :: Int# -> Parser ()
+{-# INLINE ensureN #-}
 ensureN n# = Parser $ \ k ba# offset# end# s0# ->
-    let len0# = end# -# offset#
-    in case len0# >=# n# of
-        1# -> k () ba# offset# end# s0#
-        _  -> (# s0#, NeedMore (go k [V.Bytes ba# offset# end#] len0#) #)
+    let offset2# = offset# +# n#
+    in case offset2# >=# end# of
+        1# -> k () ba# offset2# end# s0#
+        _  -> (# s0#, NeedMore (go n# k [V.Bytes ba# offset# end#] (end# -# offset#)) #)
   where
-    go k acc len0# = \ input'@(V.Bytes _ _ len1#) s1# ->
+    go n# k acc len0# = \ input'@(V.Bytes _ _ len1#) s1# ->
         case len1# ==# 0# of
             1# ->
                 let len2# = len0# +# len1#
                 in case len2# >=# n# of
                     1# ->
                         let (V.Bytes ba3# offset3# len3#) = V.concat (reverse (input':acc))
-                        in k () ba3# offset3# len3# s1#
+                        in k () ba3# (offset3# +# n#) len3# s1#
 
-                    _ -> (# s1#, NeedMore (go k (input':acc) len2#) #)
+                    _ -> (# s1#, NeedMore (go n# k (input':acc) len2#) #)
             _  -> (# s1#, Failure
                     (V.concat (reverse (input':acc)))
                     ["Std.Data.Parser.ensureN: Not enough bytes"] #)
 
-decodePrim :: Int#
-           -> (ByteArray# -> Int# -> a) -- ^ the writer which return a new offset
-                                        -- for next write
-           -> Parser a
+decodePrim :: forall a. Int#
+        -> (ByteArray# -> Int# -> a)
+        -> Parser a
+{-# INLINE decodePrim #-}
 decodePrim n# read = ensureN n# >> Parser (\ k ba# offset# end# s0# ->
-        let v = (read ba# offset#)
-        in v `seq` k v ba# (offset# +# n#) end# s0#)
+    k (read ba# offset#) ba# (offset# +# n#) end# s0#)

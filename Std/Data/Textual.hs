@@ -13,16 +13,18 @@ WIP
 
 module Std.Data.Textual where
 
-class Textual a where
-    textual :: a -> Builder
+class Format a where
+    format :: a -> Builder ()
 
-class Textual a => FormatTexutal a where
-    data Format a
-    format :: Format a -> a -> Builder
-
+class Parse a where
+    parse :: Parser a
 
 
 --------------------------------------------------------------------------------
 
-class ParseTextual a where
-    parseTextual :: Parser a
+formatDec ::
+formatHex ::
+formatFP  ::
+
+formatText :: Text ->
+formatASCII :: Bytes ->

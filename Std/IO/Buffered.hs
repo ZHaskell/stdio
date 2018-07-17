@@ -1,4 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DeriveDataTypeable #-}
@@ -22,7 +24,7 @@ module Std.IO.Buffered where
 import           Control.Concurrent.MVar
 import           Control.Concurrent.STM.TVar
 import           Control.Monad
-import           Control.Monad.ST
+import           Control.Monad.Primitive
 import           Data.IORef
 import           Data.IORef.Unboxed
 import           Data.Primitive.PrimArray
@@ -31,6 +33,7 @@ import           Data.Word
 import           Foreign.C.Types          (CSize (..))
 import           Foreign.Ptr
 import           GHC.Prim
+import           GHC.Types
 import           Std.Data.Array
 import qualified Std.Data.Builder         as B
 import qualified Std.Data.Text            as T
@@ -302,32 +305,40 @@ writeBuffer o@BufferedOutput{..} v@(V.PrimVector ba s l) = do
             withPrimVectorSafe v (writeOutput bufOutput)
 
 
--- | Write 'V.Bytes' into buffered handle.
+-- | Write 'B.Builder' into buffered handle.
 --
--- Copy 'V.Bytes' to buffer if it can hold, otherwise
--- write both buffer(if not empty) and 'V.Bytes'.
+-- Run 'B.Builder' with output buffer if it can hold, otherwise
+-- flush the buffer and write again.
 --
-writeBuilder :: (Output o) => BufferedOutput o -> B.Builder -> IO ()
+writeBuilder :: (Output o) => BufferedOutput o -> B.Builder a -> IO ()
 writeBuilder BufferedOutput{..} (B.Builder b) = do
-    i <- readIORefU bufIndex
-    originBufSiz <- getSizeofMutablePrimArray outputBuffer
-    _ <- b (B.OneShotAction action) (lastStep originBufSiz) (B.Buffer outputBuffer i)
+    (I# i#) <- readIORefU bufIndex
+    let (MutablePrimArray oldBuf#) = outputBuffer
+    _ <- primitive (b (B.OneShotAction action) (lastStep oldBuf#) oldBuf# i#)
     return ()
   where
-    action bytes = withPrimVectorSafe bytes (writeOutput bufOutput)
-
-    lastStep originBufSiz (B.Buffer buf offset)
-        | sameMutablePrimArray buf outputBuffer = do
-            writeIORefU bufIndex offset   -- record new buffer index
-            return []
-        | offset >= originBufSiz = do
-            withMutablePrimArrayContents buf $ \ ptr -> writeOutput bufOutput ptr offset
-            writeIORefU bufIndex 0
-            return [] -- to match 'BuildStep' return type
-        | otherwise = do
-            copyMutablePrimArray outputBuffer 0 buf 0 offset
-            writeIORefU bufIndex offset
-            return [] -- to match 'BuildStep' return type
+    action bytes s0# = case internal (withPrimVectorSafe bytes
+                                        (writeOutput bufOutput)) s0# of
+                        (# s1#, _ #) -> s1#
+    lastStep oldBuf# _ buf# offset# s0# =
+        case sameMutableByteArray# oldBuf# buf# of
+            1# ->
+                -- we have oldbuf back, just record new buffer index
+                internal (writeIORefU bufIndex 0 >> return []) s0#
+            _  ->
+                let (# s1#, oldBufSiz# #) = getSizeofMutableByteArray# oldBuf# s0#
+                -- we may allocate new buffer if oldBuf is not enough(which is rare)
+                in case offset# >=# oldBufSiz# of
+                    1# -> internal (do
+                            withMutablePrimArrayContents (MutablePrimArray buf#)
+                                (\ ptr -> writeOutput bufOutput ptr (I# offset#))
+                            writeIORefU bufIndex 0
+                            return []) s1#
+                    _  -> internal (do
+                            copyMutablePrimArray outputBuffer 0
+                                (MutablePrimArray buf#) 0 (I# offset#)
+                            writeIORefU bufIndex (I# offset#)
+                            return []) s1#
 
 -- | Flush the buffer(if not empty).
 --

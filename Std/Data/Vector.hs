@@ -47,6 +47,7 @@ module Std.Data.Vector (
   , PrimVector(..)
   -- ** 'Word8' vector
   , Bytes
+  , pattern Bytes
   , w2c, c2w
   -- * Basic creating
   , create, creating, createN
@@ -181,6 +182,10 @@ class (Arr (MArray v) (IArray v) a) => Vec v a where
     -- | Create a vector by slicing an array(with offset and length).
     fromArr :: IArray v a -> Int -> Int -> v a
 
+-- | Create a vector containing whole array(with offset 0 and length equals to the array).
+fromArray :: Vec v a => IArray v a -> v a
+{- # INLINABLE fromArray #-}
+fromArray arr = fromArr arr 0 (sizeofArr arr)
 
 --------------------------------------------------------------------------------
 -- | Boxed vector
@@ -201,7 +206,8 @@ instance Vec Vector a where
 
 -- | A pattern synonyms for matching the underline array, offset and length.
 --
-pattern VecPat ba s l <- (toArr -> (ba,s,l))
+pattern VecPat arr s l <- (toArr -> (arr,s,l))
+  where VecPat arr s l = fromArr arr s l
 
 instance Eq a => Eq (Vector a) where
     v1 == v2 = eqVector v1 v2
@@ -343,6 +349,8 @@ instance (Prim a, Read a) => Read (PrimVector a) where
 
 -- | 'Bytes' is just primitive word8 vectors.
 type Bytes = PrimVector Word8
+
+pattern Bytes ba# offset# l# = PrimVector (PrimArray ba#) (I# offset#) (I# l#)
 
 -- | Conversion between 'Word8' and 'Char'. Should compile to a no-op.
 --
@@ -827,6 +835,7 @@ foldr1' f = \ (VecPat ba s l) ->
 --
 concat :: forall v a . Vec v a => [v a] -> v a
 {-# INLINE concat #-}
+concat [v] = v  -- common case in Parser
 concat vs = case pre 0 0 vs of
     (0, _) -> empty
     (1, _) -> let Just v = List.find (not . null) vs in v -- there must be a not null vector
