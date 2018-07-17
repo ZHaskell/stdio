@@ -1,4 +1,5 @@
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE MagicHash #-}
@@ -35,26 +36,21 @@ import Control.Applicative
 --
 -- * success: the remaining unparsed data and the parser value
 --
-data Result s a
+data Result a
     = Success !V.Bytes a
     | Failure !V.Bytes [String]
-    | NeedMore (V.Bytes -> State# s -> (# State# s, Result s a #))
 
-instance Functor (Result s) where
+data ConsumeStrategy s
+    = ConsumeStrict
+    | ConsumeState (State# s -> (# State# s, V.Bytes #))
+
+instance Functor Result where
     fmap f (Success s a)   = Success s (f a)
     fmap _ (Failure s msg) = Failure s msg
-    fmap f (NeedMore k) = NeedMore (\ bs s0# -> case k bs s0# of (# s2#, r #) -> (# s2#, fmap f r #))
 
-instance Show a => Show (Result s a) where
-    show (Failure _ errs) = "ParseFailure: " ++ show errs
-    show (NeedMore _)     = "NeedMore _"
-    show (Success _ a)    = "ParseOK " ++ show a
-
-success :: r -> ParseStep s r
-success x ba# offset# l# s0# = (# s0# , Success (V.Bytes ba# offset# l#) x #)
-
-failure :: [String] -> a -> ParseStep s r
-failure err _ ba# offset# l# s0# = (# s0#, Failure (V.Bytes ba# offset# l#) err #)
+instance Show a => Show (Result a) where
+    show (Failure rest errs) = "Failure: " ++ show errs ++ "\nStop at: " ++ show rest
+    show (Success rest a)    = "Success: " ++ show a ++ "\nStop at: " ++ show rest
 
 -- | @ParseStep@ is a function that extract value from a immutable (thus can be shared)
 -- buffer.
@@ -62,107 +58,176 @@ failure err _ ba# offset# l# s0# = (# s0#, Failure (V.Bytes ba# offset# l#) err 
 -- We use unboxed 'State#' token here to support building arrays inside ST monad
 -- without touching 'unsafePerformIO'.
 --
-type ParseStep s r = ByteArray# -> Int# -> Int# -> State# s -> (# State# s, Result s r #)
+type ParseStep s r = ByteArray# -> Int# -> Int# -> State# s -> (# State# s, Result r #)
 
 -- | @Parser@ is a monad to help compose @ParseStep@. With next @ParseStep@ continuation,
 -- We can provide early termination.
 --
-newtype Parser a = Parser { runParser :: forall s r. (a -> ParseStep s r) -> ParseStep s r }
+newtype Parser a = Parser { runParser :: forall s r. ConsumeStrategy s -> (a -> ParseStep s r) -> ParseStep s r }
 
 instance Functor Parser where
-    fmap f (Parser p) = Parser (\ k -> p (k . f))
+    fmap f (Parser p) = Parser (\ cs k -> p cs (k . f))
     {-# INLINE fmap #-}
-    a <$ (Parser p) = Parser (\ k -> p (\ _ -> k a))
+    a <$ (Parser p) = Parser (\ cs k -> p cs (\ _ -> k a))
     {-# INLINE (<$) #-}
 
 instance Applicative Parser where
-    pure x = Parser (\ k -> k x)
+    pure x = Parser (\ _ k -> k x)
     {-# INLINE pure #-}
-    (Parser pa) <*> (Parser pb) = Parser (\ k -> pa (\ bc -> pb (k . bc)))
+    (Parser pa) <*> (Parser pb) = Parser (\ cs k -> pa cs (\ bc -> pb cs (k . bc)))
     {-# INLINE (<*>) #-}
 
 instance Monad Parser where
   return = pure
   {-# INLINE return #-}
-  (Parser p) >>= f = Parser (\ k -> p (\ a -> runParser (f a) k))
+  (Parser p) >>= f = Parser (\ cs k -> p cs (\ a -> runParser (f a) cs k))
   {-# INLINE (>>=) #-}
+  (Parser p) >> (Parser q) = Parser (\ cs k -> p cs (\ _ ->  q cs k))
+  {-# INLINE (>>) #-}
   fail str = Parser (failure [str])
   {-# INLINE fail #-}
 
 instance Fail.MonadFail Parser where
   fail str = Parser (failure [str])
   {-# INLINE fail #-}
-{-
+
 instance MonadPlus Parser where
-    mzero = empty
-    mplus = (<|>)
+    mzero = Parser (failure ["Std.Data.Parser(Alternative).mzero"])
+    mplus = plus
 
 instance Alternative Parser where
     {-# INLINE empty #-}
-    empty = Parser (\ _ ba# offset# end# s0# ->
-        (# s0#, Failure (V.Bytes ba# offset# end#)
-            ["Std.Data.Parser(Alternative).empty"] #))
+    empty = Parser (failure ["Std.Data.Parser(Alternative).empty"])
     {-# INLINE (<|>) #-}
-    f <|> g = do
-        (r, bs) <- runAndKeepTrack f
-        case r of
-            Success (V.Bytes ba# offset# end#) x -> Parser (\ _ k -> k x input ba# offset# end#)
-            Failure _ _ -> pushBack bs >> g
-            _ -> error "Binary: impossible"
+    (<|>) = plus
 
--- | Run a parser and keep track of all the input it consumes.
--- Once it's finished, return the final result (always 'Success' or 'Failure') and
--- all consumed chunks.
---
-runAndKeepTrack :: Parser a -> Parser (Result s a, [V.Bytes])
-{-# INLINE runAndKeepTrack #-}
-runAndKeepTrack (Parser p) = Parser $ \ k0 x s0# ->
-    let r0 = p success in go [] r0 k0
-  where
-    go !acc r k0 = case r of
-        NeedMore k -> NeedMore (\ ba# offset# l# -> go (V.Byte ba# offset# l#:acc) (k input) k0)
-        Success (V.Bytes ba# offset# l#) _    -> k0 (r, reverse acc) ba# offset# l#
-        Failure (V.Bytes ba# offset# l#) _    -> k0 (r, reverse acc) ba# offset# l#
+plus :: Parser a -> Parser a -> Parser a
+{-# INLINE plus #-}
+plus (Parser p) (Parser q) = Parser (\ sc k ba0# offset0# end0# (s0# :: State# s) ->
+    let (# getConsumed#, g# #) = case sc of
+            ConsumeStrict ->
+                (# (\ s0# -> (# s0#, ba0#, offset0#, end0# #))
+                ,  (\ s0# -> (# s0#, V.empty #)) #)
+            ConsumeState f# ->
+                -- we use MutVar# to track consumed chunks in ConsumeState case
+                let (# s1#, (var# :: MutVar# s [V.Bytes]) #) =
+                        newMutVar# [V.Bytes ba0# offset0# (end0# -# offset0#)] s0#
+                in (# (\ s0# ->
+                        let (# s1#, consumed #) = readMutVar# var# s0#
+                            (V.Bytes ba2# offset2# end2#) = V.concat (reverse consumed)
+                        in (# s1#, ba2#, offset2#, end2# #))
+                   ,  (\ s0# ->
+                        let (# s1#, bs #)= f# s0#
+                            (# s2#, consumed #) = readMutVar# var# s1#
+                            s3# = writeMutVar# var# (bs:consumed) s2#
+                        in (# s3#, bs #)) #)
 
-pushBack :: [V.Bytes] -> Parser ()
+    in case p (ConsumeState g#) k ba0# offset0# end0# s0# of
+        succ@(# s1#, Success _ _ #) -> succ
+        (# s1#, _ #) ->
+            let (# s2#, ba2#, offset2#, end2# #) = getConsumed# s1#
+            in q sc k ba2# offset2# end2# s2#)
+{-
+pushBack :: V.Bytes -> Parser ()
 {-# INLINE pushBack #-}
-pushBack [] = Parser (\ k -> k ())
-pushBack bs = Parser (\ k ba# offset# l# -> k () (V.concat ((V.Bytes ba# offset# l#) : bs)))
+pushBack (V.Bytes ba# offset# len#) = Parser (\ k ba# offset# l# ->
+
+    k () (V.concat ((V.Bytes ba# offset# l#) : bs)))
 -}
 
-parseST :: V.Bytes -> Parser a -> ST s (Result s a)
-parseST (V.Bytes ba# offset# l#) (Parser p) = ST (p success ba# offset# l#)
+success :: r -> ParseStep s r
+success x ba# offset# l# s0# = (# s0# , Success (V.Bytes ba# offset# (l# -# offset#)) x #)
 
-parseIO :: V.Bytes -> Parser a -> IO (Result RealWorld a)
-parseIO (V.Bytes ba# offset# l#) (Parser p) = IO (p success ba# offset# l#)
+failure :: [String] -> ConsumeStrategy s -> a -> ParseStep s r
+failure err _ _ ba# offset# l# s0# = (# s0#, Failure (V.Bytes ba# offset# (l# -# offset#)) err #)
+
+parse :: Parser a -> V.Bytes -> Result a
+parse (Parser p) (V.Bytes ba# offset# len#) =
+    runST (ST (p ConsumeStrict success ba# offset# (offset# +# len#)))
+
+parseST :: Parser a -> ST s V.Bytes -> ST s (Result a)
+parseST (Parser p) f@(ST f#) = do
+    (V.Bytes ba# offset# len#) <- f
+    ST (p (ConsumeState f#) success ba# offset# (offset# +# len#))
+
+parseIO :: Parser a -> IO V.Bytes -> IO (Result a)
+parseIO (Parser p) f@(IO f#) = do
+    (V.Bytes ba# offset# len#) <- f
+    IO (p (ConsumeState f#) success ba# offset# (offset# +# len#))
+
 
 -- | Ensure that there are at least @n@ bytes available. If not, the
--- computation will escape with 'NeedMore'.
-ensureN :: Int# -> Parser ()
-ensureN n# = Parser $ \ k ba# offset# end# s0# ->
-    let len0# = end# -# offset#
-    in case len0# >=# n# of
-        1# -> k () ba# offset# end# s0#
-        _  -> (# s0#, NeedMore (go k [V.Bytes ba# offset# end#] len0#) #)
-  where
-    go k acc len0# = \ input'@(V.Bytes _ _ len1#) s1# ->
-        case len1# ==# 0# of
-            1# ->
-                let len2# = len0# +# len1#
-                in case len2# >=# n# of
-                    1# ->
-                        let (V.Bytes ba3# offset3# len3#) = V.concat (reverse (input':acc))
-                        in k () ba3# offset3# len3# s1#
-
-                    _ -> (# s1#, NeedMore (go k (input':acc) len2#) #)
-            _  -> (# s1#, Failure
-                    (V.concat (reverse (input':acc)))
-                    ["Std.Data.Parser.ensureN: Not enough bytes"] #)
-
+-- computation will draw new input chunk with 'ConsumeStrategy'.
+--
 decodePrim :: Int#
-           -> (ByteArray# -> Int# -> a) -- ^ the writer which return a new offset
-                                        -- for next write
-           -> Parser a
-decodePrim n# read = ensureN n# >> Parser (\ k ba# offset# end# s0# ->
-        let v = (read ba# offset#)
-        in v `seq` k v ba# (offset# +# n#) end# s0#)
+            -> (ByteArray# -> Int# -> a)
+            -> Parser a
+{-# INLINE decodePrim #-}
+decodePrim n0# read = Parser $ \ cs k ba0# offset0# end0# s0# ->
+    let (# s1#, ba1#, offset1#, end1#, offset1'# #) =
+            let offset0'# = offset0# +# n0#
+            in case offset0'# <=# end0# of
+                1# -> (# s0#, ba0#, offset0#, end0#, offset0'# #)
+                _  -> handleBoundary cs ba0# offset0# end0# n0# s0#
+    -- We never pass partial appied k to boundary handling like other CPSed
+    -- parsers, doing that will force ghc to think we're sharing k in both branch,
+    -- thus kill inliner/unboxing, etc. Instead we directly handle boundary with
+    -- ConsumeStrategy, and draw more bytes if necessary, thus k can be safely
+    -- inlined, further unboxed by GHC.
+    in case offset1'# of
+        0# -> (# s1#, Failure (V.Bytes ba1# offset1# end1#)
+                ["Std.Data.Parser.decodePrim: not enough bytes"] #)
+        _  -> k (read ba1# offset1#) ba1# offset1'# end1# s1#
+
+peekPrim :: Int#
+          -> (ByteArray# -> Int# -> a)
+          -> Parser a
+{-# INLINE peekPrim #-}
+peekPrim n0# read = Parser $ \ cs k ba0# offset0# end0# s0# ->
+    let (# s1#, ba1#, offset1#, end1#, offset1'# #) =
+            let offset0'# = offset0# +# n0#
+            in case offset0'# <=# end0# of
+                1# -> (# s0#, ba0#, offset0#, end0#, offset0'# #)
+                _  -> handleBoundary cs ba0# offset0# end0# n0# s0#
+    in case offset1'# of
+        0# -> (# s1#, Failure (V.Bytes ba1# offset1# end1#)
+                ["Std.Data.Parser.decodePrim: not enough bytes"] #)
+        _  -> k (read ba1# offset1#) ba1# offset1# end1# s1#
+
+handleBoundary :: ConsumeStrategy s -> ByteArray# -> Int# -> Int# -> Int# -> State# s
+               -> (# State# s, ByteArray#, Int#, Int#, Int# #)
+{-# NOINLINE handleBoundary #-}
+handleBoundary ConsumeStrict ba0# offset0# end0# _ s0# = (# s0#, ba0#, offset0#, end0#, 0# #)
+handleBoundary (ConsumeState f#) ba0# offset0# end0# n0# s0# =
+    let len0# = end0# -# offset0#
+        (# s1#, buf# #) = newByteArray# (n0# +# len0#) s0#
+        s2# = copyByteArray# ba0# offset0# buf# 0# len0# s1#
+    in consumeLoop f# buf# len0# (n0# +# len0#) s1#
+  where
+    consumeLoop :: (State# s -> (# State# s, V.Bytes #))
+                -> MutableByteArray# s -> Int# -> Int# -> State# s
+                -> (# State# s, ByteArray#, Int#, Int#, Int# #)
+    consumeLoop f# buf0# len0# end# s0# =
+            -- draw new chunk
+            let (# s1#, (V.Bytes ba1# offset1# len1#) #) = f# s0#
+            in case len1# /=# 0# of
+                -- successfully draw a new chunk
+                1# ->
+                    let len2# = len0# +# len1#
+                    in case len2# >=# end# of
+                        -- we have got enough bytes
+                        1# ->
+                            let (# s2#, buf1# #) = resizeMutableByteArray# buf0# len2# s1#
+                                s3# = copyByteArray# ba1# offset1# buf1# len0# len1# s2#
+                                (# s4#, ba2# #) = unsafeFreezeByteArray# buf1# s3#
+                            in (# s4#, ba2#, 0#, len2#, end# #)
+
+                        -- we haven't got enough bytes, continue consume
+                        _ ->
+                            let s2# = copyByteArray# ba1# offset1# buf0# len0# len1# s1#
+                            in consumeLoop f# buf0# len2# end# s2#
+
+                -- the input is closed
+                _  ->
+                    let (# s2#, ba2# #) = unsafeFreezeByteArray# buf0# s1#
+                    in (# s2#, ba2#, 0#, len0#, 0# #)

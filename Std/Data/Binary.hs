@@ -72,11 +72,12 @@ data Test = Test
     {-# UNPACK #-} !Word8
     {-# UNPACK #-} !Word8
     {-# UNPACK #-} !Word8
+  deriving Show
 
 decodeTest :: Parser Test
 decodeTest = Test <$> decodeWord8
                   <*> decodeWord8
-                  <*> decodeWord8
+                  <*> (decodeWord8 `plus` decodeWord8)
 --   !w1 <- decodeWord8
 --   !w2 <- decodeWord8
 --   !w3 <- decodeWord8

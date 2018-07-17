@@ -1,3 +1,4 @@
+
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE BangPatterns #-}
@@ -36,26 +37,22 @@ import Control.Applicative
 --
 -- * success: the remaining unparsed data and the parser value
 --
-data Result s a
+data Result a
     = Success !V.Bytes a
     | Failure !V.Bytes [String]
-    | NeedMore (V.Bytes -> State# s -> (# State# s, Result s a #))
 
-instance Functor (Result s) where
+data ConsumeStrategy s
+    = ConsumeStrict
+    | ConsumeState (State# s -> (# State# s, V.Bytes #))
+
+instance Functor Result where
     fmap f (Success s a)   = Success s (f a)
     fmap _ (Failure s msg) = Failure s msg
-    fmap f (NeedMore k) = NeedMore (\ bs s0# -> case k bs s0# of (# s2#, r #) -> (# s2#, fmap f r #))
 
-instance Show a => Show (Result s a) where
+instance Show a => Show (Result a) where
     show (Failure _ errs) = "ParseFailure: " ++ show errs
-    show (NeedMore _)     = "NeedMore _"
     show (Success _ a)    = "ParseOK " ++ show a
 
-success :: r -> ParseStep s r
-success x ba# offset# l# s0# = (# s0# , Success (V.Bytes ba# offset# l#) x #)
-
-failure :: [String] -> a -> ParseStep s r
-failure err _ ba# offset# l# s0# = (# s0#, Failure (V.Bytes ba# offset# l#) err #)
 
 -- | @ParseStep@ is a function that extract value from a immutable (thus can be shared)
 -- buffer.
@@ -63,39 +60,44 @@ failure err _ ba# offset# l# s0# = (# s0#, Failure (V.Bytes ba# offset# l#) err 
 -- We use unboxed 'State#' token here to support building arrays inside ST monad
 -- without touching 'unsafePerformIO'.
 --
-type ParseStep s r = ByteArray# -> Int# -> Int# -> State# s -> (# State# s, Result s r #)
+type ParseStep s r = ByteArray# -> Int# -> Int# -> State# s -> (# State# s, Result r #)
 
 -- | @Parser@ is a monad to help compose @ParseStep@. With next @ParseStep@ continuation,
 -- We can provide early termination.
 --
-newtype Parser a = Parser { runParser :: forall s r. (a -> ParseStep s r) -> ParseStep s r }
+newtype Parser a = Parser { runParser :: forall s r. ConsumeStrategy s -> (a -> ParseStep s r) -> ParseStep s r }
 
 instance Functor Parser where
-    fmap f (Parser p) = Parser (\ k -> p (\ x -> k (f x)))
+    fmap f (Parser p) = Parser (\ cs k -> p cs (k . f))
     {-# INLINE fmap #-}
-    a <$ (Parser p) = Parser (\ k -> p (\ _ -> k a))
+    a <$ (Parser p) = Parser (\ cs k -> p cs (\ _ -> k a))
     {-# INLINE (<$) #-}
 
 instance Applicative Parser where
-    pure x = Parser (\ k -> k x)
+    pure x = Parser (\ _ k -> k x)
     {-# INLINE pure #-}
-    (Parser pa) <*> (Parser pb) = Parser (\ k -> pa (\ bc -> pb (\ b -> k (bc b))))
+    (Parser pa) <*> (Parser pb) = Parser (\ cs k -> pa cs (\ bc -> pb cs (k . bc)))
     {-# INLINE (<*>) #-}
 
 instance Monad Parser where
   return = pure
   {-# INLINE return #-}
-  (Parser p) >>= f = Parser (\ k -> p (\ a -> runParser (f a) k))
+  (Parser p) >>= f = Parser (\ cs k -> p cs (\ a -> runParser (f a) cs k))
   {-# INLINE (>>=) #-}
-  (Parser p) >> (Parser q) = Parser (\ k -> p (\ _ ->  q k))
+  (Parser p) >> (Parser q) = Parser (\ cs k -> p cs (\ _ ->  q cs k))
   {-# INLINE (>>) #-}
+{-
   fail str = Parser (failure [str])
   {-# INLINE fail #-}
 
 instance Fail.MonadFail Parser where
   fail str = Parser (failure [str])
   {-# INLINE fail #-}
-{-
+success :: r -> ParseStep s r
+success x ba# offset# l# s0# = (# s0# , Success (V.Bytes ba# offset# l#) x #)
+
+failure :: [String] -> a -> ParseStep s r
+failure err _ ba# offset# l# s0# = (# s0#, Failure (V.Bytes ba# offset# l#) err #)
 instance MonadPlus Parser where
     mzero = empty
     mplus = (<|>)
@@ -133,39 +135,24 @@ pushBack [] = Parser (\ k -> k ())
 pushBack bs = Parser (\ k ba# offset# l# -> k () (V.concat ((V.Bytes ba# offset# l#) : bs)))
 -}
 
-parseST :: V.Bytes -> Parser a -> ST s (Result s a)
-parseST (V.Bytes ba# offset# l#) (Parser p) = ST (p success ba# offset# l#)
-
-parseIO :: V.Bytes -> Parser a -> IO (Result RealWorld a)
-parseIO (V.Bytes ba# offset# l#) (Parser p) = IO (p success ba# offset# l#)
 
 -- | Ensure that there are at least @n@ bytes available. If not, the
 -- computation will escape with 'NeedMore'.
-ensureN :: Int# -> Parser ()
-{-# INLINE ensureN #-}
-ensureN n# = Parser $ \ k ba# offset# end# s0# ->
-    let offset2# = offset# +# n#
-    in case offset2# >=# end# of
-        1# -> k () ba# offset2# end# s0#
-        _  -> (# s0#, NeedMore (go n# k [V.Bytes ba# offset# end#] (end# -# offset#)) #)
-  where
-    go n# k acc len0# = \ input'@(V.Bytes _ _ len1#) s1# ->
-        case len1# ==# 0# of
-            1# ->
-                let len2# = len0# +# len1#
-                in case len2# >=# n# of
-                    1# ->
-                        let (V.Bytes ba3# offset3# len3#) = V.concat (reverse (input':acc))
-                        in k () ba3# (offset3# +# n#) len3# s1#
-
-                    _ -> (# s1#, NeedMore (go n# k (input':acc) len2#) #)
-            _  -> (# s1#, Failure
-                    (V.concat (reverse (input':acc)))
-                    ["Std.Data.Parser.ensureN: Not enough bytes"] #)
-
-decodePrim :: forall a. Int#
-        -> (ByteArray# -> Int# -> a)
-        -> Parser a
+decodePrim :: Int#
+            -> (ByteArray# -> Int# -> a)
+            -> Parser a
 {-# INLINE decodePrim #-}
-decodePrim n# read = ensureN n# >> Parser (\ k ba# offset# end# s0# ->
-    k (read ba# offset#) ba# (offset# +# n#) end# s0#)
+decodePrim n0# read = Parser $ \ cs k ba0# offset0# end0# s0# ->
+    let offset0'# = offset0# +# n0#
+        (# s1#, ba1#, offset1#, end1# #) =
+            case offset0'# <=# end0# of
+                1# -> (# s0#, ba0#, offset0#, end0# #)
+                _  -> consume cs ba0# offset0# end0# offset0'# s0#
+    in case offset1# <=# end1# of
+        1# -> k (read ba1# offset1#) ba1# (offset1# +# n0#) end1# s1#
+        _  -> (# s1#, Failure undefined [""] #)
+  where
+    {-# NOINLINE consume #-}
+    consume :: ConsumeStrategy s -> ByteArray# -> Int# -> Int# -> Int# -> State# s
+            -> (# State# s, ByteArray#, Int#, Int# #)
+    consume ConsumeStrict ba0# offset0# end0# offset0'# s0# = (# s0#, ba0#, offset0'#, end0# #)
