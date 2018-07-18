@@ -1,9 +1,11 @@
-{-# LANGUAGE UnboxedTuples #-}
-{-# LANGUAGE MagicHash #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE BangPatterns        #-}
+{-# LANGUAGE CPP                 #-}
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE FlexibleInstances   #-}
+{-# LANGUAGE MagicHash           #-}
+{-# LANGUAGE RankNTypes          #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE UnboxedTuples       #-}
 
 {-|
 Module      : Std.Data.Builder
@@ -38,90 +40,121 @@ but in case of rolling something shining from the ground, keep an eye on correct
 
 module Std.Data.Builder where
 
-import Control.Monad.Primitive
-import GHC.Prim (RealWorld)
-import Control.Monad
-import qualified Std.Data.Vector as V
-import qualified Std.Data.Array as A
-import Data.Semigroup (Semigroup(..))
-import Data.Monoid (Monoid(..))
-import Data.Word
-import Data.Bits (shiftL, shiftR)
-import System.IO.Unsafe (unsafeInterleaveIO, unsafeDupablePerformIO)
+import           Control.Monad
+import           Control.Monad.Primitive
+import           Control.Monad.ST
+import           Control.Monad.ST.Unsafe            (unsafeInterleaveST)
+import           Data.Bits                          (shiftL, shiftR)
+import           Data.Monoid                        (Monoid (..))
+import           Data.Primitive.PrimArray           (MutablePrimArray (..))
+import           Data.Semigroup                     (Semigroup (..))
+import           Data.Word
+import           GHC.Prim
+import           GHC.Types
+import qualified Std.Data.Array                     as A
+import           Std.Data.PrimArray.UnalignedAccess
+import qualified Std.Data.Vector                    as V
 
 -- | 'AllocateStrategy' will decide how each 'BuildStep' proceed when previous buffer is not enough.
 --
-data AllocateStrategy
+data AllocateStrategy s
     = DoubleBuffer       -- Double the buffer and continue building
     | InsertChunk {-# UNPACK #-} !Int   -- Insert a new chunk and continue building
-    | OneShotAction (V.Bytes -> IO ())   -- Freeze current chunk and perform action with it.
+    | OneShotAction (V.Bytes -> ST s ())  -- Freeze current chunk and perform action with it.
                                         -- Use the 'V.Bytes' argument outside the action is dangerous
                                         -- since we will reuse the buffer after action finished.
 
 -- | Helper type to help ghc unpack
 --
-data Buffer = Buffer {-# UNPACK #-} !(A.MutablePrimArray RealWorld Word8)  -- well, the buffer content
+data Buffer s = Buffer {-# UNPACK #-} !(A.MutablePrimArray s Word8)  -- well, the buffer content
                        {-# UNPACK #-} !Int  -- writing offset
 
 -- | @BuilderStep@ is a function that fill buffer under given conditions.
 --
-type BuildStep = Buffer -> IO [V.Bytes]
+type BuildStep s = Buffer s -> ST s [V.Bytes]
 
 -- | @Builder@ is a monoid to help compose @BuilderStep@. With next @BuilderStep@ continuation,
 -- We can do interesting things like perform some action, or interleave the build process.
 --
-newtype Builder = Builder { runBuilder :: AllocateStrategy -> BuildStep -> BuildStep }
+newtype Builder a = Builder
+    { runBuilder :: forall s. AllocateStrategy s -> (a -> BuildStep s) -> BuildStep s}
 
-#if MIN_VERSION_base(4,9,0)
-instance Semigroup Builder where
+instance Functor Builder where
+    {-# INLINE fmap #-}
+    fmap f (Builder b) = Builder (\ al k -> b al (k . f))
+    {-# INLINE (<$) #-}
+    a <$ (Builder b) = Builder (\ al k -> b al (\ _ -> k a))
+
+instance Applicative Builder where
+    {-# INLINE pure #-}
+    pure x = Builder (\ _ k -> k x)
+    {-# INLINE (<*>) #-}
+    (Builder f) <*> (Builder b) = Builder (\ al k -> f al ( \ ab -> b al (k . ab)))
+    {-# INLINE (*>) #-}
+    (*>) = append
+
+instance Monad Builder where
+    {-# INLINE (>>=) #-}
+    (Builder b) >>= f = Builder (\ al k -> b al ( \ a -> runBuilder (f a) al k))
+    {-# INLINE (>>) #-}
+    (>>) = append
+
+instance Semigroup (Builder ()) where
    (<>) = append
    {-# INLINE (<>) #-}
-#endif
 
-instance Monoid Builder where
-   mempty  = empty
+instance Monoid (Builder ()) where
+   mempty = pure ()
    {-# INLINE mempty #-}
-#if MIN_VERSION_base(4,9,0)
-   mappend = (<>) -- future-proof definition
-#else
    mappend = append
-#endif
    {-# INLINE mappend #-}
-   mconcat = foldr append empty
+   mconcat = foldr append (pure ())
    {-# INLINE mconcat #-}
 
-append :: Builder -> Builder -> Builder
-append (Builder f) (Builder g) = Builder (\ a -> f a . g a)
+append :: Builder a -> Builder b -> Builder b
+append (Builder f) (Builder g) = Builder (\ al k -> f al ( \ _ ->  g al k))
 {-# INLINE append #-}
 
-empty :: Builder
-empty = Builder (\ _ -> id)
-{-# INLINE empty #-}
-
-
 atMost :: Int  -- ^ size bound
-          -> (A.MutablePrimArray (PrimState IO) Word8 -> Int -> IO Int)  -- ^ the writer which return a new offset
-                                                                           -- for next write
-          -> Builder
+       -> (forall s. A.MutablePrimArray s Word8 -> Int -> ST s Int)  -- ^ the writer which return a new offset
+                                                                       -- for next write
+       -> Builder ()
+{-# INLINE atMost #-}
 atMost n f = ensureN n `append`
     Builder (\ _  k (Buffer buf offset ) ->
-        f buf offset >>= \ offset' -> k (Buffer buf offset')
-    )
-{-# INLINE atMost #-}
+        f buf offset >>= \ offset' -> k () (Buffer buf offset'))
+
+encodePrim :: forall a. UnalignedAccess a => a -> Builder ()
+{-# INLINE encodePrim #-}
+encodePrim x = do
+    ensureN n
+    Builder (\ _  k (Buffer (MutablePrimArray mba#) i@(I# i#)) -> do
+        primitive_ (writeWord8ArrayAs mba# i# x)
+        k () (Buffer (MutablePrimArray mba#) (i + n)))
+  where
+    n = (getUnalignedSize (unalignedSize :: UnalignedSize a))
+
+encodePrimLE :: forall a. UnalignedAccess (LE a) => a -> Builder ()
+{-# INLINE encodePrimLE #-}
+encodePrimLE = encodePrim . LE
+
+encodePrimBE :: forall a. UnalignedAccess (BE a) => a -> Builder ()
+{-# INLINE encodePrimBE #-}
+encodePrimBE = encodePrim . BE
 
 --------------------------------------------------------------------------------
---
-bytes :: V.Bytes -> Builder
-bytes bs@(V.PrimVector arr s l) = Builder go
-  where
-    go strategy k buffer@(Buffer buf offset) = case strategy of
+
+bytes :: V.Bytes -> Builder ()
+{-# INLINE bytes #-}
+bytes bs@(V.PrimVector arr s l) = Builder (\ strategy k buffer@(Buffer buf offset) ->
+    case strategy of
         DoubleBuffer -> copy strategy k buffer
         InsertChunk chunkSiz
             | l <= chunkSiz `shiftR` 1 ->
                 copy strategy k buffer -- the copy limit is half the chunk size
             | offset /= 0 ->
-                 insertChunk chunkSiz 0 (\ buffer' -> (bs:) `fmap` k buffer') buffer
-            | otherwise -> (bs:) `fmap` k buffer
+                 insertChunk chunkSiz 0 (\ buffer' -> (bs:) `fmap` k () buffer') buffer
+            | otherwise -> (bs:) `fmap` k () buffer
         OneShotAction action -> do
             chunkSiz <- A.sizeofMutableArr buf
             case () of
@@ -129,37 +162,35 @@ bytes bs@(V.PrimVector arr s l) = Builder go
                     | l <= chunkSiz `shiftR` 1 ->
                         copy strategy k buffer
                     | offset /= 0 ->
-                        oneShotAction action 0 (\ buffer' -> action bs >> k buffer') buffer
-                    | otherwise -> action bs >> k buffer
-    {-# NOINLINE go #-}
+                        oneShotAction action 0 (\ buffer' -> action bs >> k () buffer') buffer
+                    | otherwise -> action bs >> k () buffer)
+  where
     copy strategy k =
-        runBuilder (ensureN l) strategy ( \ (Buffer buf offset) -> do
+        runBuilder (ensureN l) strategy ( \ _ (Buffer buf offset) -> do
                 A.copyArr buf offset arr s l
-                k (Buffer buf (offset+l))
-            )
+                k () (Buffer buf (offset+l)))
     {-# INLINE copy #-}
-{-# INLINE bytes #-}
 
 -- | Ensure that there are at least @n@ many elements available.
-ensureN :: Int -> Builder
+ensureN :: Int -> Builder ()
+{-# INLINE ensureN #-}
 ensureN !n = Builder $ \ strategy k buffer@(Buffer buf offset) -> do
     siz <- A.sizeofMutableArr buf  -- You may think doing this will be slow
                                    -- but this value lives in CPU cache for most of the time
     if siz - offset >= n
-    then k buffer
+    then k () buffer
     else handleBoundary strategy n k buffer
   where
-    handleBoundary DoubleBuffer n k buffer = doubleBuffer n k buffer
-    handleBoundary (InsertChunk chunkSiz) n k buffer = insertChunk chunkSiz n k buffer
-    handleBoundary (OneShotAction action) n k buffer = oneShotAction action n k buffer
+    handleBoundary DoubleBuffer n k buffer = doubleBuffer n (k ()) buffer
+    handleBoundary (InsertChunk chunkSiz) n k buffer = insertChunk chunkSiz n (k ()) buffer
+    handleBoundary (OneShotAction action) n k buffer = oneShotAction action n (k ()) buffer
     {-# NOINLINE handleBoundary #-}
-{-# INLINE ensureN #-}
 
 --------------------------------------------------------------------------------
 --
 -- | Handle chunk boundary
 --
-doubleBuffer :: Int -> BuildStep -> BuildStep
+doubleBuffer :: Int -> BuildStep s -> BuildStep s
 doubleBuffer !wantSiz k buffer@(Buffer buf offset) = do
     !siz <- A.sizeofMutableArr buf
     let !siz' = max (offset + wantSiz `shiftL` 1)
@@ -168,7 +199,7 @@ doubleBuffer !wantSiz k buffer@(Buffer buf offset) = do
     k (Buffer buf' offset)                 -- continue building
 {-# INLINE doubleBuffer #-}
 
-insertChunk :: Int -> Int -> BuildStep -> BuildStep
+insertChunk :: Int -> Int -> BuildStep s -> BuildStep s
 insertChunk !chunkSiz !wantSiz k buffer@(Buffer buf offset) = do
     !siz <- A.sizeofMutableArr buf
     case () of
@@ -178,7 +209,7 @@ insertChunk !chunkSiz !wantSiz k buffer@(Buffer buf offset) = do
                     (A.shrinkMutableArr buf offset)            -- shrink old buffer if not full
                 arr <- A.unsafeFreezeArr buf                   -- popup old buffer
                 buf' <- A.newArr (max wantSiz chunkSiz)        -- make a new buffer
-                xs <- unsafeInterleaveIO (k (Buffer buf' 0))  -- delay the rest building process
+                xs <- unsafeInterleaveST (k (Buffer buf' 0))  -- delay the rest building process
                 let v = V.fromArr arr 0 offset
                 v `seq` return (v : xs)
             | wantSiz <= siz -> k (Buffer buf 0)
@@ -187,7 +218,7 @@ insertChunk !chunkSiz !wantSiz k buffer@(Buffer buf offset) = do
                 k (Buffer buf' 0 )
 {-# INLINE insertChunk #-}
 
-oneShotAction :: (V.Bytes -> IO ()) -> Int -> BuildStep -> BuildStep
+oneShotAction :: (V.Bytes -> ST s ()) -> Int -> BuildStep s -> BuildStep s
 oneShotAction action !wantSiz k buffer@(Buffer buf offset) = do
     !siz <- A.sizeofMutableArr buf
     case () of
@@ -208,17 +239,16 @@ oneShotAction action !wantSiz k buffer@(Buffer buf offset) = do
 
 --------------------------------------------------------------------------------
 
-buildBytes :: Builder -> V.Bytes
+buildBytes :: Builder a -> V.Bytes
 buildBytes = buildBytesWith V.defaultInitSize
 
-buildBytesWith :: Int -> Builder -> V.Bytes
-buildBytesWith initSiz (Builder b) = unsafeDupablePerformIO $ do
+buildBytesWith :: Int -> Builder a -> V.Bytes
+buildBytesWith initSiz (Builder b) = runST $ do
     buf <- A.newArr initSiz
     [bs] <- b DoubleBuffer lastStep (Buffer buf 0 )
     return bs
   where
-    lastStep :: Buffer -> IO [V.PrimVector Word8]
-    lastStep (Buffer buf offset) = do
+    lastStep _ (Buffer buf offset) = do
         siz <- A.sizeofMutableArr buf
         when (offset < siz) (A.shrinkMutableArr buf offset)
         arr <- A.unsafeFreezeArr buf
@@ -226,30 +256,31 @@ buildBytesWith initSiz (Builder b) = unsafeDupablePerformIO $ do
 {-# INLINABLE buildBytes #-}
 
 
-buildBytesList :: Builder -> [V.Bytes]
+buildBytesList :: Builder a -> [V.Bytes]
 buildBytesList = buildBytesListWith  V.smallChunkSize V.defaultChunkSize
 
-buildBytesListWith :: Int -> Int -> Builder -> [V.Bytes]
-buildBytesListWith initSiz chunkSiz (Builder b) = unsafeDupablePerformIO $ do
+buildBytesListWith :: Int -> Int -> Builder a -> [V.Bytes]
+buildBytesListWith initSiz chunkSiz (Builder b) = runST $ do
     buf <- A.newArr initSiz
     b (InsertChunk chunkSiz) lastStep (Buffer buf 0)
   where
-    lastStep (Buffer buf offset) = do
+    lastStep _ (Buffer buf offset) = do
         arr <- A.unsafeFreezeArr buf
         return [V.PrimVector arr 0 offset]
 {-# INLINABLE buildBytesList #-}
 
-buildAndRun :: (V.Bytes -> IO ()) -> Builder -> IO ()
+buildAndRun :: (V.Bytes -> IO ()) -> Builder a -> IO ()
 buildAndRun = buildAndRunWith V.defaultChunkSize
 
-buildAndRunWith :: Int -> (V.Bytes -> IO ()) -> Builder -> IO ()
+buildAndRunWith :: Int -> (V.Bytes -> IO ()) -> Builder a -> IO ()
 buildAndRunWith chunkSiz action (Builder b) = do
     buf <- A.newArr chunkSiz
-    _ <- b (OneShotAction action) lastStep (Buffer buf 0)
+    _ <- stToIO (b (OneShotAction (\ bs -> ioToPrim (action bs))) lastStep (Buffer buf 0))
     return ()
   where
-    lastStep (Buffer buf offset) = do
+    lastStep :: a -> BuildStep RealWorld
+    lastStep _ (Buffer buf offset) = do
         arr <- A.unsafeFreezeArr buf
-        action (V.PrimVector arr 0 offset)
+        ioToPrim (action (V.PrimVector arr 0 offset))
         return [] -- to match the silly return type
 {-# INLINABLE buildAndRun #-}

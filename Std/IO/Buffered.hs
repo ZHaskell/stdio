@@ -22,6 +22,7 @@ module Std.IO.Buffered where
 import           Control.Concurrent.MVar
 import           Control.Concurrent.STM.TVar
 import           Control.Monad
+import           Control.Monad.Primitive (ioToPrim, primToIO)
 import           Control.Monad.ST
 import           Data.IORef
 import           Data.IORef.Unboxed
@@ -307,24 +308,26 @@ writeBuffer o@BufferedOutput{..} v@(V.PrimVector ba s l) = do
 -- Copy 'V.Bytes' to buffer if it can hold, otherwise
 -- write both buffer(if not empty) and 'V.Bytes'.
 --
-writeBuilder :: (Output o) => BufferedOutput o -> B.Builder -> IO ()
+writeBuilder :: (Output o) => BufferedOutput o -> B.Builder a -> IO ()
 writeBuilder BufferedOutput{..} (B.Builder b) = do
     i <- readIORefU bufIndex
     originBufSiz <- getSizeofMutablePrimArray outputBuffer
-    _ <- b (B.OneShotAction action) (lastStep originBufSiz) (B.Buffer outputBuffer i)
+    _ <- primToIO (b (B.OneShotAction action) (lastStep originBufSiz) (B.Buffer outputBuffer i))
     return ()
   where
-    action bytes = withPrimVectorSafe bytes (writeOutput bufOutput)
+    action :: V.Bytes -> ST RealWorld ()
+    action bytes = ioToPrim (withPrimVectorSafe bytes (writeOutput bufOutput))
 
-    lastStep originBufSiz (B.Buffer buf offset)
-        | sameMutablePrimArray buf outputBuffer = do
+    lastStep :: Int -> a -> B.BuildStep RealWorld
+    lastStep originBufSiz _ (B.Buffer buf offset)
+        | sameMutablePrimArray buf outputBuffer = ioToPrim $ do
             writeIORefU bufIndex offset   -- record new buffer index
             return []
-        | offset >= originBufSiz = do
+        | offset >= originBufSiz = ioToPrim $ do
             withMutablePrimArrayContents buf $ \ ptr -> writeOutput bufOutput ptr offset
             writeIORefU bufIndex 0
             return [] -- to match 'BuildStep' return type
-        | otherwise = do
+        | otherwise = ioToPrim $ do
             copyMutablePrimArray outputBuffer 0 buf 0 offset
             writeIORefU bufIndex offset
             return [] -- to match 'BuildStep' return type

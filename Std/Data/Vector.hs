@@ -827,6 +827,7 @@ foldr1' f = \ (VecPat ba s l) ->
 --
 concat :: forall v a . Vec v a => [v a] -> v a
 {-# INLINE concat #-}
+concat [v] = v  -- shortcut common case in Parser
 concat vs = case pre 0 0 vs of
     (0, _) -> empty
     (1, _) -> let Just v = List.find (not . null) vs in v -- there must be a not null vector

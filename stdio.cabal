@@ -31,6 +31,7 @@ source-repository head
 library
     exposed-modules:        Std.Data.PrimArray.QQ
                             Std.Data.PrimArray.BitTwiddle
+                            Std.Data.PrimArray.UnalignedAccess
                             Std.Data.Vector
                             Std.Data.Array
                             Std.Data.Array.Checked

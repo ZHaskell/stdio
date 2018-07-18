@@ -1,6 +1,9 @@
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE BangPatterns        #-}
+{-# LANGUAGE CPP                 #-}
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE MagicHash           #-}
+{-# LANGUAGE RankNTypes          #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {-|
 Module      : Std.Data.Parser
@@ -10,16 +13,19 @@ License     : BSD
 Maintainer  : drkoster@qq.com
 Stability   : experimental
 Portability : non-portable
-
 WIP
-
 -}
 module Std.Data.Parser where
 
-import qualified Std.Data.Vector as V
-import qualified Control.Monad.Fail as Fail
-import Control.Monad
-import Control.Applicative
+import           Control.Applicative
+import           Control.Monad
+import qualified Control.Monad.Fail                 as Fail
+import           Data.Primitive.PrimArray
+import           Data.Word
+import           GHC.Prim
+import           GHC.Types
+import           Std.Data.PrimArray.UnalignedAccess
+import qualified Std.Data.Vector                    as V
 
 -- | Simple parsing result, that represent respectively:
 --
@@ -44,52 +50,56 @@ instance Show a => Show (Result a) where
     show (NeedMore _)     = "NeedMore _"
     show (Success _ a)    = "ParseOK " ++ show a
 
--- | Simple parser structure
-newtype Parser a = Parser
-    { runParser :: forall r . V.Bytes         -- Current input
-                -> (V.Bytes -> a -> Result r) -- The success continuation
-                -> Result r                   -- We don't need failure continuation
-    }                                         -- since the failure is written on the Result's tag
+type ParseStep r = V.Bytes -> Result r
 
-
-instance Monad Parser where
-  return = pure
-  {-# INLINE return #-}
-  Parser pa >>= f = Parser (\ input k -> pa input (\ input' a -> runParser (f a) input' k))
-  {-# INLINE (>>=) #-}
-  fail str = Parser (\ input _ -> Failure input [str])
-  {-# INLINE fail #-}
-
-instance Fail.MonadFail Parser where
-  fail str = Parser (\ input _ -> Failure input [str])
-  {-# INLINE fail #-}
-
-instance Applicative Parser where
-    pure x = Parser (\ input k -> k input x)
-    {-# INLINE pure #-}
-    pf <*> pa = do { f <- pf; a <- pa; return (f a) }
-    {-# INLINE (<*>) #-}
+-- | Simple CPSed parser
+--
+newtype Parser a = Parser { runParser :: forall r .  (a -> ParseStep r) -> ParseStep r }
 
 instance Functor Parser where
-    fmap f (Parser pa) = Parser (\ input k -> pa input (\ input' a -> k input' (f a)))
+    fmap f (Parser pa) = Parser (\ k -> pa (\ a -> k (f a)))
     {-# INLINE fmap #-}
-    a <$ Parser pb = Parser (\ input k -> pb input (\ input' _ -> k input' a))
+    a <$ Parser pb = Parser (\ k -> pb (\ _ -> k a))
     {-# INLINE (<$) #-}
+
+instance Applicative Parser where
+    pure x = Parser (\ k -> k x)
+    {-# INLINE pure #-}
+    Parser pf <*> Parser pa = Parser (\ k -> pf (\ f  -> pa (k . f)))
+    {-# INLINE (<*>) #-}
+
+instance Monad Parser where
+    return = pure
+    {-# INLINE return #-}
+    Parser pa >>= f = Parser (\ k -> pa (\ a -> runParser (f a) k))
+    {-# INLINE (>>=) #-}
+    fail str = Parser (\ _ input -> Failure input [str])
+    {-# INLINE fail #-}
+
+instance Fail.MonadFail Parser where
+    fail str = Parser (\ _ input -> Failure input [str])
+    {-# INLINE fail #-}
 
 instance MonadPlus Parser where
     mzero = empty
+    {-# INLINE mzero #-}
     mplus = (<|>)
+    {-# INLINE mplus #-}
 
 instance Alternative Parser where
-    empty = Parser (\ input _ -> Failure input ["Std.Data.Parser(Alternative).empty"])
+    empty = Parser (\ _ input -> Failure input ["Std.Data.Parser(Alternative).empty"])
     {-# INLINE empty #-}
     f <|> g = do
         (r, bs) <- runAndKeepTrack f
         case r of
-            Success input x -> Parser (\ _ k -> k input x)
+            Success input x -> Parser (\ k _ -> k x input)
             Failure _ _ -> pushBack bs >> g
             _ -> error "Binary: impossible"
     {-# INLINE (<|>) #-}
+
+parse :: Parser a -> V.Bytes -> Result a
+{-# INLINABLE parse #-}
+parse (Parser p) input = p (\ a input' -> Success input' a) input
 
 -- | Run a parser and keep track of all the input it consumes.
 -- Once it's finished, return the final result (always 'Success' or 'Failure') and
@@ -97,32 +107,30 @@ instance Alternative Parser where
 --
 runAndKeepTrack :: Parser a -> Parser (Result a, [V.Bytes])
 {-# INLINE runAndKeepTrack #-}
-runAndKeepTrack (Parser pa) = Parser $ \ input k0 ->
-    let r0 = pa input (\ input' a -> Success input' a) in go [] r0 k0
+runAndKeepTrack (Parser pa) = Parser $ \ k0 input ->
+    let r0 = pa (\ a input' -> Success input' a) input in go [] r0 k0
   where
     go !acc r k0 = case r of
         NeedMore k -> NeedMore (\ input -> go (input:acc) (k input) k0)
-        Success input' _    -> k0 input' (r, reverse acc)
-        Failure input' _    -> k0 input' (r, reverse acc)
+        Success input' _    -> k0 (r, reverse acc) input'
+        Failure input' _    -> k0 (r, reverse acc) input'
 
 pushBack :: [V.Bytes] -> Parser ()
 {-# INLINE pushBack #-}
-pushBack [] = Parser (\ input k -> k input ())
-pushBack bs = Parser (\ input k -> k (V.concat (input : bs)) ())
-
-parse :: V.Bytes -> Parser a -> Result a
-parse input (Parser p) = p input (\ input' a -> Success input' a)
+pushBack [] = return ()
+pushBack bs = Parser (\ k input -> k () (V.concat (input : bs)))
 
 -- | Ensure that there are at least @n@ bytes available. If not, the
 -- computation will escape with 'NeedMore'.
 ensureN :: Int -> Parser ()
-ensureN !n0 = Parser $ \ input ks -> do
+{-# INLINE ensureN #-}
+ensureN n0 = Parser $ \ ks input -> do
     let l = V.length input
     if l >= n0
-    then ks input ()
-    else NeedMore (go ks [] l)
+    then ks () input
+    else NeedMore (go n0 ks [input] l)
   where
-    go ks acc l = \ input' -> do
+    go n0 ks acc l = \ !input' -> do
         let l' = V.length input'
         if l' == 0
         then Failure
@@ -131,7 +139,25 @@ ensureN !n0 = Parser $ \ input ks -> do
         else do
             let l'' = l + l'
             if l'' < n0
-            then NeedMore (go ks (input':acc) l'')
+            then NeedMore (go n0 ks (input':acc) l'')
             else do
                 let input'' = V.concat (reverse (input':acc))
-                ks input'' ()
+                ks () input''
+
+decodePrim :: forall a. UnalignedAccess a => Parser a
+{-# INLINE decodePrim #-}
+decodePrim = do
+    ensureN n
+    Parser (\ k (V.PrimVector (PrimArray ba#) i@(I# i#) len) ->
+        let !r = indexWord8ArrayAs ba# i#
+        in k r (V.PrimVector (PrimArray ba#) (i + n) len))
+  where
+    n = (getUnalignedSize (unalignedSize :: UnalignedSize a))
+
+decodePrimLE :: forall a. UnalignedAccess (LE a) => Parser a
+{-# INLINE decodePrimLE #-}
+decodePrimLE = getLE <$> decodePrim
+
+decodePrimBE :: forall a. UnalignedAccess (BE a) => Parser a
+{-# INLINE decodePrimBE #-}
+decodePrimBE = getBE <$> decodePrim
