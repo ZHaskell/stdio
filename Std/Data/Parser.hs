@@ -120,6 +120,14 @@ pushBack :: [V.Bytes] -> Parser ()
 pushBack [] = return ()
 pushBack bs = Parser (\ k input -> k () (V.concat (input : bs)))
 
+-- | Get the current chunk.
+get :: Parser V.Bytes
+get = Parser (\ k input -> k input input)
+
+-- | Replace the current chunk.
+put :: V.Bytes -> Parser ()
+put input' = Parser (\ k _ -> k () input')
+
 -- | Ensure that there are at least @n@ bytes available. If not, the
 -- computation will escape with 'NeedMore'.
 ensureN :: Int -> Parser ()
@@ -150,7 +158,7 @@ decodePrim = do
     ensureN n
     Parser (\ k (V.PrimVector (PrimArray ba#) i@(I# i#) len) ->
         let !r = indexWord8ArrayAs ba# i#
-        in k r (V.PrimVector (PrimArray ba#) (i + n) len))
+        in k r (V.PrimVector (PrimArray ba#) (i+n) (len-n)))
   where
     n = (getUnalignedSize (unalignedSize :: UnalignedSize a))
 
