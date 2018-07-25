@@ -820,22 +820,17 @@ minimum :: (Vec v a, Ord a, HasCallStack) => v a -> a
 minimum = foldl1' min
 
 -- | /O(n)/ 'product' returns the product value from a vector
---
--- An 'EmptyVector' exception will be thrown in the case of an empty vector.
-product :: (Vec v a, Num a, HasCallStack) => v a -> a
+product :: (Vec v a, Num a) => v a -> a
 {-# INLINE product #-}
-product = foldl1' (*)
+product = foldl' (*) 1
 
 -- | /O(n)/ 'product' returns the product value from a vector
 --
 -- This function will shortcut on zero. Note this behavior change the semantics
 -- for lifted vector: @product [1,0,undefined] /= product' [1,0,undefined]@.
-product' :: (Vec v a, Num a, Eq a, HasCallStack) => v a -> a
+product' :: (Vec v a, Num a, Eq a) => v a -> a
 {-# INLINE product' #-}
-product' (Vec arr s l)
-    | l <= 0    = errorEmptyVector
-    | otherwise = case indexArr' arr s of
-                    (# x0 #) -> go x0 (s+1)
+product' (Vec arr s l) = go 1 s
   where
     !end = s+l
     go !acc !i | acc == 0  = 0
@@ -874,14 +869,11 @@ all f (Vec arr s l)
                                 (# x #) -> go (acc && f x) (i+1)
 
 -- | /O(n)/ 'sum' returns the sum value from a 'vector'
---
--- An 'EmptyVector' exception will be thrown in the case of an empty vector.
-sum :: (Vec v a, Num a, HasCallStack) => v a -> a
+sum :: (Vec v a, Num a) => v a -> a
 {-# INLINE sum #-}
-sum = foldl1' (+)
+sum = foldl' (+) 0
 
 -- | /O(n)/ 'count' returns count of an element from a 'vector'
---
 count :: (Vec v a, Eq a) => a -> v a -> Int
 {-# INLINE count #-}
 count w = foldl' (\ acc x -> if x == w then acc+1 else acc) 0

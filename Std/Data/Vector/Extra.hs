@@ -52,6 +52,8 @@ module Std.Data.Vector.Extra (
   , ascii
   , vecW8, vecW16, vecW32, vecW64, vecWord
   , vecI8, vecI16, vecI32, vecI64, vecInt
+  -- * Misc
+  , rangeCut
   ) where
 
 import           Control.Monad.ST
@@ -729,9 +731,9 @@ indicesOverlapping needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) rep
                                 -1 -> kmp (i+1) 0
                                 j' -> kmp i j'
 
--- | /O(n/m)/ Find the offsets of all indices (possibly overlapping) of @needle@
+-- | /O(n\/m)/ Find the offsets of all indices (possibly overlapping) of @needle@
 -- within @haystack@ using KMP algorithm, combined with simplified sunday's
--- rule to obtain O(m/n) complexity in average use case.
+-- rule to obtain /O(n\/m)/ complexity in average use case.
 --
 -- The hybrid algorithm need pre-calculate a shift table in /O(m)/ time and space,
 -- and a bad character bloom filter in /O(m)/ time and /O(1)/ space, the worst case
@@ -802,9 +804,9 @@ indices needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) reportPartial
                                 -1 -> kmp (i+1) 0
                                 j' -> kmp i j'
 
--- | /O(n/m)/ Find the offsets of all non-overlapping indices of @needle@
+-- | /O(n\/m)/ Find the offsets of all non-overlapping indices of @needle@
 -- within @haystack@ using KMP algorithm, combined with simplified sunday's
--- rule to obtain O(m/n) complexity in average use case.
+-- rule to obtain /O(m\/n)/ complexity in average use case.
 --
 -- A rewrite rule to rewrite 'indices' to 'indicesBytes' is
 -- also included.
@@ -871,15 +873,15 @@ kmpNextTable (Vec arr s l) = runST (do
 -- | /O(m)/ Calculate a simple bloom filter for simplified sunday's rule.
 --
 -- The shifting rules is: when a mismatch between @needle[j]@ and @haystack[i]@
--- is found, check if @haystack[i+n-j] `elemSundayBloom` bloom@, where n is the
+-- is found, check if @elemSundayBloom bloom haystack[i+n-j]@, where n is the
 -- length of needle, if not then next search can be safely continued with
 -- @haystack[i+n-j+1]@ and @needle[0]@, otherwise next searh should continue with
 -- @haystack[i]@ and @needle[0]@, or fallback to other shifting rules such as KMP.
 --
 -- The algorithm is very simple: for a given 'Word8' @w@, we set the bloom's bit
--- at @2 `unsafeShiftL` (w .&. 0x3f)@, so there're three false positives. This's
--- particularly suitable for search UTF-8 bytes since the significant bits of
--- a beginning byte is usually the same.
+-- at @unsafeShiftL 0x01 (w .&. 0x3f)@, so there're three false positives per bit.
+-- This's particularly suitable for search UTF-8 bytes since the significant bits
+-- of a beginning byte is usually the same.
 sundayBloom :: Bytes -> Word64
 {-# INLINABLE sundayBloom #-}
 sundayBloom (Vec arr s l) = go 0x00 s
@@ -987,6 +989,7 @@ vecInt = QQ.QuasiQuoter
 --------------------------------------------------------------------------------
 -- Misc
 
+-- | @x' = rangeCut x min max@ limit @x'@ 's range to @min@ ~ @max@.
 rangeCut :: Int -> Int -> Int -> Int
 {-# INLINE rangeCut #-}
 rangeCut !r !min !max | r < min = min
