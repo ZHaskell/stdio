@@ -17,11 +17,12 @@ homepage:            https://github.com/haskell-stdio/stdio
 bug-reports:         https://github.com/haskell-stdio/stdio/issues
 
 extra-source-files:  ChangeLog.md
+                     include/bytes.h
                      include/hs_uv.h
+                     cbits/bytes.c
                      cbits/hs_uv_base.c
                      cbits/hs_uv_stream.c
                      cbits/hs_uv_file.c
-                     cbits/bytes.c
 
 source-repository head
   type:     git
@@ -29,32 +30,34 @@ source-repository head
 
 
 library
-    exposed-modules:        Std.Data.PrimArray.QQ
-                            Std.Data.PrimArray.BitTwiddle
-                            Std.Data.PrimArray.UnalignedAccess
-                            Std.Data.Vector
-                            Std.Data.Array
-                            Std.Data.Array.Checked
-                            Std.Data.CBytes
-                            Std.Data.Parser
-                            Std.Data.Text
-                            Std.Data.Text.UTF8Codec
-                            Std.Data.Binary
-                            Std.Data.Builder
+    exposed-modules:        Std.Data.Vector.Base
+                            Std.Data.Vector.Extra
+                            -- Std.Data.PrimArray.QQ
+                            -- Std.Data.PrimArray.BitTwiddle
+                            -- Std.Data.PrimArray.UnalignedAccess
+                            -- Std.Data.Vector
+                            -- Std.Data.Array
+                            -- Std.Data.Array.Checked
+                            -- Std.Data.CBytes
+                            -- Std.Data.Parser
+                            -- Std.Data.Text
+                            -- Std.Data.Text.UTF8Codec
+                            -- Std.Data.Binary
+                            -- Std.Data.Builder
 
-                            Std.Foreign.PrimArray
+                            -- Std.Foreign.PrimArray
 
-                            Std.IO.Resource
-                            Std.IO.LowResTimer
-                            Std.IO.Exception 
-                            Std.IO.Buffered
-                            Std.IO.TTY
-                            Std.IO.FileSystem
-                            Std.IO.TCP
-                            Std.IO.SockAddr
-                            Std.IO.UV.Errno
-                            Std.IO.UV.FFI
-                            Std.IO.UV.Manager
+                            -- Std.IO.Resource
+                            -- Std.IO.LowResTimer
+                            -- Std.IO.Exception 
+                            -- Std.IO.Buffered
+                            -- Std.IO.TTY
+                            -- Std.IO.FileSystem
+                            -- Std.IO.TCP
+                            -- Std.IO.SockAddr
+                            -- Std.IO.UV.Errno
+                            -- Std.IO.UV.FFI
+                            -- Std.IO.UV.Manager
 
     -- other-modules:         
 
@@ -71,8 +74,10 @@ library
                         ,   stm
 
     include-dirs:       include
-    includes:           hs_uv.h
-    install-includes:   hs_uv.h
+    includes:           bytes.h
+                        hs_uv.h
+    install-includes:   bytes.hs
+                        hs_uv.h
     c-sources:          cbits/bytes.c
                         cbits/hs_uv_base.c
                         cbits/hs_uv_stream.c

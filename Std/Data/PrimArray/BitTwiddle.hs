@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnliftedFFITypes #-}
 
 {-|
 Module      : Std.Data.PrimArray.BitTwiddle
@@ -165,3 +166,10 @@ memchrReverse# ba# c# s# siz# = beforeAlignedLoop# ba# c# s# (s# -# siz#)
         | isTrue# (s# <# end#) = -1#
         | isTrue# (c# `eqWord#` indexWord8Array# ba# s#) = s#
         | otherwise = afterAlignedLoop# ba# c# (s# -# 1#) end#
+
+
+--------------------------------------------------------------------------------
+
+-- HsInt hs_memchr(uint8_t *a, HsInt aoff, uint8_t b, HsInt n);
+foreign import ccall unsafe "hs_memchr" c_memchr ::
+    ByteArray# -> Int -> Word8 -> Int -> Int

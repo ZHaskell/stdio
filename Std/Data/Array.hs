@@ -105,8 +105,14 @@ class Arr (marr :: * -> * -> *) (arr :: * -> * ) a | arr -> marr, marr -> arr wh
     -- | Fill mutable array with a given value.
     setArr :: (PrimMonad m, PrimState m ~ s) => marr s a -> Int -> Int -> a -> m ()
 
-    -- | Index immutable array, which is a pure operation,
+    -- | Index immutable array, which is a pure operation. This operation often
+    -- result in an indexing thunk for lifted arrays, use 'indexArr\'' or 'indexArrM'
+    -- if that's not desired.
     indexArr :: arr a -> Int -> a
+
+    -- | Index immutable array, pattern match on the unboxed unit tuple to force
+    -- indexing (without forcing the element).
+    indexArr' :: arr a -> Int -> (# a #)
 
     -- | Index immutable array in a primitive monad, this helps in situations that
     -- you want your indexing result is not a thunk referencing whole array.
@@ -186,6 +192,8 @@ instance Arr MutableArray Array a where
     {-# INLINE setArr #-}
     indexArr = indexArray
     {-# INLINE indexArr #-}
+    indexArr' (Array arr#) (I# i#) = indexArray# arr# i#
+    {-# INLINE indexArr' #-}
     indexArrM = indexArrayM
     {-# INLINE indexArrM #-}
     freezeArr = freezeArray
@@ -268,6 +276,8 @@ instance Arr SmallMutableArray SmallArray a where
     {-# INLINE setArr #-}
     indexArr = indexSmallArray
     {-# INLINE indexArr #-}
+    indexArr' (SmallArray arr#) (I# i#) = indexSmallArray# arr# i#
+    {-# INLINE indexArr' #-}
     indexArrM = indexSmallArrayM
     {-# INLINE indexArrM #-}
     freezeArr = freezeSmallArray
@@ -350,6 +360,8 @@ instance Prim a => Arr MutablePrimArray PrimArray a where
     {-# INLINE setArr #-}
     indexArr = indexPrimArray
     {-# INLINE indexArr #-}
+    indexArr' arr i = (# indexPrimArray arr i #)
+    {-# INLINE indexArr' #-}
     indexArrM arr i = return (indexPrimArray arr i)
     {-# INLINE indexArrM #-}
     freezeArr marr s l = do
@@ -422,6 +434,8 @@ instance PrimUnlifted a => Arr MutableUnliftedArray UnliftedArray a where
     {-# INLINE setArr #-}
     indexArr = indexUnliftedArray
     {-# INLINE indexArr #-}
+    indexArr' arr i = (# indexUnliftedArray arr i #)
+    {-# INLINE indexArr' #-}
     indexArrM = indexUnliftedArrayM
     {-# INLINE indexArrM #-}
     freezeArr = freezeUnliftedArray
@@ -567,18 +581,12 @@ withMutablePrimArrayContents (MutablePrimArray mba#) f = do
 --
 isPrimArrayPinned :: PrimArray a -> Bool
 {-# INLINE isPrimArrayPinned #-}
-isPrimArrayPinned (PrimArray ba#) =
-    c_is_byte_array_pinned ba# == 1
+isPrimArrayPinned (PrimArray ba#) = tagToEnum# (isByteArrayPinned# ba#)
 
 -- | Check if a mutable primitive array is pinned.
 --
 isMutablePrimArrayPinned :: MutablePrimArray s a -> Bool
 {-# INLINE isMutablePrimArrayPinned #-}
 isMutablePrimArrayPinned (MutablePrimArray mba#) =
-    c_is_mutable_byte_array_pinned mba# == 1
+    tagToEnum# (isByteArrayPinned# (unsafeCoerce# mba#))
 
-foreign import ccall unsafe "bytes.c is_byte_array_pinned"
-    c_is_byte_array_pinned :: ByteArray# -> CInt
-
-foreign import ccall unsafe "bytes.c is_byte_array_pinned"
-    c_is_mutable_byte_array_pinned :: MutableByteArray# s -> CInt

@@ -75,6 +75,14 @@ instance UnalignedAccess (BE Word16) where
 #ifdef WORDS_BIGENDIAN
     USE_HOST_IMPL(BE)
 #else
+-- on X86 we use bswap
+-- TODO: find out if arch64 support this
+#if defined(i386_HOST_ARCH) || defined(x86_64_HOST_ARCH)
+    {-# INLINE writeWord8ArrayAs #-}
+    writeWord8ArrayAs mba# i# (BE (W16# x#)) = writeWord8ArrayAsWord16# mba# i# (byteSwap16# x#)
+    {-# INLINE indexWord8ArrayAs #-}
+    indexWord8ArrayAs ba# i# = BE (W16# (byteSwap16# (indexWord8ArrayAsWord16# ba# i#)))
+#else
     {-# INLINE writeWord8ArrayAs #-}
     writeWord8ArrayAs mba# i# (BE (W16# x#)) s0# =
         let s1# = writeWord8Array# mba# i# (uncheckedShiftRL# x# 8#) s0#
@@ -84,6 +92,7 @@ instance UnalignedAccess (BE Word16) where
         let w2# = indexWord8Array# ba# i#
             w1# = indexWord8Array# ba# (i# +# 1#)
         in BE (W16# ((uncheckedShiftRL# w2# 8#) `or#`  w1#))
+#endif
 #endif
 
 --------------------------------------------------------------------------------
@@ -126,6 +135,14 @@ instance UnalignedAccess (BE Word32) where
 #ifdef WORDS_BIGENDIAN
     USE_HOST_IMPL(BE)
 #else
+-- on X86 we use bswap
+-- TODO: find out if arch64 support this
+#if defined(i386_HOST_ARCH) || defined(x86_64_HOST_ARCH)
+    {-# INLINE writeWord8ArrayAs #-}
+    writeWord8ArrayAs mba# i# (BE (W32# x#)) = writeWord8ArrayAsWord32# mba# i# (byteSwap32# x#)
+    {-# INLINE indexWord8ArrayAs #-}
+    indexWord8ArrayAs ba# i# = BE (W32# (byteSwap32# (indexWord8ArrayAsWord32# ba# i#)))
+#else
     {-# INLINE writeWord8ArrayAs #-}
     writeWord8ArrayAs mba# i# (BE (W32# x#)) s0# =
         let s1# = writeWord8Array# mba# i# (uncheckedShiftRL# x# 24#) s0#
@@ -141,6 +158,7 @@ instance UnalignedAccess (BE Word32) where
         in BE (W32# ((uncheckedShiftRL# w4# 24#) `or#`
                     (uncheckedShiftRL# w3# 16#) `or#`
                         (uncheckedShiftRL# w2# 8#) `or#` w1#))
+#endif
 #endif
 
 --------------------------------------------------------------------------------
@@ -195,6 +213,14 @@ instance UnalignedAccess (BE Word64) where
 #ifdef WORDS_BIGENDIAN
     USE_HOST_IMPL(BE)
 #else
+-- on X86 we use bswap
+-- TODO: find out if arch64 support this
+#if defined(i386_HOST_ARCH) || defined(x86_64_HOST_ARCH)
+    {-# INLINE writeWord8ArrayAs #-}
+    writeWord8ArrayAs mba# i# (BE (W64# x#)) = writeWord8ArrayAsWord64# mba# i# (byteSwap64# x#)
+    {-# INLINE indexWord8ArrayAs #-}
+    indexWord8ArrayAs ba# i# = BE (W64# (byteSwap64# (indexWord8ArrayAsWord64# ba# i#)))
+#else
     {-# INLINE writeWord8ArrayAs #-}
     writeWord8ArrayAs mba# i# (BE (W64# x#)) s0# =
         let s1# = writeWord8Array# mba# i# (uncheckedShiftRL# x# 56#) s0#
@@ -222,6 +248,7 @@ instance UnalignedAccess (BE Word64) where
                                 (uncheckedShiftRL# w4# 16#) `or#`
                                     (uncheckedShiftRL# w3# 16#) `or#`
                                         (uncheckedShiftRL# w2# 8#) `or#` w1#))
+#endif
 #endif
 
 --------------------------------------------------------------------------------

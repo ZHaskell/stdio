@@ -21,3 +21,4 @@ cabal.project.local
 stg_dump
 *.eventlog
 *.stderr
+bench/testbench/**
