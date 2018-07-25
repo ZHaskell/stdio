@@ -7,7 +7,7 @@
 {-# LANGUAGE QuasiQuotes #-}
 
 module Std.Data.Vector.Extra (
-  -- * Slice vector
+  -- * Slice manipulation
     cons, snoc
   , uncons, unsnoc
   , headM, tailM
@@ -23,10 +23,26 @@ module Std.Data.Vector.Extra (
   , stripPrefix, stripSuffix
   , split, splitWith
   , isPrefixOf, isSuffixOf, isInfixOf
-  -- * Slice vector
+  -- * Transform
+  , reverse
+  , intersperse
+  , intercalate
+  , intercalateElem
+  , transpose
+  -- * Zipping
+  , zipWith', unzipWith'
+  -- * Scans
+  , scanl', scanl1'
+  , scanr', scanr1'
   -- * Search
+  -- ** element-wise search
+  , findIndices, elemIndices, elemIndicesBytes
+  , find, findIndexOrEnd, elemIndexOrEndBytes
+  , findIndexReverseOrStart, elemIndexReverseOrStartBytes
+  , filter, partition
+  -- ** sub-vector search
   , indicesOverlapping
-  , indicesBytesOverlapping
+  , indicesOverlappingBytes
   , indices
   , indicesBytes
   , kmpNextTable
@@ -49,10 +65,10 @@ import           Prelude                       hiding (concat, concatMap,
                                                 elem, notElem, null, length, map,
                                                 foldl, foldl1, foldr, foldr1,
                                                 maximum, minimum, product, sum,
-                                                replicate, traverse,
+                                                all, any, replicate, traverse,
                                                 take, drop, splitAt,
                                                 takeWhile, dropWhile,
-                                                break, span)
+                                                break, span, reverse, filter)
 import qualified Data.List                     as List
 import           Std.Data.PrimArray.BitTwiddle (c_memchr, memchrReverse)
 import           Data.Bits
@@ -65,14 +81,14 @@ import           Debug.Trace
 -- complexity, as it requires making a copy.
 cons :: Vec v a => a -> v a -> v a
 {-# INLINE cons #-}
-cons x (Vec ba s l) = create (l+1) $ \ mba ->
-    writeArr mba 0 x >> copyArr mba 1 ba s l
+cons x (Vec arr s l) = create (l+1) $ \ marr ->
+    writeArr marr 0 x >> copyArr marr 1 arr s l
 
 -- | /O(n)/ Append a byte to the end of a vector
 snoc :: Vec v a => v a -> a -> v a
 {-# INLINE snoc #-}
-snoc (Vec ba s l) x = create (l+1) $ \ mba ->
-    copyArr mba 0 ba s l >> writeArr mba l x
+snoc (Vec arr s l) x = create (l+1) $ \ marr ->
+    copyArr marr 0 arr s l >> writeArr marr l x
 
 -- | /O(1)/ Extract the head and tail of a vector, return 'Nothing'
 -- if it is empty.
@@ -138,19 +154,19 @@ tails (Vec arr s l) = [Vec arr (s+n) (l-n) | n <- [0..l]]
 -- of @xs@ of length @n@, or @xs@ itself if @n > 'length' xs@.
 take :: Vec v a => Int -> v a -> v a
 {-# INLINE take #-}
-take n v@(Vec ba s l)
+take n v@(Vec arr s l)
     | n <= 0    = empty
     | n >= l    = v
-    | otherwise = fromArr ba s n
+    | otherwise = fromArr arr s n
 
 -- | /O(1)/ 'drop' @n xs@ returns the suffix of @xs@ after the first @n@
 -- elements, or @[]@ if @n > 'length' xs@.
 drop :: Vec v a => Int -> v a -> v a
 {-# INLINE drop #-}
-drop n v@(Vec ba s l)
+drop n v@(Vec arr s l)
     | n <= 0    = v
     | n >= l    = empty
-    | otherwise = fromArr ba (s+n) (l-n)
+    | otherwise = fromArr arr (s+n) (l-n)
 
 -- | /O(1)/ Extract a sub-range vector with give start index and length.
 --
@@ -286,10 +302,11 @@ isSuffixOf (Vec arrA sA lA) (Vec arrB sB lB)
     | lA > lB = False
     | otherwise = Vec arrA sA lA == Vec arrB (sB+lB-lA) lA
 
- -- | Check whether one vector is a subvector of another. @isInfixOf
--- p s@ is equivalent to @not (null (findSubstrings p s))@.
-isInfixOf :: (Vec v a, Eq (v a)) => v a -> v a -> Bool
-isInfixOf = undefined
+-- | Check whether one vector is a subvector of another.
+--
+-- @needle `isInfixOf` haystack@ is equivalent to @indices needle haystake /= []@.
+isInfixOf :: (Vec v a, Eq a) => v a -> v a -> Bool
+isInfixOf needle haystack = indices needle haystack False /= []
 
 -- | /O(n)/ Break a vector into pieces separated by the delimiter element
 -- consuming the delimiter. I.e.
@@ -330,19 +347,19 @@ splitWith f (Vec arr s l) = go s s
 --
 reverse :: forall v a. (Vec v a) => v a -> v a
 {-# INLINE reverse #-}
-reverse (Vec ba s l) = create l (go s (l-1))
+reverse (Vec arr s l) = create l (go s (l-1))
   where
     go :: Int -> Int -> MArray v s a -> ST s ()
-    go !i !j !mba | j < 0 = return ()
+    go !i !j !marr | j < 0 = return ()
                   | j >= 3 = do  -- a bit of loop unrolling here
-                        indexArrM ba i >>= writeArr mba j
-                        indexArrM ba (i+1) >>= writeArr mba (j-1)
-                        indexArrM ba (i+2) >>= writeArr mba (j-2)
-                        indexArrM ba (i+3) >>= writeArr mba (j-3)
-                        go (i+4) (j-4) mba
+                        indexArrM arr i >>= writeArr marr j
+                        indexArrM arr (i+1) >>= writeArr marr (j-1)
+                        indexArrM arr (i+2) >>= writeArr marr (j-2)
+                        indexArrM arr (i+3) >>= writeArr marr (j-3)
+                        go (i+4) (j-4) marr
                   | otherwise = do
-                        indexArrM ba i >>= writeArr mba j
-                        go (i+1) (j-1) mba
+                        indexArrM arr i >>= writeArr marr j
+                        go (i+1) (j-1) marr
 
 -- | /O(n)/ The 'intersperse' function takes an element and a
 -- vector and \`intersperses\' that element between the elements of
@@ -351,31 +368,31 @@ reverse (Vec ba s l) = create l (go s (l-1))
 --
 intersperse :: forall v a. Vec v a => a -> v a -> v a
 {-# INLINE intersperse #-}
-intersperse x = \ v@(Vec ba s l) ->
-    if l < 2  then v else create (2*l-1) (go ba s 0 (s+l-1))
+intersperse x v@(Vec _ _ 0)  = empty
+intersperse x v@(Vec _ _ 1)  = v
+intersperse x v@(Vec arr s l) = create (2*l-1) (go s 0)
    where
-    go :: IArray v a  -- the original bytes
-       -> Int         -- the reading index of orginal bytes
+    !end = s+l-1
+    go :: Int         -- the reading index of orginal bytes
        -> Int         -- the writing index of new buf
-       -> Int         -- the end of reading index(point to the last byte)
        -> MArray v s a -- the new buf
        -> ST s ()
-    go ba !i !j !end !mba
-        | i >= end = writeArr mba j =<< indexArrM ba i
+    go !i !j !marr
+        | i >= end = writeArr marr j =<< indexArrM arr i
         | i <= end - 4 = do -- a bit of loop unrolling
-            writeArr mba j =<< indexArrM ba i
-            writeArr mba (j+1) x
-            writeArr mba (j+2) =<< indexArrM ba (i+1)
-            writeArr mba (j+3) x
-            writeArr mba (j+4) =<< indexArrM ba (i+2)
-            writeArr mba (j+5) x
-            writeArr mba (j+6) =<< indexArrM ba (i+3)
-            writeArr mba (j+7) x
-            go ba (i+4) (j+8) end mba
+            writeArr marr j =<< indexArrM arr i
+            writeArr marr (j+1) x
+            writeArr marr (j+2) =<< indexArrM arr (i+1)
+            writeArr marr (j+3) x
+            writeArr marr (j+4) =<< indexArrM arr (i+2)
+            writeArr marr (j+5) x
+            writeArr marr (j+6) =<< indexArrM arr (i+3)
+            writeArr marr (j+7) x
+            go (i+4) (j+8) marr
         | otherwise = do
-            writeArr mba j =<< indexArrM ba i
-            writeArr mba (j+1) x
-            go ba (i+1) (j+2) end mba
+            writeArr marr j =<< indexArrM arr i
+            writeArr marr (j+1) x
+            go (i+1) (j+2) marr
 
 -- | /O(n)/ The 'intercalate' function takes a vector and a list of
 -- vectors and concatenates the list after interspersing the first
@@ -391,17 +408,18 @@ intercalate s = concat . List.intersperse s
 --
 intercalateElem :: Vec v a => a -> [v a] -> v a
 {-# INLINE intercalateElem #-}
-intercalateElem w = \ vs -> create (len vs) (copy 0 vs)
+intercalateElem _ [] = empty
+intercalateElem _ [v] = v
+intercalateElem w vs = create (len vs) (copy 0 vs)
   where
-    len []                      = 0
+    len []             = 0
     len [Vec _ _ l]    = l
     len (Vec _ _ l:vs) = l + 1 + len vs
-
-    copy !i []                 !mba = return ()
-    copy !i (Vec ba s l:vs) !mba = do
+    copy !i []                 !marr = return ()
+    copy !i (Vec arr s l:vs) !marr = do
         let !i' = i + l
-        copyArr mba i ba s l
-        copy i' vs mba
+        copyArr marr i arr s l
+        copy i' vs marr
 
 -- | The 'transpose' function transposes the rows and columns of its
 -- vector argument.
@@ -411,6 +429,42 @@ transpose :: Vec v a => [v a] -> [v a]
 transpose vs =
     List.map (packN n) . List.transpose . List.map unpack $ vs
   where n = List.length vs
+
+--------------------------------------------------------------------------------
+--  Zipping
+
+-- | 'zipWith'' zip two vector with a zipping function.
+--
+-- For example, @'zipWith' (+)@ is applied to two vector to produce
+-- a vector of corresponding sums, the result will be evaluated strictly.
+zipWith' :: (Vec v a, Vec u b, Vec w c)
+         => (a -> b -> c) -> v a -> u b -> w c
+{-# INLINE zipWith' #-}
+zipWith' f (Vec arrA sA lA) (Vec arrB sB lB) = create len (go 0)
+  where
+    !len = min lA lB
+    go !i !marr
+        | i >= len = return ()
+        | otherwise = case indexArr' arrA (i+sA) of
+             (# a #) -> case indexArr' arrB (i+sB) of
+                 (# b #) -> do let !c = f a b in writeArr marr i c
+                               go (i+1) marr
+
+-- | 'unzipWith'' disassemble a vector with a disassembling function,
+--
+-- The results inside tuple will be evaluated strictly.
+unzipWith' :: (Vec v a, Vec u b, Vec w c)
+           => (a -> (b, c)) -> v a -> (u b, w c)
+{-# INLINE unzipWith' #-}
+unzipWith' f (Vec arr s l) = createN2 l l (go 0)
+  where
+    go !i !marrB !marrC
+        | i >= l = return (l,l)
+        | otherwise = case indexArr' arr (i+s) of
+            (# a #) -> do let (!b, !c) = f a
+                          writeArr marrB i b
+                          writeArr marrC i c
+                          go (i+1) marrB marrC
 
 --------------------------------------------------------------------------------
 -- Scans
@@ -427,16 +481,16 @@ transpose vs =
 scanl' :: forall v u a b. (Vec v a, Vec u b) => (b -> a -> b) -> b -> v a -> u b
 {-# INLINE scanl' #-}
 scanl' f z (Vec arr s l) =
-    create (l+1) (\ mba -> writeArr mba 0 z >> go z s 1 mba)
+    create (l+1) (\ marr -> writeArr marr 0 z >> go z s 1 marr)
   where
     go :: b  -> Int -> Int -> MArray u s b -> ST s ()
-    go !acc !i !j !mba
+    go !acc !i !j !marr
         | j > l = return ()
         | otherwise = do
             x <- indexArrM arr i
             let !acc' = acc `f` x
-            writeArr mba j acc'
-            go acc' (i+1) (j+1) mba
+            writeArr marr j acc'
+            go acc' (i+1) (j+1) marr
 
 -- | 'scanl1\'' is a variant of 'scanl' that has no starting value argument.
 --
@@ -455,16 +509,16 @@ scanl1' f (Vec arr s l)
 scanr' :: forall v u a b. (Vec v a, Vec u b) => (a -> b -> b) -> b -> v a -> u b
 {-# INLINE scanr' #-}
 scanr' f z (Vec arr s l) =
-    create (l+1) (\ mba -> writeArr mba l z >> go z (s+l-1) (l-1) mba)
+    create (l+1) (\ marr -> writeArr marr l z >> go z (s+l-1) (l-1) marr)
   where
     go :: b -> Int -> Int -> MArray u s b -> ST s ()
-    go !acc !i !j !mba
+    go !acc !i !j !marr
         | j < 0 = return ()
         | otherwise = do
             x <- indexArrM arr i
             let !acc' = x `f` acc
-            writeArr mba j acc'
-            go acc' (i-1) (j-1) mba
+            writeArr marr j acc'
+            go acc' (i-1) (j-1) marr
 
 -- | 'scanr1'' is a variant of 'scanr' that has no starting value argument.
 scanr1' :: forall v a. Vec v a => (a -> a -> a) -> v a -> v a
@@ -477,6 +531,8 @@ scanr1' f (Vec arr s l)
 --------------------------------------------------------------------------------
 -- Searching by equality or predicate
 
+-- | /O(n)/ The 'elemIndices' function extends 'elemIndex', by returning
+-- the indices of all elements equal to the query element, in ascending order.
 elemIndices :: (Vec v a, Eq a) => a -> v a -> [Int]
 {-# INLINE [1] elemIndices #-}
 {-# RULES "elemIndices/Bytes" elemIndices = elemIndicesBytes #-}
@@ -489,19 +545,28 @@ elemIndices w (Vec arr s l) = go s
         | otherwise = go (i+1)
         where (# x #) = indexArr' arr i
 
+-- | The 'findIndex' function takes a predicate and a vector and
+-- returns the index of the first element in the vector
+-- satisfying the predicate.
+--
+-- To leverage @memchr(3)@, following rewrite rules are included:
+--
+--   * @findIndices (w `eqWord8`) = elemIndicesBytes@
+--   * @findIndices (`eqWord8` w) = elemIndicesBytes@
 findIndices :: Vec v a => (a -> Bool) -> v a -> [Int]
 {-# INLINE [1] findIndices #-}
 {-# RULES "findIndices/Bytes" forall w. findIndices (w `eqWord8`) = elemIndicesBytes w #-}
 {-# RULES "findIndices/Bytes" forall w. findIndices (`eqWord8` w) = elemIndicesBytes w #-}
-findIndices f (Vec ba s l) = go s
+findIndices f (Vec arr s l) = go s
   where
     !end = s + l
     go !p | p >= end  = []
           | f x       = p : go (p+1)
           | otherwise = go (p+1)
-        where (# x #) = indexArr' ba p
+        where (# x #) = indexArr' arr p
 
-elemIndicesBytes :: Word8 -> PrimVector Word8 -> [Int]
+-- | /O(n)/ Special 'elemIndices' for 'Bytes' using @memchr(3)@
+elemIndicesBytes :: Word8 -> Bytes -> [Int]
 {-# INLINE elemIndicesBytes #-}
 elemIndicesBytes w (PrimVector (PrimArray ba#) s l) = go s
   where
@@ -513,26 +578,39 @@ elemIndicesBytes w (PrimVector (PrimArray ba#) s l) = go s
                 -1 -> []
                 r  -> r : go (i + r)
 
-find :: Vec v a => (a -> Bool) -> v a -> Maybe a
+-- | /O(n)/ find the first index and element matching the predicate
+-- in a vector from left to right, if there isn't one, return 'Nothing'.
+find :: Vec v a => (a -> Bool) -> v a -> Maybe (Int, a)
 {-# INLINE find #-}
-find f v@(Vec arr _ l)
-    | i == l    = Nothing
-    | otherwise = indexArrM arr i
+find f v@(Vec arr s l) = go s
   where
-    i = findIndexOrEnd f v
+    !end = s + l
+    go !p | p >= end  = Nothing
+          | f x       = let !i = p-s in Just (i, x)
+          | otherwise = go (p+1)
+        where (# x #) = indexArr' arr p
 
+-- | /O(n)/ find the first index matching the predicate in a vector
+-- from left to right, if there isn't one, return the length of the vector,
+-- which is not a legal index for the vector!
+--
+-- To leverage @memchr(3)@, following rewrite rules are included:
+--
+--   * @findIndexOrEnd (w `eqWord8`) = elemIndexOrEndBytes@
+--   * @findIndexOrEnd (`eqWord8` w) = elemIndexOrEndBytes@
 findIndexOrEnd :: Vec v a => (a -> Bool) -> v a -> Int
 {-# INLINE [1] findIndexOrEnd #-}
 {-# RULES "findIndexOrEnd/Bytes" forall w. findIndexOrEnd (w `eqWord8`) = elemIndexOrEndBytes w #-}
 {-# RULES "findIndexOrEnd/Bytes" forall w. findIndexOrEnd (`eqWord8` w) = elemIndexOrEndBytes w #-}
-findIndexOrEnd f (Vec ba s l) = go s
+findIndexOrEnd f (Vec arr s l) = go s
   where
     !end = s + l
     go !p | p >= end  = end
           | f x       = p-s
           | otherwise = go (p+1)
-        where (# x #) = indexArr' ba p
+        where (# x #) = indexArr' arr p
 
+-- | /O(n)/ Special 'elemIndexOrEndBytes' for 'Bytes' using @memchr(3)@
 elemIndexOrEndBytes :: Word8 -> Bytes -> Int
 {-# INLINE elemIndexOrEndBytes #-}
 elemIndexOrEndBytes w (PrimVector (PrimArray ba#) s l) =
@@ -540,6 +618,13 @@ elemIndexOrEndBytes w (PrimVector (PrimArray ba#) s l) =
         -1 -> l
         r  -> r
 
+-- | /O(n)/ find the first index matching the predicate in a vector
+-- from right to left, if there isn't one, return zero.
+--
+-- To leverage bit twidding, following rewrite rules are included:
+--
+--   * @findIndexReverseOrStart (w `eqWord8`) = elemIndexReverseOrStartBytes@
+--   * @findIndexReverseOrStart (`eqWord8` w) = elemIndexReverseOrStartBytes@
 findIndexReverseOrStart :: Vec v a => (a -> Bool) -> v a -> Int
 {-# INLINE [1] findIndexReverseOrStart #-}
 {-# RULES
@@ -549,14 +634,16 @@ findIndexReverseOrStart :: Vec v a => (a -> Bool) -> v a -> Int
 {-# RULES "findIndexReverseOrStart/Bytes"
     forall w. findIndexReverseOrStart (`eqWord8` w) = elemIndexReverseOrStartBytes w
     #-}
-findIndexReverseOrStart f (Vec ba s l) = go s
+findIndexReverseOrStart f (Vec arr s l) = go s
   where
     !end = s + l
     go !p | p >= end  = end
           | f x       = p-s
           | otherwise = go (p+1)
-        where (# x #) = indexArr' ba p
+        where (# x #) = indexArr' arr p
 
+-- | /O(n)/ Special 'elemIndexReverseOrStartBytes' for 'Bytes' with handle roll
+-- bit twiddling.
 elemIndexReverseOrStartBytes :: Word8 -> Bytes -> Int
 {-# INLINE elemIndexReverseOrStartBytes #-}
 elemIndexReverseOrStartBytes w (PrimVector ba s l) =
@@ -564,6 +651,9 @@ elemIndexReverseOrStartBytes w (PrimVector ba s l) =
         -1 -> 0
         r  -> r
 
+-- | /O(n)/ 'filter', applied to a predicate and a vector,
+-- returns a vector containing those elements that satisfy the
+-- predicate.
 filter :: forall v a. Vec v a => (a -> Bool) -> v a -> v a
 {-# INLINE filter #-}
 filter f (Vec arr s l)
@@ -572,12 +662,17 @@ filter f (Vec arr s l)
   where
     !end = s + l
     go :: (a -> Bool) -> Int -> Int -> MArray v s a -> ST s Int
-    go f !i !p !mba
+    go f !i !p !marr
         | p >= end    = return i
-        | f x         = writeArr mba i x >> go f (i+1) (p+1) mba
-        | otherwise   = go f i (p+1) mba
+        | f x         = writeArr marr i x >> go f (i+1) (p+1) marr
+        | otherwise   = go f i (p+1) marr
         where (# x #) = indexArr' arr p
 
+-- | /O(n)/ The 'partition' function takes a predicate, a vector, returns
+-- a pair of vector with elements which do and do not satisfy the
+-- predicate, respectively; i.e.,
+--
+-- > partition p vs == (filter p vs, filter (not . p) vs)
 partition :: forall v a. Vec v a => (a -> Bool) -> v a -> (v a, v a)
 {-# INLINE partition #-}
 partition f (Vec arr s l)
@@ -599,7 +694,8 @@ partition f (Vec arr s l)
 -- within @haystack@ using KMP algorithm.
 --
 -- The KMP algorithm need pre-calculate a shift table in /O(m)/ time and space,
--- the worst case time complexity is /O(n+m)/.
+-- the worst case time complexity is /O(n+m)/. Partial applied this function to
+-- reuse pre-calculated table between same needles.
 --
 -- Chunked input are support via partial match argument, if set we will return an
 -- extra negative index in case of partial match at the end of input chunk, e.g.
@@ -612,14 +708,15 @@ indicesOverlapping :: (Vec v a, Eq a)
         -> v a -- ^ vector to search in (@haystack@)
         -> Bool -- ^ report partial match at the end of haystack
         -> [Int]
-{-# INLINABLE indicesOverlapping #-}
+{-# INLINE[1] indicesOverlapping #-}
+{-# RULES "indicesOverlapping/Bytes" indicesOverlapping = indicesOverlappingBytes #-}
 indicesOverlapping needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) reportPartial
     | nlen == 1             = case indexArr' narr 0 of
                                 (# x #) -> elemIndices x haystack
     | nlen <= 0 || hlen < 0 = []
     | otherwise             = kmp 0 0
   where
-    {-# NOINLINE next #-}
+    {-# NOINLINE next #-} -- force sharing
     next = kmpNextTable needle
     kmp !i !j | i >= hlen = if j >= nlen then [i-j]
                             else if reportPartial && j /= 0 then [-j] else []
@@ -639,12 +736,15 @@ indicesOverlapping needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) rep
 -- The hybrid algorithm need pre-calculate a shift table in /O(m)/ time and space,
 -- and a bad character bloom filter in /O(m)/ time and /O(1)/ space, the worst case
 -- time complexity is /O(n+m)/.
-indicesBytesOverlapping :: Bytes -- ^ bytes to search for (@needle@)
+--
+-- A rewrite rule to rewrite 'indicesOverlapping' to 'indicesOverlappingBytes' is
+-- also included.
+indicesOverlappingBytes :: Bytes -- ^ bytes to search for (@needle@)
                         -> Bytes -- ^ bytes to search in (@haystack@)
                         -> Bool -- ^ report partial match at the end of haystack
                         -> [Int]
-{-# INLINABLE indicesBytesOverlapping #-}
-indicesBytesOverlapping needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) reportPartial
+{-# INLINE indicesOverlappingBytes #-}
+indicesOverlappingBytes needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) reportPartial
     | nlen == 1             = elemIndices (indexArr narr 0) haystack
     | nlen <= 0 || hlen < 0 = []
     | otherwise             = sunday 0 0
@@ -684,14 +784,15 @@ indicesBytesOverlapping needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen
 -- | /O(n+m)/ Find the offsets of all non-overlapping indices of @needle@
 -- within @haystack@ using KMP algorithm.
 indices :: (Vec v a, Eq a) => v a -> v a -> Bool -> [Int]
-{-# INLINABLE indices #-}
+{-# INLINE[1] indices #-}
+{-# RULES "indices/Bytes" indices = indicesBytes #-}
 indices needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) reportPartial
     | nlen == 1             = case indexArr' narr 0 of
                                 (# x #) -> elemIndices x haystack
     | nlen <= 0 || hlen < 0 = []
     | otherwise             = kmp 0 0
   where
-    {-# NOINLINE next #-}
+    {-# NOINLINE next #-} -- force sharing
     next = kmpNextTable needle
     kmp !i !j | i >= hlen = if j >= nlen then [i-j]
                             else if reportPartial && j /= 0 then [-j] else []
@@ -704,11 +805,14 @@ indices needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) reportPartial
 -- | /O(n/m)/ Find the offsets of all non-overlapping indices of @needle@
 -- within @haystack@ using KMP algorithm, combined with simplified sunday's
 -- rule to obtain O(m/n) complexity in average use case.
+--
+-- A rewrite rule to rewrite 'indices' to 'indicesBytes' is
+-- also included.
 indicesBytes :: Bytes -- ^ bytes to search for (@needle@)
              -> Bytes -- ^ bytes to search in (@haystack@)
              -> Bool -- ^ report partial match at the end of haystack
              -> [Int]
-{-# INLINABLE indicesBytes #-}
+{-# INLINE indicesBytes #-}
 indicesBytes needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) reportPartial
     | nlen == 1             = elemIndices (indexArr narr 0) haystack
     | nlen <= 0 || hlen < 0 = []
@@ -746,7 +850,7 @@ indicesBytes needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) reportPar
 -- is found, check if @next[j] == -1@, if so next search continue with @needle[0]@
 -- and @haystack[i+1]@, otherwise continue with @needle[next[j]]@ and @haystack[i]@.
 kmpNextTable :: (Vec v a, Eq a) => v a -> PrimArray Int
-{-# INLINE kmpNextTable #-}
+{-# INLINABLE kmpNextTable #-}
 kmpNextTable (Vec arr s l) = runST (do
     ma <- newArr (l+1)
     writeArr ma 0 (-1)
@@ -764,7 +868,7 @@ kmpNextTable (Vec arr s l) = runST (do
                 go (i+1) j'
     go 1 (-1))
 
--- | /O(m)/ Calculate a simple bloom filter for sunday's rule.
+-- | /O(m)/ Calculate a simple bloom filter for simplified sunday's rule.
 --
 -- The shifting rules is: when a mismatch between @needle[j]@ and @haystack[i]@
 -- is found, check if @haystack[i+n-j] `elemSundayBloom` bloom@, where n is the
@@ -777,6 +881,7 @@ kmpNextTable (Vec arr s l) = runST (do
 -- particularly suitable for search UTF-8 bytes since the significant bits of
 -- a beginning byte is usually the same.
 sundayBloom :: Bytes -> Word64
+{-# INLINABLE sundayBloom #-}
 sundayBloom (Vec arr s l) = go 0x00 s
   where
     !end = s+l
@@ -790,6 +895,7 @@ sundayBloom (Vec arr s l) = go 0x00 s
 -- | O(1) Test if a bloom filter contain a certain 'Word8'.
 --
 elemSundayBloom :: Word64 -> Word8 -> Bool
+{-# INLINE elemSundayBloom #-}
 elemSundayBloom b w = b .&. (0x01 `unsafeShiftL` (fromIntegral w .&. 0x3f)) /= 0
 
 --------------------------------------------------------------------------------

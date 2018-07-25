@@ -59,13 +59,12 @@ module Std.Data.Vector.Base (
   , foldl', ifoldl', foldl1'
   , foldr', ifoldr', foldr1'
     -- ** Special folds
-  , concat
-  , concatMap
-  , maximum
-  , minimum
-  , product
+  , concat, concatMap
+  , maximum, minimum
   , sum
   , count
+  , product, product'
+  , all, any
   -- * Building vector
   -- ** Accumulating maps
   , mapAccumL
@@ -75,8 +74,8 @@ module Std.Data.Vector.Base (
   , unfoldr
   , unfoldrN
   -- * Searching by equality
-  , elem
-  , elemIndex
+  , elem, notElem
+  , elemIndex, elemIndexBytes
   -- * Misc
   , IPair(..)
   , defaultInitSize
@@ -114,7 +113,7 @@ import           Prelude                       hiding (concat, concatMap,
                                                 elem, notElem, null, length, map,
                                                 foldl, foldl1, foldr, foldr1,
                                                 maximum, minimum, product, sum,
-                                                replicate, traverse)
+                                                all, any, replicate, traverse)
 import           Std.Data.Array
 import           Std.Data.PrimArray.BitTwiddle (c_memchr)
 
@@ -270,36 +269,36 @@ traverseST :: forall v u a b s. (Vec v a, Vec u b) => (a -> ST s b) -> v a -> ST
 traverseST f (Vec arr s l)
     | l == 0    = return empty
     | otherwise = do
-        mba <- newArr l
-        go mba 0
-        ba <- unsafeFreezeArr mba
+        marr <- newArr l
+        go marr 0
+        ba <- unsafeFreezeArr marr
         return $! fromArr ba 0 l
   where
     go :: MArray u s b -> Int -> ST s ()
-    go !mba !i
+    go !marr !i
         | i >= l = return ()
         | otherwise = do
             x <- indexArrM arr i
-            writeArr mba i =<< f x
-            go mba (i+1)
+            writeArr marr i =<< f x
+            go marr (i+1)
 
 traverseIO :: forall v u a b. (Vec v a, Vec u b) => (a -> IO b) -> v a -> IO (u b)
 {-# INLINE traverseIO #-}
 traverseIO f (Vec arr s l)
     | l == 0    = return empty
     | otherwise = do
-        mba <- newArr l
-        go mba 0
-        ba <- unsafeFreezeArr mba
+        marr <- newArr l
+        go marr 0
+        ba <- unsafeFreezeArr marr
         return $! fromArr ba 0 l
   where
     go :: MArray u RealWorld b -> Int -> IO ()
-    go !mba !i
+    go !marr !i
         | i >= l = return ()
         | otherwise = do
             x <- indexArrM arr i
-            writeArr mba i =<< f x
-            go mba (i+1)
+            writeArr marr i =<< f x
+            go marr (i+1)
 
 --------------------------------------------------------------------------------
 -- | Primitive vector
@@ -421,9 +420,9 @@ create :: Vec v a
 {-# INLINE create #-}
 create n0 fill = runST (do
         let n = max 0 n0
-        mba <- newArr n
-        fill mba
-        ba <- unsafeFreezeArr mba
+        marr <- newArr n
+        fill marr
+        ba <- unsafeFreezeArr marr
         return $! fromArr ba 0 n)
 
 -- | Create a vector, return both the vector and the monadic result during creating.
@@ -435,9 +434,9 @@ creating :: Vec v a
 {-# INLINE creating #-}
 creating n0 fill = runST (do
         let n = max 0 n0
-        mba <- newArr n
-        b <- fill mba
-        ba <- unsafeFreezeArr mba
+        marr <- newArr n
+        b <- fill marr
+        ba <- unsafeFreezeArr marr
         let !v = fromArr ba 0 n
         return (b, v))
 
@@ -453,10 +452,10 @@ createN :: (Vec v a, HasCallStack)
 {-# INLINE createN #-}
 createN n0 fill = runST (do
         let n = max 0 n0
-        mba <- newArr n
-        l' <- fill mba
-        shrinkMutableArr mba l'
-        ba <- unsafeFreezeArr mba
+        marr <- newArr n
+        l' <- fill marr
+        shrinkMutableArr marr l'
+        ba <- unsafeFreezeArr marr
         if l' <= n
         then return $! fromArr ba 0 l'
         else errorOutRange l')
@@ -499,13 +498,13 @@ empty = create 0 (\_ -> return ())
 -- | /O(1)/. Single element vector.
 singleton :: Vec v a => a -> v a
 {-# INLINE singleton #-}
-singleton c = create 1 (\ mba -> writeArr mba 0 c)
+singleton c = create 1 (\ marr -> writeArr marr 0 c)
 
 -- | /O(n)/. Copy a vector from slice.
 --
 copy :: Vec v a => v a -> v a
 {-# INLINE copy #-}
-copy (Vec ba s l) = create l (\ mba -> copyArr mba 0 ba s l)
+copy (Vec ba s l) = create l (\ marr -> copyArr marr 0 ba s l)
 
 --------------------------------------------------------------------------------
 -- Conversion between list
@@ -529,25 +528,25 @@ pack = packN defaultInitSize
 packN :: forall v a. Vec v a => Int -> [a] -> v a
 {-# INLINE packN #-}
 packN n0 = \ ws0 -> runST (do let n = max 4 n0
-                              mba <- newArr n
-                              (IPair i mba') <- foldM go (IPair 0 mba) ws0
-                              shrinkMutableArr mba' i
-                              ba <- unsafeFreezeArr mba'
+                              marr <- newArr n
+                              (IPair i marr') <- foldM go (IPair 0 marr) ws0
+                              shrinkMutableArr marr' i
+                              ba <- unsafeFreezeArr marr'
                               return $! fromArr ba 0 i
                           )
   where
     -- It's critical that this function get specialized and unboxed
     -- Keep an eye on its core!
     go :: IPair (MArray v s a) -> a -> ST s (IPair (MArray v s a))
-    go (IPair i mba) x = do
-        n <- sizeofMutableArr mba
+    go (IPair i marr) x = do
+        n <- sizeofMutableArr marr
         if i < n
-        then do writeArr mba i x
-                return (IPair (i+1) mba)
+        then do writeArr marr i x
+                return (IPair (i+1) marr)
         else do let !n' = n `shiftL` 1
-                !mba' <- resizeMutableArr mba n'
-                writeArr mba' i x
-                return (IPair (i+1) mba')
+                !marr' <- resizeMutableArr marr n'
+                writeArr marr' i x
+                return (IPair (i+1) marr')
 
 -- | /O(n)/
 --
@@ -564,25 +563,25 @@ packR = packRN defaultInitSize
 packRN :: forall v a. Vec v a => Int -> [a] -> v a
 {-# INLINE packRN #-}
 packRN n0 = \ ws0 -> runST (do let n = max 4 n0
-                               mba <- newArr n
-                               (IPair i mba') <- foldM go (IPair (n-1) mba) ws0
-                               ba <- unsafeFreezeArr mba'
+                               marr <- newArr n
+                               (IPair i marr') <- foldM go (IPair (n-1) marr) ws0
+                               ba <- unsafeFreezeArr marr'
                                let i' = i + 1
                                    n' = sizeofArr ba
                                return $! fromArr ba i' (n'-i')
                            )
   where
     go :: IPair (MArray v s a) -> a -> ST s (IPair (MArray v s a))
-    go (IPair i mba) !x = do
-        n <- sizeofMutableArr mba
+    go (IPair i marr) !x = do
+        n <- sizeofMutableArr marr
         if i >= 0
-        then do writeArr mba i x
-                return (IPair (i-1) mba)
+        then do writeArr marr i x
+                return (IPair (i-1) marr)
         else do let !n' = n `shiftL` 1  -- double the buffer
-                !mba' <- newArr n'
-                copyMutableArr mba' n mba 0 n
-                writeArr mba' (n-1) x
-                return (IPair (n-2) mba')
+                !marr' <- newArr n'
+                copyMutableArr marr' n marr 0 n
+                writeArr marr' (n-1) x
+                return (IPair (n-2) marr')
 
 -- | /O(n)/ Convert vector to a list.
 --
@@ -659,9 +658,9 @@ append :: Vec v a => v a -> v a -> v a
 {-# INLINE append #-}
 append (Vec _ _ 0) b                    = b
 append a                (Vec _ _ 0)     = a
-append (Vec baA sA lA) (Vec baB sB lB) = create (lA+lB) $ \ mba -> do
-    copyArr mba 0  baA sA lA
-    copyArr mba lA baB sB lB
+append (Vec baA sA lA) (Vec baB sB lB) = create (lA+lB) $ \ marr -> do
+    copyArr marr 0  baA sA lA
+    copyArr marr lA baB sB lB
 
 --------------------------------------------------------------------------------
 
@@ -677,10 +676,10 @@ map :: forall u v a b. (Vec u a, Vec v b) => (a -> b) -> u a -> v b
 map f (Vec arr s l) = create l (go 0)
   where
     go :: Int -> MArray v s b -> ST s ()
-    go !i !mba | i >= l = return ()
+    go !i !marr | i >= l = return ()
                | otherwise = do
-                    x <- indexArrM arr (i+s); writeArr mba i (f x);
-                    go (i+1) mba
+                    x <- indexArrM arr (i+s); writeArr marr i (f x);
+                    go (i+1) marr
 
 -- | Mapping between vectors (possiblely with two different vector types).
 --
@@ -692,10 +691,10 @@ map' :: forall u v a b. (Vec u a, Vec v b) => (a -> b) -> u a -> v b
 map' f (Vec arr s l) = create l (go 0)
   where
     go :: Int -> MArray v s b -> ST s ()
-    go !i !mba | i < l = do
+    go !i !marr | i < l = do
                     x <- indexArrM arr (i+s)
-                    let !v = f x in writeArr mba i v
-                    go (i+1) mba
+                    let !v = f x in writeArr marr i v
+                    go (i+1) marr
                | otherwise = return ()
 
 -- | Strict mapping with index.
@@ -705,10 +704,10 @@ imap' :: forall u v a b. (Vec u a, Vec v b) => (Int -> a -> b) -> u a -> v b
 imap' f (Vec arr s l) = create l (go 0)
   where
     go :: Int -> MArray v s b -> ST s ()
-    go !i !mba | i < l = do
+    go !i !marr | i < l = do
                     x <- indexArrM arr (i+s)
-                    let !v = f i x in writeArr mba i v
-                    go (i+1) mba
+                    let !v = f i x in writeArr marr i v
+                    go (i+1) marr
                | otherwise = return ()
 
 --------------------------------------------------------------------------------
@@ -797,8 +796,8 @@ concat vs = case pre 0 0 vs of
 
     copy :: [v a] -> Int -> MArray v s a -> ST s ()
     copy [] !_ !_                   = return ()
-    copy (Vec ba s l:vs) !i !mba = do when (l /= 0) (copyArr mba i ba s l)
-                                      copy vs (i+l) mba
+    copy (Vec ba s l:vs) !i !marr = do when (l /= 0) (copyArr marr i ba s l)
+                                       copy vs (i+l) marr
 
 -- | Map a function over a vector and concatenate the results
 concatMap :: Vec v a => (a -> v a) -> v a -> v a
@@ -826,6 +825,53 @@ minimum = foldl1' min
 product :: (Vec v a, Num a, HasCallStack) => v a -> a
 {-# INLINE product #-}
 product = foldl1' (*)
+
+-- | /O(n)/ 'product' returns the product value from a vector
+--
+-- This function will shortcut on zero. Note this behavior change the semantics
+-- for lifted vector: @product [1,0,undefined] /= product' [1,0,undefined]@.
+product' :: (Vec v a, Num a, Eq a, HasCallStack) => v a -> a
+{-# INLINE product' #-}
+product' (Vec arr s l)
+    | l <= 0    = errorEmptyVector
+    | otherwise = case indexArr' arr s of
+                    (# x0 #) -> go x0 (s+1)
+  where
+    !end = s+l
+    go !acc !i | acc == 0  = 0
+               | i >= end  = acc
+               | otherwise = case indexArr' arr i of
+                                (# x #) -> go (acc*x) (i+1)
+
+-- | /O(n)/ Applied to a predicate and a vector, 'all' determines
+-- if all elements of the vector satisfy the predicate.
+any :: Vec v a => (a -> Bool) -> v a -> Bool
+{-# INLINE any #-}
+any f (Vec arr s l)
+    | l <= 0    = False
+    | otherwise = case indexArr' arr s of
+                    (# x0 #) -> go (f x0) (s+1)
+  where
+    !end = s+l
+    go !acc !i | acc       = True
+               | i >= end  = acc
+               | otherwise = case indexArr' arr i of
+                                (# x #) -> go (acc || f x) (i+1)
+
+-- | /O(n)/ Applied to a predicate and a vector, 'any' determines
+-- if any elements of the vector satisfy the predicate.
+all :: Vec v a => (a -> Bool) -> v a -> Bool
+{-# INLINE all #-}
+all f (Vec arr s l)
+    | l <= 0    = True
+    | otherwise = case indexArr' arr s of
+                    (# x0 #) -> go (f x0) (s+1)
+  where
+    !end = s+l
+    go !acc !i | not acc   = False
+               | i >= end  = acc
+               | otherwise = case indexArr' arr i of
+                                (# x #) -> go (acc && f x) (i+1)
 
 -- | /O(n)/ 'sum' returns the sum value from a 'vector'
 --
@@ -860,13 +906,13 @@ mapAccumL f z (Vec ba s l)
   where
     !end = s + l
     go :: a -> Int -> MArray v s c -> ST s a
-    go acc !i !mba
+    go acc !i !marr
         | i >= end = return acc
         | otherwise = do
             x <- indexArrM ba i
             let (acc', c) = acc `f` x
-            writeArr mba (i-s) c
-            go acc' (i+1) mba
+            writeArr marr (i-s) c
+            go acc' (i+1) marr
 
 -- | The 'mapAccumR' function behaves like a combination of 'map' and
 -- 'foldr'; it applies a function to each element of a vector,
@@ -882,13 +928,13 @@ mapAccumR f z (Vec ba s l)
     | otherwise = creating l (go z (s+l-1))
   where
     go :: a -> Int ->  MArray v s c -> ST s a
-    go acc !i !mba
+    go acc !i !marr
         | i < s     = return acc
         | otherwise = do
             x <- indexArrM ba i
             let (acc', c) = acc `f` x
-            writeArr mba (i-s) c
-            go acc' (i-1) mba
+            writeArr marr (i-s) c
+            go acc' (i-1) marr
 
 --------------------------------------------------------------------------------
 --  Generating and unfolding vector.
@@ -900,7 +946,7 @@ mapAccumR f z (Vec ba s l)
 --
 replicate :: (Vec v a) => Int -> a -> v a
 {-# INLINE replicate #-}
-replicate n x = create n (\ mba -> setArr mba 0 n x)
+replicate n x = create n (\ marr -> setArr marr 0 n x)
 
 -- | /O(n)/, where /n/ is the length of the result.  The 'unfoldr'
 -- function is analogous to the List \'unfoldr\'.  'unfoldr' builds a
@@ -936,24 +982,29 @@ unfoldrN n f
         in (Vec arr 0 len, r)
   where
     go :: a -> Int -> MArray v s b -> ST s (Maybe a, Int)
-    go !acc !i !mba
+    go !acc !i !marr
       | n == i    = return (Just acc, i)
       | otherwise = case f acc of
           Nothing        -> return (Nothing, i)
-          Just (x, acc') -> do writeArr mba i x
-                               go acc' (i+1) mba
+          Just (x, acc') -> do writeArr marr i x
+                               go acc' (i+1) marr
 
 --------------------------------------------------------------------------------
 -- Searching by equality
 
+-- | /O(n)/ 'elem' test if given element is in given vector.
 elem :: (Vec v a, Eq a) => a -> v a -> Bool
 {-# INLINE elem #-}
 elem x = isJust . elemIndex x
 
+-- | /O(n)/ 'not . elem'
 notElem ::  (Vec v a, Eq a) => a -> v a -> Bool
 {-# INLINE notElem #-}
-notElem a = not . elem a
+notElem x = not . elem x
 
+-- | /O(n)/ The 'elemIndex' function returns the index of the first
+-- element in the given vector which is equal to the query
+-- element, or 'Nothing' if there is no such element.
 elemIndex :: (Vec v a, Eq a) => a -> v a -> Maybe Int
 {-# INLINE [1] elemIndex #-}
 {-# RULES "elemIndex/Bytes" elemIndex = elemIndexBytes #-}
@@ -966,6 +1017,12 @@ elemIndex w (Vec arr s l) = go s
         | otherwise = go (i+1)
         where (# x #) = indexArr' arr i
 
+-- | /O(n)/ Special 'elemIndex' for 'Bytes' using @memchr(3)@
+--
+-- On most platforms @memchr(3)@ is a highly optimized byte searching
+-- function, thus we make a special binding for it.
+--
+-- A rewrite rule @elemIndex = elemIndexBytes@ is also included.
 elemIndexBytes :: Word8 -> Bytes -> Maybe Int
 {-# INLINE elemIndexBytes #-}
 elemIndexBytes w (PrimVector (PrimArray ba#) s l) =
@@ -975,8 +1032,7 @@ elemIndexBytes w (PrimVector (PrimArray ba#) s l) =
 
 --------------------------------------------------------------------------------
 
--- | Index pair type to help GHC unpack in some loops.
---
+-- | Index pair type to help GHC unpack in some loops, useful when write fast folds.
 data IPair a = IPair {-# UNPACK #-}!Int a
 
 -- | The chunk size used for I\/O. Currently set to @32k-chunkOverhead@

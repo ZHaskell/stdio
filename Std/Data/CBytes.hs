@@ -66,7 +66,7 @@ import           Prelude                 hiding (all, any, appendFile, break,
                                           zipWith)
 import           Std.Data.Array
 import           Std.Data.Text.UTF8Codec (encodeCBytesChar)
-import qualified Std.Data.Vector         as V
+import qualified Std.Data.Vector.Base    as V
 import           Std.IO.Exception
 import           System.IO.Unsafe        (unsafeDupablePerformIO)
 

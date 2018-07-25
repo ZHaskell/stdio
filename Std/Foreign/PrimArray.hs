@@ -90,7 +90,7 @@ import           Foreign.C.Types
 import           GHC.Prim
 import           GHC.Ptr
 import           Std.Data.Array
-import           Std.Data.Vector
+import           Std.Data.Vector.Base
 import           Std.IO.Exception
 import           Std.IO.Resource
 

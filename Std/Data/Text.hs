@@ -32,7 +32,8 @@ import           GHC.Prim
 import           GHC.Types
 import           Std.Data.Array
 import           Std.Data.Text.UTF8Codec
-import qualified Std.Data.Vector.Internal as V
+import qualified Std.Data.Vector.Base     as V
+import qualified Std.Data.Vector.Extra    as V
 
 import Prelude hiding (reverse,head,tail,last,init,null
     ,length,map,lines,foldl,foldr,unlines

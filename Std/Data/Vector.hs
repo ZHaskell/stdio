@@ -42,80 +42,67 @@ Performance consideration:
     'Vector' type), many functions DO NOT NEED the result vectors's type to be same
     with the source one, e.g. @map :: (Vec v a, Vec u b) => (a -> b) -> v a -> u b@.
 
-  * Both 'PrimVector' and 'Vector' are instances of 'Foldable', so 'null', 'length',
-    and various folds from 'Prelude' can work on them without performance cost,
-    specialized versions are only provided from 'Std.Data.Vector.Internal' module.
+  * There're some specialized function which only works on 'Bytes', which is enabled
+    with rewrite rules, if you want to use specialized versions directly, import
+    'Std.Data.Vector.Base' and 'Std.Data.Vector.Extra' module. Doing so will also
+    enable vector internals, which is useful for working on the underlying arrays.
 
-  * The 'Functor' instances for 'Vector' are lazy in order to abid 'Functor' law.
-    namely @fmap id vectorConatin_|_ == vectorContain_|_@, if you need strict mapping
-    for lifted 'Vector', use 'map' ('PrimVector' will never contain _|_ thus it's not
+  * The 'Functor' instance for 'Vector' are lazy in order to abid 'Functor' law.
+    namely @fmap id vectorConatinBottom == vectorContainBottom@, if you need strict mapping
+    for lifted 'Vector', use 'map' ('PrimVector' will never contain bottom thus it's not
     a problem). THIS MAY COME AS A SURPRISE SO MAKE SURE YOU USE THE CORRECT 'map' s.
 
-  * The 'Traversable' instances have specialized implementation for 'ST' and 'IO',
-    to make sure you don't write thunks into result, use 'return <$!>' idiom.
+  * The 'Foldable' instance for 'Vector' is fine, use 'Prelude' functions such as
+    'null', 'length', etc. should not incur performance overhead.
 
-  * When use state generating functions like 'mapAccumL', 'mapAccumR' ,etc. force
+  * The 'Traversable' instance have specialized implementations for 'ST' and 'IO',
+    if you don't write thunks into result, use @return <$!>@ idiom.
+
+  * When use stateful generating functions like 'mapAccumL', 'mapAccumR' ,etc. force
     both the accumulator and value with @acc `seq` v `seq` (acc, v)@ idiom to avoid
     thunks inside result vector.
 
-  * 'scanl' and 'scanr' are strict in its accumulator, use a list and then 'pack' it
-    to perform a lazy scan, (generally we prefer lazy version when there are strict
-    variations or if user can avoid space leak by adding extra 'seq' s, but in case
-    like this users have no way to control strictness, we would choose strict).
-
-  * The 'unpack' / 'unpackR' and 'pack' / 'packN' / 'packR' / packRN' are designed to
+  * The 'unpack', 'unpackR' and 'pack', 'packN', 'packR', 'packRN' are designed to
     work with @build/foldr@ streaming fusion in base, thus it's OK to expect idioms like
-    @pack . List filter f . List.map . unpack@ to work in contant space. While
-    @Vector.filter . Vector.map@ will create intermediate vectors on the fly
-    (which have different time/space characteristic).
 
-  * The 'elem' series functions have a specialized implementation for 'PrimVector Word8',
-    i.e. the 'Bytes' type, which use 'memchr' (which in turn use SIMD instructions on
-    most platforms), so avoid @find (== w)@ if possible.
+        > pack . List filter f . List.map . unpack
+
+        to work in contant space. While
+
+        > Vector.filter . Vector.map
+
+        will create intermediate vectors on the fly, which have different time/space characteristic.
 
 -}
 
 module Std.Data.Vector (
-  -- * Vec typeclass
+  -- * The Vec typeclass
     Vec
   -- * Boxed and unboxed vector type
   , Vector
   , PrimVector
-  -- ** 'Word8' vector
-  , Bytes, w2c, c2w
+  -- ** Word8 vector
+  , Bytes
   -- * Basic creating
   , empty, singleton, copy
   -- * Conversion between list
   , pack, packN, packR, packRN
   , unpack, unpackR
   -- * Basic interface
-  , append
   , null
   , length
-  , cons, snoc, uncons, unsnoc
-  , head, tail
-  , last, init
-  -- * Transforming vector
-  , map
-  , reverse
-  , intersperse
-  , intercalate
-  , intercalateElem
-  , transpose
-  -- * Reducing vector (folds)
-  , foldl1'
-  , foldr1'
+  , append
+  , map, map', imap'
+  , foldl', ifoldl', foldl1'
+  , foldr', ifoldr', foldr1'
     -- ** Special folds
-  , concat
-  , concatMap
-  , maximum
-  , minimum
+  , concat, concatMap
+  , maximum, minimum
+  , sum
+  , count
+  , product, product'
+  , all, any
   -- * Building vector
-  -- ** Scans
-  , scanl
-  , scanl1
-  , scanr
-  , scanr1
   -- ** Accumulating maps
   , mapAccumL
   , mapAccumR
@@ -123,41 +110,53 @@ module Std.Data.Vector (
   , replicate
   , unfoldr
   , unfoldrN
-  -- * Substrings
-  , take
-  , drop
-  , slice
+  -- * Searching by equality
+  , elem, notElem, elemIndex
+  -- * Slice manipulation
+  , cons, snoc
+  , uncons, unsnoc
+  , headM, tailM
+  , lastM, initM
+  , inits, tails
+  , take, drop
+  , slice , (|..|)
   , splitAt
-
-
-
-  -- * Searching vectors
-
-  -- ** Searching by equality
-  , elem
-  , notElem
-  , elemIndex
-  -- ** Searching with a predicate
-  , find
-  , filter
-  , partition
-
-  -- * literal quoters
-  , vecW8
-  , vecW16
-  , vecW32
-  , vecW64
-  , vecWord
-  , vecI8
-  , vecI16
-  , vecI32
-  , vecI64
-  , vecInt
+  , takeWhile , dropWhile
+  , break, span
+  , breakEnd, spanEnd
+  , group, groupBy
+  , stripPrefix, stripSuffix
+  , split, splitWith
+  , isPrefixOf, isSuffixOf, isInfixOf
+  -- * Transform
+  , reverse
+  , intersperse
+  , intercalate
+  , intercalateElem
+  , transpose
+  -- * Zipping
+  , zipWith', unzipWith'
+  -- * Scans
+  , scanl', scanl1'
+  , scanr', scanr1'
+  -- * Search
+  -- ** element-wise search
+  , findIndices, elemIndices
+  , find, findIndexOrEnd
+  , findIndexReverseOrStart
+  , filter, partition
+  -- ** sub-vector search
+  , indicesOverlapping
+  , indices
+  -- * QuasiQuoters
   , ascii
-
+  , vecW8, vecW16, vecW32, vecW64, vecWord
+  , vecI8, vecI16, vecI32, vecI64, vecInt
+  -- * Misc
+  , IPair(..)
+  , VectorException(..)
  ) where
 
 import           Prelude ()
 import           Std.Data.Vector.Base
-import           Std.Data.Vector.QQ         as QQ
-
+import           Std.Data.Vector.Extra

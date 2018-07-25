@@ -32,32 +32,32 @@ source-repository head
 library
     exposed-modules:        Std.Data.Vector.Base
                             Std.Data.Vector.Extra
-                            -- Std.Data.PrimArray.QQ
-                            -- Std.Data.PrimArray.BitTwiddle
-                            -- Std.Data.PrimArray.UnalignedAccess
-                            -- Std.Data.Vector
-                            -- Std.Data.Array
-                            -- Std.Data.Array.Checked
-                            -- Std.Data.CBytes
-                            -- Std.Data.Parser
-                            -- Std.Data.Text
-                            -- Std.Data.Text.UTF8Codec
-                            -- Std.Data.Binary
-                            -- Std.Data.Builder
+                            Std.Data.Vector
+                            Std.Data.PrimArray.QQ
+                            Std.Data.PrimArray.BitTwiddle
+                            Std.Data.PrimArray.UnalignedAccess
+                            Std.Data.Array
+                            Std.Data.Array.Checked
+                            Std.Data.CBytes
+                            Std.Data.Parser
+                            Std.Data.Text
+                            Std.Data.Text.UTF8Codec
+                            Std.Data.Binary
+                            Std.Data.Builder
 
-                            -- Std.Foreign.PrimArray
+                            Std.Foreign.PrimArray
 
-                            -- Std.IO.Resource
-                            -- Std.IO.LowResTimer
-                            -- Std.IO.Exception 
-                            -- Std.IO.Buffered
-                            -- Std.IO.TTY
-                            -- Std.IO.FileSystem
-                            -- Std.IO.TCP
-                            -- Std.IO.SockAddr
-                            -- Std.IO.UV.Errno
-                            -- Std.IO.UV.FFI
-                            -- Std.IO.UV.Manager
+                            Std.IO.Resource
+                            Std.IO.LowResTimer
+                            Std.IO.Exception 
+                            Std.IO.Buffered
+                            Std.IO.TTY
+                            Std.IO.FileSystem
+                            Std.IO.TCP
+                            Std.IO.SockAddr
+                            Std.IO.UV.Errno
+                            Std.IO.UV.FFI
+                            Std.IO.UV.Manager
 
     -- other-modules:         
 

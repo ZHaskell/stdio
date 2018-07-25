@@ -25,7 +25,8 @@ import           Data.Word
 import           GHC.Prim
 import           GHC.Types
 import           Std.Data.PrimArray.UnalignedAccess
-import qualified Std.Data.Vector                    as V
+import qualified Std.Data.Vector.Base               as V
+import qualified Std.Data.Vector.Extra              as V
 
 -- | Simple parsing result, that represent respectively:
 --
