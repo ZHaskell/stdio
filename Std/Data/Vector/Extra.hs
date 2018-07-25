@@ -696,7 +696,7 @@ partition f (Vec arr s l)
 -- within @haystack@ using KMP algorithm.
 --
 -- The KMP algorithm need pre-calculate a shift table in /O(m)/ time and space,
--- the worst case time complexity is /O(n+m)/. Partial applied this function to
+-- the worst case time complexity is /O(n+m)/. Partial apply this function to
 -- reuse pre-calculated table between same needles.
 --
 -- Chunked input are support via partial match argument, if set we will return an
@@ -704,7 +704,7 @@ partition f (Vec arr s l)
 --
 -- > indicesOverlapping [ascii|ada|]  [ascii|adadad|] True == [0,2,-2]
 --
--- Where @-2@ is the length of the partial match part @ad@.
+-- Where @-2@ is the length of the partial match part @ad@ 's negation.
 -- 
 -- References:
 --
