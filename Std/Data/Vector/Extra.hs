@@ -702,9 +702,14 @@ partition f (Vec arr s l)
 -- Chunked input are support via partial match argument, if set we will return an
 -- extra negative index in case of partial match at the end of input chunk, e.g.
 --
--- > indicesOverlapping [ascii|ada|]  [ascii|adadad|] == [0,2,-2]
+-- > indicesOverlapping [ascii|ada|]  [ascii|adadad|] True == [0,2,-2]
 --
 -- Where @-2@ is the length of the partial match part @ad@.
+-- 
+-- References:
+--
+--  * Knuth, Donald; Morris, James H.; Pratt, Vaughan: "Fast pattern matching in strings" (1977)
+--  * <http://www-igm.univ-mlv.fr/~lecroq/string/node8.html#SECTION0080>
 indicesOverlapping :: (Vec v a, Eq a)
         => v a -- ^ vector to search for (@needle@)
         -> v a -- ^ vector to search in (@haystack@)
@@ -741,6 +746,12 @@ indicesOverlapping needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) rep
 --
 -- A rewrite rule to rewrite 'indicesOverlapping' to 'indicesOverlappingBytes' is
 -- also included.
+--
+-- References:
+--
+-- * Frantisek FranekChristopher G. JenningsWilliam F. Smyth A Simple Fast Hybrid Pattern-Matching Algorithm (2005)
+-- * D. M. Sunday: A Very Fast Substring Search Algorithm. Communications of the ACM, 33, 8, 132-142 (1990)
+-- * F. Lundh: The Fast Search Algorithm. <http://effbot.org/zone/stringlib.htm> (2006)
 indicesOverlappingBytes :: Bytes -- ^ bytes to search for (@needle@)
                         -> Bytes -- ^ bytes to search in (@haystack@)
                         -> Bool -- ^ report partial match at the end of haystack
