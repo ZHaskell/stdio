@@ -621,7 +621,8 @@ indicesOverlapping needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) rep
   where
     {-# NOINLINE next #-}
     next = kmpNextTable needle
-    kmp !i !j | i >= hlen = if reportPartial && j /= 0 then [-j] else []
+    kmp !i !j | i >= hlen = if j >= nlen then [i-j]
+                            else if reportPartial && j /= 0 then [-j] else []
               | j >= nlen = let !i' = i-j
                             in case next `indexArr` j of
                                 -1 -> i' : kmp i 0
@@ -637,7 +638,7 @@ indicesOverlapping needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) rep
 --
 -- The hybrid algorithm need pre-calculate a shift table in /O(m)/ time and space,
 -- and a bad character bloom filter in /O(m)/ time and /O(1)/ space, the worst case
--- time complexity is /O(n+m)/ bounded.
+-- time complexity is /O(n+m)/.
 indicesBytesOverlapping :: Bytes -- ^ bytes to search for (@needle@)
                         -> Bytes -- ^ bytes to search in (@haystack@)
                         -> Bool -- ^ report partial match at the end of haystack
@@ -652,7 +653,8 @@ indicesBytesOverlapping needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen
     next = kmpNextTable needle
     {-# NOINLINE bloom #-} -- force sharing
     bloom = sundayBloom needle
-    kmp !i !j | i >= hlen = if reportPartial && j /= 0 then [-j] else []
+    kmp !i !j | i >= hlen = if j >= nlen then [i-j]
+                            else if reportPartial && j /= 0 then [-j] else []
               | j >= nlen = let !i' = i-j
                             in case next `indexArr` j of
                                 -1 -> i' : kmp i 0
@@ -691,7 +693,8 @@ indices needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) reportPartial
   where
     {-# NOINLINE next #-}
     next = kmpNextTable needle
-    kmp !i !j | i >= hlen = if reportPartial && j /= 0 then [-j] else []
+    kmp !i !j | i >= hlen = if j >= nlen then [i-j]
+                            else if reportPartial && j /= 0 then [-j] else []
                 | j >= nlen = let !i' = i-j in i' : kmp i 0
                 | narr `indexArr` (j+noff) == harr `indexArr` (i+hoff) = kmp (i+1) (j+1)
                 | otherwise = case next `indexArr` j of
@@ -701,11 +704,6 @@ indices needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) reportPartial
 -- | /O(n/m)/ Find the offsets of all non-overlapping indices of @needle@
 -- within @haystack@ using KMP algorithm, combined with simplified sunday's
 -- rule to obtain O(m/n) complexity in average use case.
---
--- The hybrid algorithm need pre-calculate a shift table in /O(m)/ time and space,
--- and an bad character shift table in /O(m+k)/ time and /O(k)/ space where k is
--- the size of alphabet, which is 256 in 'Word8' case. the worst case time
--- complexity is /O(n+m)/ bounded.
 indicesBytes :: Bytes -- ^ bytes to search for (@needle@)
              -> Bytes -- ^ bytes to search in (@haystack@)
              -> Bool -- ^ report partial match at the end of haystack
@@ -720,7 +718,8 @@ indicesBytes needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) reportPar
     next = kmpNextTable needle
     {-# NOINLINE bloom #-} -- force sharing
     bloom = sundayBloom needle
-    kmp !i !j | i >= hlen = if reportPartial && j /= 0 then [-j] else []
+    kmp !i !j | i >= hlen = if j >= nlen then [i-j]
+                            else if reportPartial && j /= 0 then [-j] else []
               | j >= nlen = let !i' = i-j in i' : kmp i 0
               | narr `indexArr` (j+noff) == harr `indexArr` (i+hoff) = kmp (i+1) (j+1)
               | otherwise = case next `indexArr` j of
@@ -741,11 +740,11 @@ indicesBytes needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) reportPar
                                   -- sunday's shifting
                                   else sunday (k+1) 0
 
--- | /O(m+1)/ Calculate the KMP next shift table.
+-- | /O(m)/ Calculate the KMP next shift table.
 --
 -- The shifting rules is: when a mismatch between @needle[j]@ and @haystack[i]@
--- is found, check if @next[j] == -1@, if so next search start with @needle[0]@
--- and @haystack[i+1]@, otherwise start with @needle[next[j]]@ and @haystack[i]@.
+-- is found, check if @next[j] == -1@, if so next search continue with @needle[0]@
+-- and @haystack[i+1]@, otherwise continue with @needle[next[j]]@ and @haystack[i]@.
 kmpNextTable :: (Vec v a, Eq a) => v a -> PrimArray Int
 {-# INLINE kmpNextTable #-}
 kmpNextTable (Vec arr s l) = runST (do
@@ -768,15 +767,15 @@ kmpNextTable (Vec arr s l) = runST (do
 -- | /O(m)/ Calculate a simple bloom filter for sunday's rule.
 --
 -- The shifting rules is: when a mismatch between @needle[j]@ and @haystack[i]@
--- is found, check if @haystack[i+n-j] `elemSundayBloom` bloom@, if not then
--- next search can be safely start with @haystack[i+n-j+1]@ and @needle[0]@,
--- otherwise next searh should continue with @haystack[i]@ and @needle[0]@, or
--- use other shifting rules such as KMP.
+-- is found, check if @haystack[i+n-j] `elemSundayBloom` bloom@, where n is the
+-- length of needle, if not then next search can be safely continued with
+-- @haystack[i+n-j+1]@ and @needle[0]@, otherwise next searh should continue with
+-- @haystack[i]@ and @needle[0]@, or fallback to other shifting rules such as KMP.
 --
 -- The algorithm is very simple: for a given 'Word8' @w@, we set the bloom's bit
 -- at @2 `unsafeShiftL` (w .&. 0x3f)@, so there're three false positives. This's
 -- particularly suitable for search UTF-8 bytes since the significant bits of
--- the a beginning byte is usually the same.
+-- a beginning byte is usually the same.
 sundayBloom :: Bytes -> Word64
 sundayBloom (Vec arr s l) = go 0x00 s
   where
