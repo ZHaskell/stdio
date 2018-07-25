@@ -644,8 +644,7 @@ indicesBytesOverlapping :: Bytes -- ^ bytes to search for (@needle@)
                         -> [Int]
 {-# INLINABLE indicesBytesOverlapping #-}
 indicesBytesOverlapping needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) reportPartial
-    | nlen == 1             = case indexArr' narr 0 of
-                                (# x #) -> elemIndices x haystack
+    | nlen == 1             = elemIndices (indexArr narr 0) haystack
     | nlen <= 0 || hlen < 0 = []
     | otherwise             = sunday 0 0
   where
@@ -713,8 +712,7 @@ indicesBytes :: Bytes -- ^ bytes to search for (@needle@)
              -> [Int]
 {-# INLINABLE indicesBytes #-}
 indicesBytes needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) reportPartial
-    | nlen == 1             = case indexArr' narr 0 of
-                                (# x #) -> elemIndices x haystack
+    | nlen == 1             = elemIndices (indexArr narr 0) haystack
     | nlen <= 0 || hlen < 0 = []
     | otherwise             = sunday 0 0
   where
