@@ -1,4 +1,5 @@
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UnboxedTuples #-}
 
 {-|
 Module      : Std.Data.Array.Checked
@@ -9,8 +10,10 @@ Maintainer  : drkoster@qq.com
 Stability   : experimental
 Portability : non-portable
 
-This module provides exactly the same API with "Data.Array", but will throw an 'IndexOutOfBounds'
-'ArrayException' on bound check failure.
+This module provides exactly the same API with "Std.Data.Array", but will throw an 'IndexOutOfBounds'
+'ArrayException' on bound check failure, it's useful when debugging array algorithms: just swap this
+module with "Std.Data.Array", segmentation faults caused by out bound access will be turned into exceptions
+with more informations.
 
 -}
 module Std.Data.Array.Checked
@@ -24,6 +27,7 @@ module Std.Data.Array.Checked
   , writeArr
   , setArr
   , indexArr
+  , indexArr'
   , indexArrM
   , freezeArr
   , thawArr
@@ -121,7 +125,15 @@ indexArr arr i = check
     (A.indexArr arr i)
 {-# INLINE indexArr #-}
 
-indexArrM :: (A.Arr marr arr a, PrimMonad m, PrimState m ~ s, HasCallStack)
+indexArr' :: (A.Arr marr arr a, HasCallStack)
+          => arr a -> Int -> (# a #)
+indexArr' arr i =
+    if (i>=0 && i<A.sizeofArr arr)
+    then A.indexArr' arr i
+    else throw (IndexOutOfBounds $ show callStack)
+{-# INLINE indexArr' #-}
+
+indexArrM :: (A.Arr marr arr a, Monad m, HasCallStack)
           => arr a -> Int -> m a
 indexArrM arr i = check
     (i>=0 && i<A.sizeofArr arr)

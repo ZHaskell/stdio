@@ -10,8 +10,8 @@ module Std.Data.Vector.Extra (
   -- * Slice manipulation
     cons, snoc
   , uncons, unsnoc
-  , headM, tailM
-  , lastM, initM
+  , headM, tailE
+  , lastM, initE
   , inits, tails
   , take, drop
   , slice , (|..|)
@@ -48,6 +48,9 @@ module Std.Data.Vector.Extra (
   , kmpNextTable
   , sundayBloom
   , elemSundayBloom
+  -- * Sort
+  , sort
+  , insertSort
   -- * QuasiQuoters
   , ascii
   , vecW8, vecW16, vecW32, vecW64, vecWord
@@ -59,7 +62,7 @@ module Std.Data.Vector.Extra (
 import           Control.Monad.ST
 import           GHC.Stack
 import           GHC.Word
-import           Std.Data.Array
+import           Std.Data.Array.Checked
 import           Std.Data.Vector.Base
 import qualified Language.Haskell.TH.Quote     as QQ
 import           Std.Data.PrimArray.QQ         as QQ
@@ -119,10 +122,10 @@ headM (Vec arr s l)
 
 -- | /O(1)/ Extract the elements after the head of a vector.
 --
--- NOTE: 'tailM' return empty vector in the case of an empty vector.
-tailM :: Vec v a => v a -> v a
-{-# INLINE tailM #-}
-tailM (Vec arr s l)
+-- NOTE: 'tailE' return empty vector in the case of an empty vector.
+tailE :: Vec v a => v a -> v a
+{-# INLINE tailE #-}
+tailE (Vec arr s l)
     | l <= 0    = empty
     | otherwise = fromArr arr (s+1) (l-1)
 
@@ -135,10 +138,10 @@ lastM (Vec arr s l)
 
 -- | /O(1)/ Extract the elements before of the last one,
 --
--- NOTE: 'initM' return empty vector in the case of an empty vector.
-initM :: Vec v a => v a -> v a
-{-# INLINE initM #-}
-initM (Vec arr s l)
+-- NOTE: 'initE' return empty vector in the case of an empty vector.
+initE :: Vec v a => v a -> v a
+{-# INLINE initE #-}
+initE (Vec arr s l)
     | l <= 0    = empty
     | otherwise = fromArr arr s (l-1)
 
@@ -184,31 +187,32 @@ drop n v@(Vec arr s l)
 slice :: Vec v a => Int -> Int -> v a -> v a
 {-# INLINE slice #-}
 slice s' l' (Vec arr s l) | l'' == 0  = empty
-                             | otherwise = fromArr arr s'' l''
+                          | otherwise = fromArr arr s'' l''
   where
-    s'' = rangeCut (s+s') s (s+l)
-    l'' = rangeCut l' 0 (s+l-s'')
+    !s'' = rangeCut (s+s') s (s+l)
+    !l'' = rangeCut l' 0 (s+l-s'')
 
--- | /O(1)/ Extract a sub-range vector with give start and end index, both
+-- | /O(1)/ Extract a sub-range vector with give start and end index
+-- (sliced vector will include the end index element), both
 -- start and end index can be negative, which stand for counting from the end
 -- (similar to the slicing operator([..]) in many other language).
 --
 -- This function is a total function just like 'take/drop', e.g.
 --
 -- @
--- "hello" |..| (1, 3) == "el"
--- "hello" |..| (1, -1) == "ell"
--- slice "hello" (-3, -2) == "l"
+-- "hello" |..| (1, 2) == "el"
+-- "hello" |..| (1, -2) == "ell"
+-- slice "hello" (-3, -2) == "ll"
 -- slice "hello" (-3, -4) == ""
 -- @
---
+infixl 9 |..|
 (|..|) :: Vec v a => v a -> (Int, Int) -> v a
 {-# INLINE (|..|) #-}
-(Vec arr s l) |..| (s1, s2) | s1' <= s2' = empty
-                               | otherwise  = fromArr arr s1' (s2' - s1')
+(Vec arr s l) |..| (s1, s2) | s1' >  s2' = empty
+                            | otherwise  = fromArr arr s1' (s2' - s1'+1)
   where
-    s1' = rangeCut (if s1>0 then s+s1 else s+l+s1) s (s+l)
-    s2' = rangeCut (if s2>0 then s+s2 else s+l+s2) s (s+l)
+    !s1' = rangeCut (if s1>=0 then s+s1 else s+l+s1) s (s+l)
+    !s2' = rangeCut (if s2>=0 then s+s2 else s+l+s2) s (s+l)
 
 -- | /O(1)/ 'splitAt' @n xs@ is equivalent to @('take' n xs, 'drop' n xs)@.
 splitAt :: Vec v a => Int -> v a -> (v a, v a)
@@ -216,7 +220,7 @@ splitAt :: Vec v a => Int -> v a -> (v a, v a)
 splitAt z (Vec arr s l) = let !v1 = fromArr arr s z'
                               !v2 = fromArr arr (s+z') (l-z')
                           in (v1, v2)
-  where z' = rangeCut 0 z l
+  where z' = rangeCut z 0 l
 
 -- | /O(n)/ Applied to a predicate @p@ and a vector @vs@,
 -- returns the longest prefix (possibly empty) of @vs@ of elements that
@@ -716,7 +720,7 @@ indicesOverlapping needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) rep
     | nlen == 1             = case indexArr' narr 0 of
                                 (# x #) -> elemIndices x haystack
     | nlen <= 0 || hlen < 0 = []
-    | otherwise             = kmp 0 0
+    | otherwise             = kmpInner 0 0
   where
     {-# NOINLINE next #-} -- force sharing
     next = kmpNextTable needle
@@ -724,12 +728,18 @@ indicesOverlapping needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) rep
                             else if reportPartial && j /= 0 then [-j] else []
               | j >= nlen = let !i' = i-j
                             in case next `indexArr` j of
-                                -1 -> i' : kmp i 0
-                                j' -> i' : kmp i j'
+                                -1 -> i' : kmpInner i 0
+                                j' -> i' : kmpInner i j'
               | narr `indexArr` (j+noff) == harr `indexArr` (i+hoff) = kmp (i+1) (j+1)
               | otherwise = case next `indexArr` j of
                                 -1 -> kmp (i+1) 0
-                                j' -> kmp i j'
+                                j' -> kmpInner i j'
+    -- Inner loop where i < hlen and j < nlen
+    kmpInner !i !j
+              | narr `indexArr` (j+noff) == harr `indexArr` (i+hoff) = kmp (i+1) (j+1)
+              | otherwise = case next `indexArr` j of
+                                -1 -> kmp (i+1) 0
+                                j' -> kmpInner i j'
 
 -- | /O(n\/m)/ Find the offsets of all indices (possibly overlapping) of @needle@
 -- within @haystack@ using KMP algorithm, combined with simplified sunday's
@@ -899,6 +909,87 @@ sundayBloom (Vec arr s l) = go 0x00 s
 elemSundayBloom :: Word64 -> Word8 -> Bool
 {-# INLINE elemSundayBloom #-}
 elemSundayBloom b w = b .&. (0x01 `unsafeShiftL` (fromIntegral w .&. 0x3f)) /= 0
+
+--------------------------------------------------------------------------------
+-- Sort
+
+sort :: forall v a. (Vec v a, Ord a) => v a -> v a
+sort v@(Vec _ _ l)
+    | l < insertThresh = insertSort v
+    | otherwise = runST (do
+        -- create two worker array
+        w1 <- newArr l
+        w2 <- newArr l
+        firstPass v 0 w1
+        w <- mergePass w1 w2 insertThresh
+        return $! fromArr w 0 l)
+  where
+    firstPass !v !i !marr
+        | i > l     = return ()
+        | otherwise = do
+            let (v',rest) = splitAt insertThresh v
+            insertSortToMArr v' i marr
+            firstPass rest (i+insertThresh) marr
+
+    mergePass !w1 !w2 !blockSiz
+        | blockSiz > l = unsafeFreezeArr w1
+        | otherwise      = do
+            mergeLoop w1 w2 blockSiz 0
+            mergePass w2 w1 (blockSiz*2) -- swap worker array and continue merging
+
+    mergeLoop !src !target !blockSiz !i
+        | i >= l          = return ()
+        | i >= l-blockSiz =
+            copyMutableArr target i src i (l-i)
+        | otherwise = do
+            let !mergeEnd = min (i+blockSiz+blockSiz) l
+            mergeBlock src target (i+blockSiz) mergeEnd i (i+blockSiz) i
+            mergeLoop src target blockSiz mergeEnd
+
+    mergeBlock !src !target !leftEnd !rightEnd !i !j !k
+        | i >= leftEnd  = copyMutableArr target k src j (rightEnd - j)
+        | j >= rightEnd = copyMutableArr target k src i (leftEnd - i)
+        | otherwise = do
+            l <- readArr src i
+            r <- readArr src j
+            if l < r
+            then do
+                writeArr target k l
+                mergeBlock src target leftEnd rightEnd (i+1) j (k+1)
+            else do
+                writeArr target k r
+                mergeBlock src target leftEnd rightEnd i (j+1) (k+1)
+
+
+insertThresh :: Int
+insertThresh = 16
+
+insertSort :: (Vec v a, Ord a) => v a -> v a
+insertSort v@(Vec arr s l) = create l (insertSortToMArr v 0)
+
+insertSortToMArr  :: (Vec v a, Ord a)
+                  => v a            -- the original vector
+                  -> Int            -- writing offset in the mutable array
+                  -> MArray v s a   -- writing mutable array, must have enough space!
+                  -> ST s ()
+insertSortToMArr (Vec arr s l) moff marr = go s
+  where
+    !end = s + l
+    !doff = moff-s
+    go !i | i >= end  = return ()
+          | otherwise = case indexArr' arr i of
+               (# x #) -> do insert x (i+doff)
+                             go (i+1)
+    insert !temp !i
+        | i <= moff = do
+            writeArr marr moff temp
+        | otherwise = do
+            x <- readArr marr (i-1)
+            if x > temp
+            then do
+                writeArr marr i x
+                insert temp (i-1)
+            else writeArr marr i temp
 
 --------------------------------------------------------------------------------
 -- Quoters

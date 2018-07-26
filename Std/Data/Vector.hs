@@ -115,8 +115,8 @@ module Std.Data.Vector (
   -- * Slice manipulation
   , cons, snoc
   , uncons, unsnoc
-  , headM, tailM
-  , lastM, initM
+  , headM, tailE
+  , lastM, initE
   , inits, tails
   , take, drop
   , slice , (|..|)

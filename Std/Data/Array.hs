@@ -24,6 +24,16 @@ Unified unboxed and boxed array operations using functional dependencies.
 
 All operations are NOT bound checked, if you need checked operations please use "Std.Data.Array.Checked".
 It exports exactly same APIs so that you can switch between without pain.
+
+Some mnemonics:
+
+  * 'newArr', 'newArrWith' return mutable array, 'readArr', 'writeArr' works on them.
+
+  * 'indexArr' works on immutable one, use 'indexArr'' to avoid indexing thunk.
+
+  * The order of arguements of 'copyArr', 'copyMutableArr' and 'moveArr' are always target and its offset
+    come first, and source and source offset follow, copying length comes last.
+
 -}
 
 module Std.Data.Array (

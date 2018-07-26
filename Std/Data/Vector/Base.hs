@@ -427,6 +427,8 @@ create n0 fill = runST (do
 
 -- | Create a vector, return both the vector and the monadic result during creating.
 --
+-- The result is not demanded strictly while the returned vector will be in normal form.
+-- It this is not desired, use @return $!@ idiom in your initialization function.
 creating :: Vec v a
          => Int  -- length in elements of type @a@
          -> (forall s. MArray v s a -> ST s b)  -- ^ initialization function
