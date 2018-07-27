@@ -61,6 +61,9 @@ module Std.Data.Array (
   , PrimUnlifted(..)
   -- * The 'ArrayException' type
   , ArrayException(..)
+  -- * Cast between primitive arrays
+  , castArray
+  , castMutableArray
   ) where
 
 import Data.Primitive.Types
@@ -78,6 +81,7 @@ import GHC.Types
 import GHC.ST
 import GHC.Prim
 import GHC.Types (isTrue#)
+import Std.Data.PrimArray.Cast
 
 -- | Bottom value (@throw ('UndefinedElement' "Data.Array.uninitialized")@)
 -- for initialize new boxed array('Array', 'SmallArray'..).
@@ -601,3 +605,11 @@ isMutablePrimArrayPinned :: MutablePrimArray s a -> Bool
 isMutablePrimArrayPinned (MutablePrimArray mba#) =
     tagToEnum# (isByteArrayPinned# (unsafeCoerce# mba#))
 
+
+-- | Cast between arrays
+--
+castArray :: (Arr marr arr a, Cast a b) => arr a -> arr b
+castArray = unsafeCoerce#
+
+castMutableArray :: (Arr marr arr a, Cast a b) => marr s a -> marr s b
+castMutableArray = unsafeCoerce#

@@ -36,6 +36,7 @@ library
                             Std.Data.Vector.Search
                             Std.Data.Vector.Sort
                             Std.Data.Vector.QQ
+                            Std.Data.PrimArray.Cast
                             Std.Data.PrimArray.QQ
                             Std.Data.PrimArray.BitTwiddle
                             Std.Data.PrimArray.UnalignedAccess

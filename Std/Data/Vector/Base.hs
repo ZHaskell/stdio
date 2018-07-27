@@ -24,10 +24,8 @@ Portability : non-portable
 This module provides unified vector interface. Conceptually a vector is simply a slice of an array, for example this is the definition of boxed vector:
 
 @
-    data Vector a = Vector
-        {-# UNPACK #-} !(SmallArray a) -- payload
-        {-# UNPACK #-} !Int         -- offset
-        {-# UNPACK #-} !Int         -- length
+data Vector a = Vector !(SmallArray a)   !Int    !Int
+                     -- payload           offset  length
 @
 
 The 'Vec' class unified different type of vectors, and this module provide operation over 'Vec' instances, with all the internal structures. Be careful on modifying internal slices, otherwise segmentation fault await.
@@ -85,6 +83,8 @@ module Std.Data.Vector.Base (
   , VectorException(..)
   , errorEmptyVector
   , errorOutRange
+  -- * Cast vectors
+  , castVector
  ) where
 
 import           Control.DeepSeq
@@ -116,6 +116,7 @@ import           Prelude                       hiding (concat, concatMap,
                                                 all, any, replicate, traverse)
 import           Std.Data.Array
 import           Std.Data.PrimArray.BitTwiddle (c_memchr)
+import           Std.Data.PrimArray.Cast
 
 -- | Typeclass for box and unboxed vectors, which are created by slicing arrays.
 --
@@ -1061,3 +1062,7 @@ errorEmptyVector = throw (EmptyVector callStack)
 errorOutRange :: HasCallStack => Int -> a
 {-# NOINLINE errorOutRange #-}
 errorOutRange i = throw (IndexOutOfVectorRange i callStack)
+
+-- | Cast between vectors
+castVector :: (Vec v a, Cast a b) => v a -> v b
+castVector = unsafeCoerce#

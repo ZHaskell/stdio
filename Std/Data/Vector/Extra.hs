@@ -344,13 +344,13 @@ reverse (Vec arr s l) = create l (go s (l-1))
   where
     go :: Int -> Int -> MArray v s a -> ST s ()
     go !i !j !marr | j < 0 = return ()
-                  | j >= 3 = do  -- a bit of loop unrolling here
+                   | j >= 3 = do  -- a bit of loop unrolling here
                         indexArrM arr i >>= writeArr marr j
                         indexArrM arr (i+1) >>= writeArr marr (j-1)
                         indexArrM arr (i+2) >>= writeArr marr (j-2)
                         indexArrM arr (i+3) >>= writeArr marr (j-3)
                         go (i+4) (j-4) marr
-                  | otherwise = do
+                   | otherwise = do
                         indexArrM arr i >>= writeArr marr j
                         go (i+1) (j-1) marr
 

@@ -63,7 +63,7 @@ import           Language.Haskell.TH
 import           Language.Haskell.TH.Quote
 import           Std.Data.Array
 import           Control.Monad.ST
-import           Unsafe.Coerce
+import           Std.Data.PrimArray.Cast
 
 -- | Construct data with ASCII encoded literals.
 --
@@ -113,7 +113,7 @@ word8ArrayFromAddr l# addr# = runST $ do
     unsafeFreezePrimArray mba
 
 int8ArrayFromAddr :: Int# -> Addr# -> PrimArray Int8
-int8ArrayFromAddr l addr# = unsafeCoerce (word8ArrayFromAddr l addr#)
+int8ArrayFromAddr l addr# = castArray (word8ArrayFromAddr l addr#)
 
 -- | Construct data with UTF-8 encoded literals.
 --
@@ -249,7 +249,7 @@ word16ArrayFromAddr l# addr# = runST $ do
     go l ptr mba idx = copyPtrToMutablePrimArray mba 0 ptr l
 
 int16ArrayFromAddr :: Int# -> Addr# -> PrimArray Int16
-int16ArrayFromAddr l addr# = unsafeCoerce (word16ArrayFromAddr l addr#)
+int16ArrayFromAddr l addr# = castArray (word16ArrayFromAddr l addr#)
 
 int16Literal :: (ExpQ -> ExpQ -> ExpQ) -> String -> ExpQ
 int16Literal k str = vectorLiteral checkI16 k str
@@ -312,7 +312,7 @@ word32ArrayFromAddr l# addr# = runST $ do
     go l ptr mba !idx = copyPtrToMutablePrimArray mba 0 ptr l
 
 int32ArrayFromAddr :: Int# -> Addr# -> PrimArray Int32
-int32ArrayFromAddr l addr# = unsafeCoerce (word32ArrayFromAddr l addr#)
+int32ArrayFromAddr l addr# = castArray (word32ArrayFromAddr l addr#)
 
 int32Literal :: (ExpQ -> ExpQ -> ExpQ) -> String -> ExpQ
 int32Literal k str = vectorLiteral checkI32 k str
@@ -382,7 +382,7 @@ word64ArrayFromAddr l# addr# = runST $ do
     go l ptr mba !idx = copyPtrToMutablePrimArray mba 0 ptr l
 
 int64ArrayFromAddr :: Int# -> Addr# -> PrimArray Int64
-int64ArrayFromAddr l addr# = unsafeCoerce (word64ArrayFromAddr l addr#)
+int64ArrayFromAddr l addr# = castArray (word64ArrayFromAddr l addr#)
 
 int64Literal :: (ExpQ -> ExpQ -> ExpQ) -> String -> ExpQ
 int64Literal k str = vectorLiteral checkI64 k str
@@ -419,17 +419,17 @@ arrI64 = QuasiQuoter
 wordArrayFromAddr :: Int# -> Addr# -> PrimArray Word
 wordArrayFromAddr l addr# =
 #if SIZEOF_HSWORD == 8
-    unsafeCoerce (word64ArrayFromAddr l addr#)
+    castArray (word64ArrayFromAddr l addr#)
 #else
-    unsafeCoerce (word32ArrayFromAddr l addr#)
+    castArray (word32ArrayFromAddr l addr#)
 #endif
 
 intArrayFromAddr :: Int# -> Addr# -> PrimArray Int
 intArrayFromAddr l addr# =
 #if SIZEOF_HSWORD == 8
-    unsafeCoerce (int64ArrayFromAddr l addr#)
+    castArray (int64ArrayFromAddr l addr#)
 #else
-    unsafeCoerce (int32ArrayFromAddr l addr#)
+    castArray (int32ArrayFromAddr l addr#)
 #endif
 
 wordLiteral :: (ExpQ -> ExpQ -> ExpQ) -> String -> ExpQ
@@ -461,3 +461,5 @@ arrInt = QuasiQuoter
     (error "Cannot use arrInt as a pattern")
     (error "Cannot use arrInt as a type")
     (error "Cannot use arrInt as a dec")
+
+--------------------------------------------------------------------------------
