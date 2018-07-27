@@ -207,15 +207,20 @@ partition f (Vec arr s l)
 -- within @haystack@ using KMP algorithm.
 --
 -- The KMP algorithm need pre-calculate a shift table in /O(m)/ time and space,
--- the worst case time complexity is /O(n+m)/. Partial applied this function to
+-- the worst case time complexity is /O(n+m)/. Partial apply this function to
 -- reuse pre-calculated table between same needles.
 --
 -- Chunked input are support via partial match argument, if set we will return an
 -- extra negative index in case of partial match at the end of input chunk, e.g.
 --
--- > indicesOverlapping [ascii|ada|]  [ascii|adadad|] == [0,2,-2]
+-- > indicesOverlapping [ascii|ada|]  [ascii|adadad|] True == [0,2,-2]
 --
--- Where @-2@ is the length of the partial match part @ad@.
+-- Where @-2@ is the length of the partial match part @ad@ 's negation.
+--
+-- References:
+--
+--  * Knuth, Donald; Morris, James H.; Pratt, Vaughan: "Fast pattern matching in strings" (1977)
+--  * <http://www-igm.univ-mlv.fr/~lecroq/string/node8.html#SECTION0080>
 indicesOverlapping :: (Vec v a, Eq a)
         => v a -- ^ vector to search for (@needle@)
         -> v a -- ^ vector to search in (@haystack@)
@@ -227,7 +232,7 @@ indicesOverlapping needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) rep
     | nlen == 1             = case indexArr' narr 0 of
                                 (# x #) -> elemIndices x haystack
     | nlen <= 0 || hlen < 0 = []
-    | otherwise             = kmpInner 0 0
+    | otherwise             = kmp 0 0
   where
     {-# NOINLINE next #-} -- force sharing
     next = kmpNextTable needle
@@ -235,18 +240,12 @@ indicesOverlapping needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) rep
                             else if reportPartial && j /= 0 then [-j] else []
               | j >= nlen = let !i' = i-j
                             in case next `indexArr` j of
-                                -1 -> i' : kmpInner i 0
-                                j' -> i' : kmpInner i j'
+                                -1 -> i' : kmp i 0
+                                j' -> i' : kmp i j'
               | narr `indexArr` (j+noff) == harr `indexArr` (i+hoff) = kmp (i+1) (j+1)
               | otherwise = case next `indexArr` j of
                                 -1 -> kmp (i+1) 0
-                                j' -> kmpInner i j'
-    -- Inner loop where i < hlen and j < nlen
-    kmpInner !i !j
-              | narr `indexArr` (j+noff) == harr `indexArr` (i+hoff) = kmp (i+1) (j+1)
-              | otherwise = case next `indexArr` j of
-                                -1 -> kmp (i+1) 0
-                                j' -> kmpInner i j'
+                                j' -> kmp i j'
 
 -- | /O(n\/m)/ Find the offsets of all indices (possibly overlapping) of @needle@
 -- within @haystack@ using KMP algorithm, combined with simplified sunday's
@@ -258,6 +257,12 @@ indicesOverlapping needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) rep
 --
 -- A rewrite rule to rewrite 'indicesOverlapping' to 'indicesOverlappingBytes' is
 -- also included.
+--
+-- References:
+--
+-- * Frantisek FranekChristopher G. JenningsWilliam F. Smyth A Simple Fast Hybrid Pattern-Matching Algorithm (2005)
+-- * D. M. Sunday: A Very Fast Substring Search Algorithm. Communications of the ACM, 33, 8, 132-142 (1990)
+-- * F. Lundh: The Fast Search Algorithm. <http://effbot.org/zone/stringlib.htm> (2006)
 indicesOverlappingBytes :: Bytes -- ^ bytes to search for (@needle@)
                         -> Bytes -- ^ bytes to search in (@haystack@)
                         -> Bool -- ^ report partial match at the end of haystack
@@ -416,5 +421,3 @@ sundayBloom (Vec arr s l) = go 0x00 s
 elemSundayBloom :: Word64 -> Word8 -> Bool
 {-# INLINE elemSundayBloom #-}
 elemSundayBloom b w = b .&. (0x01 `unsafeShiftL` (fromIntegral w .&. 0x3f)) /= 0
-
-
