@@ -62,7 +62,7 @@ import           Data.Int
 import           Language.Haskell.TH
 import           Language.Haskell.TH.Quote
 import           Std.Data.Array
-import           System.IO.Unsafe
+import           Control.Monad.ST
 import           Unsafe.Coerce
 
 -- | Construct data with ASCII encoded literals.
@@ -76,8 +76,8 @@ import           Unsafe.Coerce
 --     ...
 --
 -- word8ArrayFromAddr :: Int# -> Addr# -> PrimArray Word8
--- {-# NOINLINE word8ArrayFromAddr #-}
--- word8ArrayFromAddr l# addr# = unsafeDupablePerformIO $ do
+-- {-# INLINE word8ArrayFromAddr #-}
+-- word8ArrayFromAddr l# addr# = runST $ do
 --     mba <- newPrimArray (I# l)
 --     copyPtrToMutablePrimArray mba 0 (Ptr addr#) (I# l#)
 --     unsafeFreezePrimArray mba
@@ -106,8 +106,8 @@ arrASCII = QuasiQuoter
     (error "Cannot use arrASCII as a dec")
 
 word8ArrayFromAddr :: Int# -> Addr# -> PrimArray Word8
-{-# NOINLINE word8ArrayFromAddr #-}
-word8ArrayFromAddr l# addr# = unsafeDupablePerformIO $ do
+{-# INLINE word8ArrayFromAddr #-}
+word8ArrayFromAddr l# addr# = runST $ do
     mba <- newPrimArray (I# l#)
     copyPtrToMutablePrimArray mba 0 (Ptr addr#) (I# l#)
     unsafeFreezePrimArray mba
@@ -240,11 +240,11 @@ arrW16 = QuasiQuoter
     (error "Cannot use arrW16 as a dec")
 
 word16ArrayFromAddr :: Int# -> Addr# -> PrimArray Word16
-{-# NOINLINE word16ArrayFromAddr #-}
-word16ArrayFromAddr l# addr# = unsafeDupablePerformIO $ do
+{-# INLINE word16ArrayFromAddr #-}
+word16ArrayFromAddr l# addr# = runST $ do
     mba <- newArr (I# l#)
     go (I# l#) (Ptr addr#) mba 0
-    unsafeFreezePrimArray mba :: IO (PrimArray Word16)
+    unsafeFreezePrimArray mba
   where
     go l ptr mba idx = copyPtrToMutablePrimArray mba 0 ptr l
 
@@ -303,11 +303,11 @@ arrW32 = QuasiQuoter
     (error "Cannot use arrW32 as a dec")
 
 word32ArrayFromAddr :: Int# -> Addr# -> PrimArray Word32
-{-# NOINLINE word32ArrayFromAddr #-}
-word32ArrayFromAddr l# addr# = unsafeDupablePerformIO $ do
+{-# INLINE word32ArrayFromAddr #-}
+word32ArrayFromAddr l# addr# = runST $ do
     mba <- newArr (I# l#)
     go (I# l#) (Ptr addr#) mba 0
-    unsafeFreezePrimArray mba :: IO (PrimArray Word32)
+    unsafeFreezePrimArray mba
   where
     go l ptr mba !idx = copyPtrToMutablePrimArray mba 0 ptr l
 
@@ -373,11 +373,11 @@ arrW64 = QuasiQuoter
     (error "Cannot use arrW64 as a dec")
 
 word64ArrayFromAddr :: Int# -> Addr# -> PrimArray Word64
-{-# NOINLINE word64ArrayFromAddr #-}
-word64ArrayFromAddr l# addr# = unsafeDupablePerformIO $ do
+{-# INLINE word64ArrayFromAddr #-}
+word64ArrayFromAddr l# addr# = runST $ do
     mba <- newArr (I# l#)
     go (I# l#) (Ptr addr#) mba 0
-    unsafeFreezePrimArray mba :: IO (PrimArray Word64)
+    unsafeFreezePrimArray mba
   where
     go l ptr mba !idx = copyPtrToMutablePrimArray mba 0 ptr l
 
