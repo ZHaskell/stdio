@@ -25,10 +25,10 @@ This module provide three stable sorting algorithms, which are:
 
   * 'radixSort' a /O(n)/ sorting algorithms based on 'Radix' instance, which is prefered on large vectors.
 
-Sorting is always performed in ascending order. To reverse the order, either use @XXSortBy@ or use 'Down(..)', 'PrimDown(..)', 'RadixDown(..)' newtypes. In general changing comparing functions can be done by creating auxiliary newtypes and 'Ord' instances (make sure you inline instance's method for performence!). Or 'Radix' instances, for example:
+Sorting is always performed in ascending order. To reverse the order, either use @XXSortBy@ or use 'Down', 'PrimDown', 'RadixDown' newtypes. In general changing comparing functions can be done by creating auxiliary newtypes and 'Ord' instances (make sure you inline instance's method for performence!). Or 'Radix' instances in 'radixSort' case, for example:
 
 @
-data Foo = Foo { key :: Int32, ... }
+data Foo = Foo { key :: Int16, ... }
 
 instance Radix Foo where
     -- You should add INLINE pragmas to following methods

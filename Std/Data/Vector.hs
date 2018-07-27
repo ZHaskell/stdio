@@ -144,9 +144,12 @@ module Std.Data.Vector (
   -- * Sort
   -- ** comparison search
   , mergeSort
+  , mergeSortBy
   , mergeTileSize
   , insertSort
+  , insertSortBy
   , Down(..)
+  , PrimDown(..)
   -- ** radix search
   , radixSort
   , Radix(..)
@@ -158,6 +161,7 @@ module Std.Data.Vector (
   -- * Misc
   , IPair(..)
   , VectorException(..)
+  , castVector
  ) where
 
 import           Prelude ()

@@ -83,7 +83,6 @@ module Std.Data.Vector.Base (
   , VectorException(..)
   , errorEmptyVector
   , errorOutRange
-  -- * Cast vectors
   , castVector
  ) where
 
