@@ -27,7 +27,8 @@ It exports exactly same APIs so that you can switch between without pain.
 
 Some mnemonics:
 
-  * 'newArr', 'newArrWith' return mutable array, 'readArr', 'writeArr' works on them.
+  * 'newArr', 'newArrWith' return mutable array, 'readArr', 'writeArr' works on them, 'setArr' fill elements
+     with offset and length.
 
   * 'indexArr' works on immutable one, use 'indexArr'' to avoid indexing thunk.
 

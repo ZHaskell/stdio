@@ -24,16 +24,7 @@ Maintainer  : drkoster@qq.com
 Stability   : experimental
 Portability : non-portable
 
-This module provide fast boxed and unboxed vector with unified interface. Conceptually a vector is simply a slice of an array, for example this is the definition of boxed vector:
-
-@
-    data Vector a = Vector
-        {-# UNPACK #-} !(SmallArray a) -- payload
-        {-# UNPACK #-} !Int         -- offset
-        {-# UNPACK #-} !Int         -- length
-@
-
-The 'Vec' class unified different type of vectors, and this module provide operation over 'Vec' instances. The API is similar to bytestring and vector. If you find missing functions, please report!
+This module provide fast boxed and unboxed vector with unified interface. The API is similar to bytestring and vector. If you find missing functions, please report!
 
 Performance consideration:
 
@@ -44,7 +35,7 @@ Performance consideration:
 
   * There're some specialized function which only works on 'Bytes', which is enabled
     with rewrite rules, if you want to use specialized versions directly, import
-    'Std.Data.Vector.Base' and 'Std.Data.Vector.Extra' module. Doing so will also
+    "Std.Data.Vector.Base" and "Std.Data.Vector.Extra" module. Doing so will also
     enable vector internals, which is useful for working on the underlying arrays.
 
   * The 'Functor' instance for 'Vector' are lazy in order to abid 'Functor' law.
@@ -72,6 +63,8 @@ Performance consideration:
         > Vector.filter . Vector.map
 
         will create intermediate vectors on the fly, which have different time/space characteristic.
+
+Since all functions works on more general types, inlining and specialization are the keys to achieve high performance, e.g. the performance gap between running in GHCi and compiled binary may be huge due to dictionary passing. If there're cases that GHC fail to specialized these functions, it should be regarded as a bug either in this library or GHC.
 
 -}
 
@@ -148,6 +141,16 @@ module Std.Data.Vector (
   -- ** sub-vector search
   , indicesOverlapping
   , indices
+  -- * Sort
+  -- ** comparison search
+  , mergeSort
+  , mergeTileSize
+  , insertSort
+  , Down(..)
+  -- ** radix search
+  , radixSort
+  , Radix(..)
+  , RadixDown(..)
   -- * QuasiQuoters
   , ascii
   , vecW8, vecW16, vecW32, vecW64, vecWord
@@ -160,3 +163,6 @@ module Std.Data.Vector (
 import           Prelude ()
 import           Std.Data.Vector.Base
 import           Std.Data.Vector.Extra
+import           Std.Data.Vector.Search
+import           Std.Data.Vector.Sort
+import           Std.Data.Vector.QQ

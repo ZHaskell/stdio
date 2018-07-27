@@ -30,9 +30,12 @@ source-repository head
 
 
 library
-    exposed-modules:        Std.Data.Vector.Base
+    exposed-modules:        Std.Data.Vector
+                            Std.Data.Vector.Base
                             Std.Data.Vector.Extra
-                            Std.Data.Vector
+                            Std.Data.Vector.Search
+                            Std.Data.Vector.Sort
+                            Std.Data.Vector.QQ
                             Std.Data.PrimArray.QQ
                             Std.Data.PrimArray.BitTwiddle
                             Std.Data.PrimArray.UnalignedAccess

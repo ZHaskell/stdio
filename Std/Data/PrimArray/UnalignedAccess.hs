@@ -2,6 +2,18 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MagicHash         #-}
 
+{-|
+Module      : Std.Data.PrimArray.UnalignedAccess
+Description : unaligned access for primitive arrays
+Copyright   : (c) Winterland, 2017-2018
+License     : BSD
+Maintainer  : drkoster@qq.com
+Stability   : experimental
+Portability : non-portable
+
+This module implements unaligned element access with ghc primitives (> 8.6).
+-}
+
 module Std.Data.PrimArray.UnalignedAccess where
 
 import           GHC.Int

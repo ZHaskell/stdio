@@ -21,7 +21,7 @@ Maintainer  : drkoster@qq.com
 Stability   : experimental
 Portability : non-portable
 
-This module provide unified vector interface. Conceptually a vector is simply a slice of an array, for example this is the definition of boxed vector:
+This module provides unified vector interface. Conceptually a vector is simply a slice of an array, for example this is the definition of boxed vector:
 
 @
     data Vector a = Vector
@@ -30,7 +30,7 @@ This module provide unified vector interface. Conceptually a vector is simply a 
         {-# UNPACK #-} !Int         -- length
 @
 
-The 'Vec' class unified different type of vectors, and this module provide both boxed 'Vector' and unboxed 'PrimVector', with basic operations and various useful instances.
+The 'Vec' class unified different type of vectors, and this module provide operation over 'Vec' instances, with all the internal structures. Be careful on modifying internal slices, otherwise segmentation fault await.
 
 -}
 

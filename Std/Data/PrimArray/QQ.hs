@@ -7,7 +7,7 @@
 
 {-|
 Module      : Std.Data.PrimArray.QQ
-Description : Extra stuff for PrimArray which hasn't merged to primitive yet
+Description : Extra stuff for PrimArray related literals
 Copyright   : (c) Winterland, 2017-2018
 License     : BSD
 Maintainer  : drkoster@qq.com
@@ -72,22 +72,23 @@ import           Unsafe.Coerce
 -- @@@
 -- arrASCII :: QuasiQuoter
 -- arrASCII = QuasiQuoter
---     (asciiLiteral $ \ len addr -> [| word8ArrayFromAddr len $(addr) |])
+--     (asciiLiteral $ \ len addr -> [| word8ArrayFromAddr $(len) $(addr) |])
 --     ...
 --
 -- word8ArrayFromAddr :: Int# -> Addr# -> PrimArray Word8
 -- {-# NOINLINE word8ArrayFromAddr #-}
 -- word8ArrayFromAddr l# addr# = unsafeDupablePerformIO $ do
 --     mba <- newPrimArray (I# l)
---     copyPtrToMutablePrimArray mba 0 (Ptr addr#) l
+--     copyPtrToMutablePrimArray mba 0 (Ptr addr#) (I# l#)
 --     unsafeFreezePrimArray mba
 -- @@@
 --
-asciiLiteral :: (Int -> ExpQ -> ExpQ) -- ^ Construction function which receive a byte
-                                       --   length and a 'Addr#' expression.
+asciiLiteral :: (ExpQ -> ExpQ -> ExpQ) -- ^ Construction function which receive a byte
+                                       --   length 'Int#' and a 'Addr#' 'LitE' expression.
              -> String                 -- ^ Quoter input
              -> ExpQ                   -- ^ Final Quoter
-asciiLiteral k str = k (length str) $ (LitE . StringPrimL) `fmap` check str
+asciiLiteral k str = k (return . LitE  . IntPrimL . fromIntegral $ length str)
+                       ((LitE . StringPrimL) `fmap` check str)
   where
     check :: String -> Q [Word8]
     check [] = return []
@@ -99,27 +100,28 @@ asciiLiteral k str = k (length str) $ (LitE . StringPrimL) `fmap` check str
 
 arrASCII :: QuasiQuoter
 arrASCII = QuasiQuoter
-    (asciiLiteral $ \ len addr -> [| word8ArrayFromAddr len $(addr) |])
+    (asciiLiteral $ \ len addr -> [| word8ArrayFromAddr $(len) $(addr) |])
     (error "Cannot use arrASCII as a pattern")
     (error "Cannot use arrASCII as a type")
     (error "Cannot use arrASCII as a dec")
 
-word8ArrayFromAddr :: Int -> Addr# -> PrimArray Word8
+word8ArrayFromAddr :: Int# -> Addr# -> PrimArray Word8
 {-# NOINLINE word8ArrayFromAddr #-}
-word8ArrayFromAddr l addr# = unsafeDupablePerformIO $ do
-    mba <- newPrimArray l
-    copyPtrToMutablePrimArray mba 0 (Ptr addr#) l
+word8ArrayFromAddr l# addr# = unsafeDupablePerformIO $ do
+    mba <- newPrimArray (I# l#)
+    copyPtrToMutablePrimArray mba 0 (Ptr addr#) (I# l#)
     unsafeFreezePrimArray mba
 
-int8ArrayFromAddr :: Int -> Addr# -> PrimArray Int8
+int8ArrayFromAddr :: Int# -> Addr# -> PrimArray Int8
 int8ArrayFromAddr l addr# = unsafeCoerce (word8ArrayFromAddr l addr#)
 
 -- | Construct data with UTF-8 encoded literals.
 --
 -- Smiliar to 'asciIILiteral', the
 --
-utf8Literal :: (Int -> ExpQ -> ExpQ) -> String -> ExpQ
-utf8Literal k str = k (length str) $ (LitE . StringPrimL) `fmap` check str
+utf8Literal :: (ExpQ -> ExpQ -> ExpQ) -> String -> ExpQ
+utf8Literal k str = k (return . LitE  . IntPrimL . fromIntegral $ length str)
+                      ((LitE . StringPrimL) `fmap` check str)
   where
     check :: String -> Q [Word8]
     check [] = return []
@@ -159,10 +161,10 @@ utf8Literal k str = k (length str) $ (LitE . StringPrimL) `fmap` check str
                 fail $ "character '" ++ [c] ++ "' is have out of range in UTF-8 literal:" ++ str
 
 
-vectorLiteral :: ([Integer] -> Q [Word8]) -> (Int -> ExpQ -> ExpQ) -> String -> ExpQ
+vectorLiteral :: ([Integer] -> Q [Word8]) -> (ExpQ -> ExpQ -> ExpQ) -> String -> ExpQ
 vectorLiteral f k str = do
     (len, ws) <- parse str
-    k len $ (return . LitE . StringPrimL) ws
+    k (return . LitE  . IntPrimL .fromIntegral $ len) $ (return . LitE . StringPrimL) ws
   where
     parse :: String -> Q (Int, [Word8])
     parse str = do
@@ -173,7 +175,7 @@ vectorLiteral f k str = do
 
 --------------------------------------------------------------------------------
 
-word8Literal :: (Int -> ExpQ -> ExpQ) -> String -> ExpQ
+word8Literal :: (ExpQ -> ExpQ -> ExpQ) -> String -> ExpQ
 word8Literal k str = vectorLiteral checkW8 k str
   where
     checkW8 :: [Integer] -> Q [Word8]
@@ -187,12 +189,12 @@ word8Literal k str = vectorLiteral checkW8 k str
 
 arrW8 :: QuasiQuoter
 arrW8 = QuasiQuoter
-    (word8Literal $ \ len addr -> [| word8ArrayFromAddr len $(addr) |])
+    (word8Literal $ \ len addr -> [| word8ArrayFromAddr $(len) $(addr) |])
     (error "Cannot use arrW8 as a pattern")
     (error "Cannot use arrW8 as a type")
     (error "Cannot use arrW8 as a dec")
 
-int8Literal :: (Int -> ExpQ -> ExpQ) -> String -> ExpQ
+int8Literal :: (ExpQ -> ExpQ -> ExpQ) -> String -> ExpQ
 int8Literal k str = vectorLiteral checkI8 k str
   where
     checkI8 :: [Integer] -> Q [Word8]
@@ -206,14 +208,14 @@ int8Literal k str = vectorLiteral checkI8 k str
 
 arrI8 :: QuasiQuoter
 arrI8 = QuasiQuoter
-    (int8Literal $ \ len addr -> [| int8ArrayFromAddr len $(addr) |])
+    (int8Literal $ \ len addr -> [| int8ArrayFromAddr $(len) $(addr) |])
     (error "Cannot use arrI8 as a pattern")
     (error "Cannot use arrI8 as a type")
     (error "Cannot use arrI8 as a dec")
 
 --------------------------------------------------------------------------------
 
-word16Literal :: (Int -> ExpQ -> ExpQ) -> String -> ExpQ
+word16Literal :: (ExpQ -> ExpQ -> ExpQ) -> String -> ExpQ
 word16Literal k str = vectorLiteral checkW16 k str
   where
     checkW16 :: [Integer] -> Q [Word8]
@@ -232,24 +234,24 @@ word16Literal k str = vectorLiteral checkW16 k str
 
 arrW16 :: QuasiQuoter
 arrW16 = QuasiQuoter
-    (word16Literal $ \ len addr -> [| word16ArrayFromAddr len $(addr) |])
+    (word16Literal $ \ len addr -> [| word16ArrayFromAddr $(len) $(addr) |])
     (error "Cannot use arrW16 as a pattern")
     (error "Cannot use arrW16 as a type")
     (error "Cannot use arrW16 as a dec")
 
-word16ArrayFromAddr :: Int -> Addr# -> PrimArray Word16
+word16ArrayFromAddr :: Int# -> Addr# -> PrimArray Word16
 {-# NOINLINE word16ArrayFromAddr #-}
-word16ArrayFromAddr l addr# = unsafeDupablePerformIO $ do
-    mba <- newArr l
-    go l (Ptr addr#) mba 0
+word16ArrayFromAddr l# addr# = unsafeDupablePerformIO $ do
+    mba <- newArr (I# l#)
+    go (I# l#) (Ptr addr#) mba 0
     unsafeFreezePrimArray mba :: IO (PrimArray Word16)
   where
     go l ptr mba idx = copyPtrToMutablePrimArray mba 0 ptr l
 
-int16ArrayFromAddr :: Int -> Addr# -> PrimArray Int16
+int16ArrayFromAddr :: Int# -> Addr# -> PrimArray Int16
 int16ArrayFromAddr l addr# = unsafeCoerce (word16ArrayFromAddr l addr#)
 
-int16Literal :: (Int -> ExpQ -> ExpQ) -> String -> ExpQ
+int16Literal :: (ExpQ -> ExpQ -> ExpQ) -> String -> ExpQ
 int16Literal k str = vectorLiteral checkI16 k str
   where
     checkI16 :: [Integer] -> Q [Word8]
@@ -268,13 +270,13 @@ int16Literal k str = vectorLiteral checkI16 k str
 
 arrI16 :: QuasiQuoter
 arrI16 = QuasiQuoter
-    (word16Literal $ \ len addr -> [| int16ArrayFromAddr len $(addr) |])
+    (word16Literal $ \ len addr -> [| int16ArrayFromAddr $(len) $(addr) |])
     (error "Cannot use arrI16 as a pattern")
     (error "Cannot use arrI16 as a type")
     (error "Cannot use arrI16 as a dec")
 --------------------------------------------------------------------------------
 
-word32Literal :: (Int -> ExpQ -> ExpQ) -> String -> ExpQ
+word32Literal :: (ExpQ -> ExpQ -> ExpQ) -> String -> ExpQ
 word32Literal k str = vectorLiteral checkW32 k str
   where
     checkW32 :: [Integer] -> Q [Word8]
@@ -295,24 +297,24 @@ word32Literal k str = vectorLiteral checkW32 k str
 
 arrW32 :: QuasiQuoter
 arrW32 = QuasiQuoter
-    (word32Literal $ \ len addr -> [| word32ArrayFromAddr len $(addr) |])
+    (word32Literal $ \ len addr -> [| word32ArrayFromAddr $(len) $(addr) |])
     (error "Cannot use arrW32 as a pattern")
     (error "Cannot use arrW32 as a type")
     (error "Cannot use arrW32 as a dec")
 
-word32ArrayFromAddr :: Int -> Addr# -> PrimArray Word32
+word32ArrayFromAddr :: Int# -> Addr# -> PrimArray Word32
 {-# NOINLINE word32ArrayFromAddr #-}
-word32ArrayFromAddr l addr# = unsafeDupablePerformIO $ do
-    mba <- newArr l
-    go l (Ptr addr#) mba 0
+word32ArrayFromAddr l# addr# = unsafeDupablePerformIO $ do
+    mba <- newArr (I# l#)
+    go (I# l#) (Ptr addr#) mba 0
     unsafeFreezePrimArray mba :: IO (PrimArray Word32)
   where
     go l ptr mba !idx = copyPtrToMutablePrimArray mba 0 ptr l
 
-int32ArrayFromAddr :: Int -> Addr# -> PrimArray Int32
+int32ArrayFromAddr :: Int# -> Addr# -> PrimArray Int32
 int32ArrayFromAddr l addr# = unsafeCoerce (word32ArrayFromAddr l addr#)
 
-int32Literal :: (Int -> ExpQ -> ExpQ) -> String -> ExpQ
+int32Literal :: (ExpQ -> ExpQ -> ExpQ) -> String -> ExpQ
 int32Literal k str = vectorLiteral checkI32 k str
   where
     checkI32 :: [Integer] -> Q [Word8]
@@ -333,14 +335,14 @@ int32Literal k str = vectorLiteral checkI32 k str
 
 arrI32 :: QuasiQuoter
 arrI32 = QuasiQuoter
-    (int32Literal $ \ len addr -> [| int32ArrayFromAddr len $(addr) |])
+    (int32Literal $ \ len addr -> [| int32ArrayFromAddr $(len) $(addr) |])
     (error "Cannot use arrI32 as a pattern")
     (error "Cannot use arrI32 as a type")
     (error "Cannot use arrI32 as a dec")
 
 --------------------------------------------------------------------------------
 
-word64Literal :: (Int -> ExpQ -> ExpQ) -> String -> ExpQ
+word64Literal :: (ExpQ -> ExpQ -> ExpQ) -> String -> ExpQ
 word64Literal k str = vectorLiteral checkW64 k str
   where
     checkW64 :: [Integer] -> Q [Word8]
@@ -365,24 +367,24 @@ word64Literal k str = vectorLiteral checkW64 k str
 
 arrW64 :: QuasiQuoter
 arrW64 = QuasiQuoter
-    (word64Literal $ \ len addr -> [| word64ArrayFromAddr len $(addr) |])
+    (word64Literal $ \ len addr -> [| word64ArrayFromAddr $(len) $(addr) |])
     (error "Cannot use arrW64 as a pattern")
     (error "Cannot use arrW64 as a type")
     (error "Cannot use arrW64 as a dec")
 
-word64ArrayFromAddr :: Int -> Addr# -> PrimArray Word64
+word64ArrayFromAddr :: Int# -> Addr# -> PrimArray Word64
 {-# NOINLINE word64ArrayFromAddr #-}
-word64ArrayFromAddr l addr# = unsafeDupablePerformIO $ do
-    mba <- newArr l
-    go l (Ptr addr#) mba 0
+word64ArrayFromAddr l# addr# = unsafeDupablePerformIO $ do
+    mba <- newArr (I# l#)
+    go (I# l#) (Ptr addr#) mba 0
     unsafeFreezePrimArray mba :: IO (PrimArray Word64)
   where
     go l ptr mba !idx = copyPtrToMutablePrimArray mba 0 ptr l
 
-int64ArrayFromAddr :: Int -> Addr# -> PrimArray Int64
+int64ArrayFromAddr :: Int# -> Addr# -> PrimArray Int64
 int64ArrayFromAddr l addr# = unsafeCoerce (word64ArrayFromAddr l addr#)
 
-int64Literal :: (Int -> ExpQ -> ExpQ) -> String -> ExpQ
+int64Literal :: (ExpQ -> ExpQ -> ExpQ) -> String -> ExpQ
 int64Literal k str = vectorLiteral checkI64 k str
   where
     checkI64 :: [Integer] -> Q [Word8]
@@ -407,14 +409,14 @@ int64Literal k str = vectorLiteral checkI64 k str
 
 arrI64 :: QuasiQuoter
 arrI64 = QuasiQuoter
-    (int64Literal $ \ len addr -> [| int64ArrayFromAddr len $(addr) |])
+    (int64Literal $ \ len addr -> [| int64ArrayFromAddr $(len) $(addr) |])
     (error "Cannot use arrI64 as a pattern")
     (error "Cannot use arrI64 as a type")
     (error "Cannot use arrI64 as a dec")
 
 --------------------------------------------------------------------------------
 
-wordArrayFromAddr :: Int -> Addr# -> PrimArray Word
+wordArrayFromAddr :: Int# -> Addr# -> PrimArray Word
 wordArrayFromAddr l addr# =
 #if SIZEOF_HSWORD == 8
     unsafeCoerce (word64ArrayFromAddr l addr#)
@@ -422,7 +424,7 @@ wordArrayFromAddr l addr# =
     unsafeCoerce (word32ArrayFromAddr l addr#)
 #endif
 
-intArrayFromAddr :: Int -> Addr# -> PrimArray Int
+intArrayFromAddr :: Int# -> Addr# -> PrimArray Int
 intArrayFromAddr l addr# =
 #if SIZEOF_HSWORD == 8
     unsafeCoerce (int64ArrayFromAddr l addr#)
@@ -430,7 +432,7 @@ intArrayFromAddr l addr# =
     unsafeCoerce (int32ArrayFromAddr l addr#)
 #endif
 
-wordLiteral :: (Int -> ExpQ -> ExpQ) -> String -> ExpQ
+wordLiteral :: (ExpQ -> ExpQ -> ExpQ) -> String -> ExpQ
 wordLiteral =
 #if SIZEOF_HSWORD == 8
     word64Literal
@@ -438,7 +440,7 @@ wordLiteral =
     word32Literal
 #endif
 
-intLiteral :: (Int -> ExpQ -> ExpQ) -> String -> ExpQ
+intLiteral :: (ExpQ -> ExpQ -> ExpQ) -> String -> ExpQ
 intLiteral =
 #if SIZEOF_HSWORD == 8
     int64Literal
@@ -448,14 +450,14 @@ intLiteral =
 
 arrWord :: QuasiQuoter
 arrWord = QuasiQuoter
-    (wordLiteral $ \ len addr -> [| wordArrayFromAddr len $(addr) |])
+    (wordLiteral $ \ len addr -> [| wordArrayFromAddr $(len) $(addr) |])
     (error "Cannot use arrWord as a pattern")
     (error "Cannot use arrWord as a type")
     (error "Cannot use arrWord as a dec")
 
 arrInt :: QuasiQuoter
 arrInt = QuasiQuoter
-    (intLiteral $ \ len addr -> [| intArrayFromAddr len $(addr) |])
+    (intLiteral $ \ len addr -> [| intArrayFromAddr $(len) $(addr) |])
     (error "Cannot use arrInt as a pattern")
     (error "Cannot use arrInt as a type")
     (error "Cannot use arrInt as a dec")
