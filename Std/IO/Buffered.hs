@@ -36,6 +36,7 @@ import           Std.Data.Array
 import qualified Std.Data.Builder         as B
 import qualified Std.Data.Text            as T
 import qualified Std.Data.Text.UTF8Codec  as UTF8
+import qualified Std.Data.Vector.Base     as V
 import qualified Std.Data.Vector          as V
 import           Std.Foreign.PrimArray
 import           Std.IO.Exception

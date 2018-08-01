@@ -24,6 +24,17 @@ Unified unboxed and boxed array operations using functional dependencies.
 
 All operations are NOT bound checked, if you need checked operations please use "Std.Data.Array.Checked".
 It exports exactly same APIs so that you can switch between without pain.
+
+Some mnemonics:
+
+  * 'newArr', 'newArrWith' return mutable array, 'readArr', 'writeArr' works on them, 'setArr' fill elements
+     with offset and length.
+
+  * 'indexArr' works on immutable one, use 'indexArr'' to avoid indexing thunk.
+
+  * The order of arguements of 'copyArr', 'copyMutableArr' and 'moveArr' are always target and its offset
+    come first, and source and source offset follow, copying length comes last.
+
 -}
 
 module Std.Data.Array (
@@ -50,6 +61,9 @@ module Std.Data.Array (
   , PrimUnlifted(..)
   -- * The 'ArrayException' type
   , ArrayException(..)
+  -- * Cast between primitive arrays
+  , castArray
+  , castMutableArray
   ) where
 
 import Data.Primitive.Types
@@ -67,10 +81,12 @@ import GHC.Types
 import GHC.ST
 import GHC.Prim
 import GHC.Types (isTrue#)
+import Std.Data.PrimArray.Cast
 
 -- | Bottom value (@throw ('UndefinedElement' "Data.Array.uninitialized")@)
 -- for initialize new boxed array('Array', 'SmallArray'..).
 --
+-- NOTE: These functions may segfault when used with indices which are out of bounds.
 uninitialized :: a
 uninitialized = throw (UndefinedElement "Data.Array.uninitialized")
 
@@ -105,8 +121,14 @@ class Arr (marr :: * -> * -> *) (arr :: * -> * ) a | arr -> marr, marr -> arr wh
     -- | Fill mutable array with a given value.
     setArr :: (PrimMonad m, PrimState m ~ s) => marr s a -> Int -> Int -> a -> m ()
 
-    -- | Index immutable array, which is a pure operation,
+    -- | Index immutable array, which is a pure operation. This operation often
+    -- result in an indexing thunk for lifted arrays, use 'indexArr\'' or 'indexArrM'
+    -- if that's not desired.
     indexArr :: arr a -> Int -> a
+
+    -- | Index immutable array, pattern match on the unboxed unit tuple to force
+    -- indexing (without forcing the element).
+    indexArr' :: arr a -> Int -> (# a #)
 
     -- | Index immutable array in a primitive monad, this helps in situations that
     -- you want your indexing result is not a thunk referencing whole array.
@@ -186,6 +208,8 @@ instance Arr MutableArray Array a where
     {-# INLINE setArr #-}
     indexArr = indexArray
     {-# INLINE indexArr #-}
+    indexArr' (Array arr#) (I# i#) = indexArray# arr# i#
+    {-# INLINE indexArr' #-}
     indexArrM = indexArrayM
     {-# INLINE indexArrM #-}
     freezeArr = freezeArray
@@ -268,6 +292,8 @@ instance Arr SmallMutableArray SmallArray a where
     {-# INLINE setArr #-}
     indexArr = indexSmallArray
     {-# INLINE indexArr #-}
+    indexArr' (SmallArray arr#) (I# i#) = indexSmallArray# arr# i#
+    {-# INLINE indexArr' #-}
     indexArrM = indexSmallArrayM
     {-# INLINE indexArrM #-}
     freezeArr = freezeSmallArray
@@ -350,6 +376,8 @@ instance Prim a => Arr MutablePrimArray PrimArray a where
     {-# INLINE setArr #-}
     indexArr = indexPrimArray
     {-# INLINE indexArr #-}
+    indexArr' arr i = (# indexPrimArray arr i #)
+    {-# INLINE indexArr' #-}
     indexArrM arr i = return (indexPrimArray arr i)
     {-# INLINE indexArrM #-}
     freezeArr marr s l = do
@@ -422,6 +450,8 @@ instance PrimUnlifted a => Arr MutableUnliftedArray UnliftedArray a where
     {-# INLINE setArr #-}
     indexArr = indexUnliftedArray
     {-# INLINE indexArr #-}
+    indexArr' arr i = (# indexUnliftedArray arr i #)
+    {-# INLINE indexArr' #-}
     indexArrM = indexUnliftedArrayM
     {-# INLINE indexArrM #-}
     freezeArr = freezeUnliftedArray
@@ -540,6 +570,7 @@ mutablePrimArrayContents (MutablePrimArray mba#) =
 -- This operation is only safe on /pinned/ primitive arrays allocated by 'newPinnedPrimArray' or
 -- 'newAlignedPinnedPrimArray'.
 --
+-- Don't pass a forever loop to this function, see <https://ghc.haskell.org/trac/ghc/ticket/14346 #14346>.
 withPrimArrayContents :: PrimArray a -> (Ptr a -> IO b) -> IO b
 {-# INLINE withPrimArrayContents #-}
 withPrimArrayContents (PrimArray ba#) f = do
@@ -554,6 +585,7 @@ withPrimArrayContents (PrimArray ba#) f = do
 -- This operation is only safe on /pinned/ primitive arrays allocated by 'newPinnedPrimArray' or
 -- 'newAlignedPinnedPrimArray'.
 --
+-- Don't pass a forever loop to this function, see <https://ghc.haskell.org/trac/ghc/ticket/14346 #14346>.
 withMutablePrimArrayContents :: MutablePrimArray RealWorld a -> (Ptr a -> IO b) -> IO b
 {-# INLINE withMutablePrimArrayContents #-}
 withMutablePrimArrayContents (MutablePrimArray mba#) f = do
@@ -567,18 +599,20 @@ withMutablePrimArrayContents (MutablePrimArray mba#) f = do
 --
 isPrimArrayPinned :: PrimArray a -> Bool
 {-# INLINE isPrimArrayPinned #-}
-isPrimArrayPinned (PrimArray ba#) =
-    c_is_byte_array_pinned ba# == 1
+isPrimArrayPinned (PrimArray ba#) = tagToEnum# (isByteArrayPinned# ba#)
 
 -- | Check if a mutable primitive array is pinned.
 --
 isMutablePrimArrayPinned :: MutablePrimArray s a -> Bool
 {-# INLINE isMutablePrimArrayPinned #-}
 isMutablePrimArrayPinned (MutablePrimArray mba#) =
-    c_is_mutable_byte_array_pinned mba# == 1
+    tagToEnum# (isByteArrayPinned# (unsafeCoerce# mba#))
 
-foreign import ccall unsafe "bytes.c is_byte_array_pinned"
-    c_is_byte_array_pinned :: ByteArray# -> CInt
 
-foreign import ccall unsafe "bytes.c is_byte_array_pinned"
-    c_is_mutable_byte_array_pinned :: MutableByteArray# s -> CInt
+-- | Cast between arrays
+--
+castArray :: (Arr marr arr a, Cast a b) => arr a -> arr b
+castArray = unsafeCoerce#
+
+castMutableArray :: (Arr marr arr a, Cast a b) => marr s a -> marr s b
+castMutableArray = unsafeCoerce#

@@ -40,7 +40,7 @@ encodeCharLength n
 
 -- | Encode a 'Char' into bytes
 --
--- Write @\U+FFFD@ (encoded as @EF BF BD@ 3 bytes) for invalid unicode codepoint.
+-- Write @\U+FFFD@ (encoded as @0xEF 0xBF 0xBD@ 3 bytes) for invalid unicode codepoint.
 -- This function assumed there're enough space for encoded bytes, and return the advanced index.
 --
 encodeChar :: MutablePrimArray s Word8 -> Int -> Char -> ST s Int

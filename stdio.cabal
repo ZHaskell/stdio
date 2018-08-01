@@ -17,11 +17,12 @@ homepage:            https://github.com/haskell-stdio/stdio
 bug-reports:         https://github.com/haskell-stdio/stdio/issues
 
 extra-source-files:  ChangeLog.md
+                     include/bytes.h
                      include/hs_uv.h
+                     cbits/bytes.c
                      cbits/hs_uv_base.c
                      cbits/hs_uv_stream.c
                      cbits/hs_uv_file.c
-                     cbits/bytes.c
 
 source-repository head
   type:     git
@@ -29,10 +30,16 @@ source-repository head
 
 
 library
-    exposed-modules:        Std.Data.PrimArray.QQ
+    exposed-modules:        Std.Data.Vector
+                            Std.Data.Vector.Base
+                            Std.Data.Vector.Extra
+                            Std.Data.Vector.Search
+                            Std.Data.Vector.Sort
+                            Std.Data.Vector.QQ
+                            Std.Data.PrimArray.Cast
+                            Std.Data.PrimArray.QQ
                             Std.Data.PrimArray.BitTwiddle
                             Std.Data.PrimArray.UnalignedAccess
-                            Std.Data.Vector
                             Std.Data.Array
                             Std.Data.Array.Checked
                             Std.Data.CBytes
@@ -71,8 +78,10 @@ library
                         ,   stm
 
     include-dirs:       include
-    includes:           hs_uv.h
-    install-includes:   hs_uv.h
+    includes:           bytes.h
+                        hs_uv.h
+    install-includes:   bytes.h
+                        hs_uv.h
     c-sources:          cbits/bytes.c
                         cbits/hs_uv_base.c
                         cbits/hs_uv_stream.c
@@ -130,23 +139,13 @@ library
 
 test-suite test
     type: exitcode-stdio-1.0
-    main-is: Main.hs
-    other-modules:          Property.Text
-                            Property.Vector
-                            Unit.FileSystem
-                            Unit.LowResTimer
-                            Unit.Resource
+    main-is: Spec.hs
     hs-source-dirs: test
     build-depends:  stdio
                   , base
-                  , tasty == 1.1.*
-                  , tasty-hunit
-                  , tasty-quickcheck 
-                  , tasty-hunit
+                  , hspec >= 2.5.4
                   , QuickCheck >= 2.10
-                  , async
                   , unboxed-ref
-
 
     ghc-options:         -threaded
     default-language:    Haskell2010 

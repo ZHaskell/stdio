@@ -6,7 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 {-|
-Module      : Std.Data.Parser
+Module      : Std.Data.Parser.Internal
 Description : Efficient deserialization/parse.
 Copyright   : (c) Winterland, 2017-2018
 License     : BSD
@@ -15,7 +15,8 @@ Stability   : experimental
 Portability : non-portable
 WIP
 -}
-module Std.Data.Parser where
+
+module Std.Data.Parser.Internal where
 
 import           Control.Applicative
 import           Control.Monad
@@ -25,8 +26,7 @@ import           Data.Word
 import           GHC.Prim
 import           GHC.Types
 import           Std.Data.PrimArray.UnalignedAccess
-import qualified Std.Data.Vector.Base               as V
-import qualified Std.Data.Vector.Extra              as V
+import qualified Std.Data.Vector                    as V
 
 -- | Simple parsing result, that represent respectively:
 --

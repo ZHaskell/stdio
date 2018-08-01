@@ -53,7 +53,7 @@ import           GHC.Prim
 import           GHC.Types
 import qualified Std.Data.Array                     as A
 import           Std.Data.PrimArray.UnalignedAccess
-import qualified Std.Data.Vector                    as V
+import qualified Std.Data.Vector.Base               as V
 
 -- | 'AllocateStrategy' will decide how each 'BuildStep' proceed when previous buffer is not enough.
 --
