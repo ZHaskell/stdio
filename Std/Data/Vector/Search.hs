@@ -118,12 +118,14 @@ findIndexOrEnd :: Vec v a => (a -> Bool) -> v a -> Int
 findIndexOrEnd f (Vec arr s l) = go s
   where
     !end = s + l
-    go !p | p >= end  = end
+    go !p | p >= end  = l
           | f x       = p-s
           | otherwise = go (p+1)
         where (# x #) = indexArr' arr p
 
 -- | /O(n)/ Special 'elemIndexOrEndBytes' for 'Bytes' using @memchr(3)@
+--
+--  return l (then length of the vector) if not find target.
 elemIndexOrEndBytes :: Word8 -> Bytes -> Int
 {-# INLINE elemIndexOrEndBytes #-}
 elemIndexOrEndBytes w (PrimVector (PrimArray ba#) s l) =
@@ -132,7 +134,7 @@ elemIndexOrEndBytes w (PrimVector (PrimArray ba#) s l) =
         r  -> r
 
 -- | /O(n)/ find the first index matching the predicate in a vector
--- from right to left, if there isn't one, return zero.
+-- from right to left, if there isn't one, return -1.
 --
 -- To leverage bit twidding, following rewrite rules are included:
 --
@@ -147,22 +149,18 @@ findIndexReverseOrStart :: Vec v a => (a -> Bool) -> v a -> Int
 {-# RULES "findIndexReverseOrStart/Bytes"
     forall w. findIndexReverseOrStart (`eqWord8` w) = elemIndexReverseOrStartBytes w
     #-}
-findIndexReverseOrStart f (Vec arr s l) = go s
+findIndexReverseOrStart f (Vec arr s l) = go (s+l-1)
   where
-    !end = s + l
-    go !p | p >= end  = end
+    go !p | p < s     = -1
           | f x       = p-s
-          | otherwise = go (p+1)
+          | otherwise = go (p-1)
         where (# x #) = indexArr' arr p
 
 -- | /O(n)/ Special 'elemIndexReverseOrStartBytes' for 'Bytes' with handle roll
 -- bit twiddling.
 elemIndexReverseOrStartBytes :: Word8 -> Bytes -> Int
 {-# INLINE elemIndexReverseOrStartBytes #-}
-elemIndexReverseOrStartBytes w (PrimVector ba s l) =
-    case memchrReverse ba w (s+l-1) l of
-        -1 -> 0
-        r  -> r
+elemIndexReverseOrStartBytes w (PrimVector ba s l) = memchrReverse ba w (s+l-1) l
 
 -- | /O(n)/ 'filter', applied to a predicate and a vector,
 -- returns a vector containing those elements that satisfy the

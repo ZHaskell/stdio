@@ -236,10 +236,11 @@ dropWhile f v@(Vec arr s l) =
 
 break :: Vec v a => (a -> Bool) -> v a -> (v a, v a)
 {-# INLINE break #-}
-break f vs@(Vec arr s l) = case findIndexOrEnd f vs of
-    n -> let !v1 = Vec arr s n
-             !v2 = Vec arr (s+n) (l-n)
-         in (v1, v2)
+break f vs@(Vec arr s l) =
+    let !n =  findIndexOrEnd f vs
+        !v1 = Vec arr s n
+        !v2 = Vec arr (s+n) (l-n)
+    in (v1, v2)
 
 span :: Vec v a => (a -> Bool) -> v a -> (v a, v a)
 {-# INLINE span #-}
@@ -247,10 +248,11 @@ span f = break (not . f)
 
 breakEnd :: Vec v a => (a -> Bool) -> v a -> (v a, v a)
 {-# INLINE breakEnd #-}
-breakEnd f vs@(Vec arr s l) = case findIndexReverseOrStart f vs of
-    n -> let !v1 = Vec arr s n
-             !v2 = Vec arr (s+n) (l-n)
-         in (v1, v2)
+breakEnd f vs@(Vec arr s l) =
+    let !n = findIndexReverseOrStart f vs
+        !v1 = Vec arr s (n+1)
+        !v2 = Vec arr (s+n+1) (l-1-n)
+    in (v1, v2)
 
 spanEnd :: Vec v a => (a -> Bool) -> v a -> (v a, v a)
 {-# INLINE spanEnd #-}

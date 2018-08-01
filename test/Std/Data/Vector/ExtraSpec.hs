@@ -6,6 +6,7 @@ module Std.Data.Vector.ExtraSpec where
 import qualified Data.List                as List
 import           Data.Word
 import qualified Std.Data.Vector          as V
+import qualified Std.Data.Vector.Extra    as V
 import           Test.QuickCheck
 import           Test.QuickCheck.Function
 import           Test.QuickCheck.Property
@@ -13,26 +14,26 @@ import           Test.Hspec
 import           Test.Hspec.QuickCheck
 
 spec :: Spec
-spec = do
+spec =  do
     describe "vector cons == List.(:)" $ do
-        prop "vector cons == List.(:)" $ \ (NonEmpty xs) x ->
+        prop "vector cons == List.(:)" $ \ xs x ->
             (V.cons x . V.pack @V.Vector @Integer $ xs)  ===
                 (V.pack . (:) x $ xs)
-        prop "vector cons == List.(:)" $ \ (NonEmpty xs) x ->
+        prop "vector cons == List.(:)" $ \ xs x ->
             (V.cons x . V.pack @V.PrimVector @Int $ xs)  ===
                 (V.pack . (:) x $ xs)
-        prop "vector cons == List.(:)" $ \ (NonEmpty xs) x ->
+        prop "vector cons == List.(:)" $ \ xs x ->
             (V.cons x . V.pack @V.PrimVector @Word8 $ xs)  ===
                 (V.pack . (:) x $ xs)
 
     describe "vector snoc == List.++" $ do
-        prop "vector snoc == List.++" $ \ (NonEmpty xs) x ->
+        prop "vector snoc == List.++" $ \ xs x ->
             ((`V.snoc` x) . V.pack @V.Vector @Integer $ xs)  ===
                 (V.pack . (++ [x]) $ xs)
-        prop "vector snoc == List.++" $ \ (NonEmpty xs) x ->
+        prop "vector snoc == List.++" $ \ xs x ->
             ((`V.snoc` x) . V.pack @V.PrimVector @Int $ xs)  ===
                 (V.pack . (++ [x]) $ xs)
-        prop "vector snoc == List.++" $ \ (NonEmpty xs) x ->
+        prop "vector snoc == List.++" $ \ xs x ->
             ((`V.snoc` x) . V.pack @V.PrimVector @Word8 $ xs)  ===
                 (V.pack . (++ [x]) $ xs)
 
@@ -81,24 +82,24 @@ spec = do
                 (V.pack . List.tail $ xs)
 
     describe "vector take == List.take" $ do
-        prop "vector take == List.take" $ \ (NonEmpty xs) x ->
+        prop "vector take == List.take" $ \ xs x ->
             (V.take x . V.pack @V.Vector @Integer $ xs)  ===
                 (V.pack . List.take x $ xs)
-        prop "vector take == List.take" $ \ (NonEmpty xs) x ->
+        prop "vector take == List.take" $ \ xs x ->
             (V.take x . V.pack @V.PrimVector @Int $ xs)  ===
                 (V.pack . List.take x $ xs)
-        prop "vector take == List.take" $ \ (NonEmpty xs) x ->
+        prop "vector take == List.take" $ \ xs x ->
             (V.take x . V.pack @V.PrimVector @Word8 $ xs)  ===
                 (V.pack . List.take x $ xs)
 
     describe "vector drop == List.drop" $ do
-        prop "vector drop == List.drop" $ \ (NonEmpty xs) x ->
+        prop "vector drop == List.drop" $ \ xs x ->
             (V.drop x . V.pack @V.Vector @Integer $ xs)  ===
                 (V.pack . List.drop x $ xs)
-        prop "vector drop == List.drop" $ \ (NonEmpty xs) x ->
+        prop "vector drop == List.drop" $ \ xs x ->
             (V.drop x . V.pack @V.PrimVector @Int $ xs)  ===
                 (V.pack . List.drop x $ xs)
-        prop "vector drop == List.drop" $ \ (NonEmpty xs) x ->
+        prop "vector drop == List.drop" $ \ xs x ->
             (V.drop x . V.pack @V.PrimVector @Word8 $ xs)  ===
                 (V.pack . List.drop x $ xs)
 
@@ -124,6 +125,89 @@ spec = do
             (V.pack @V.PrimVector @Int xs V.|..| (x,y))  === (f x y . V.pack $ xs)
         prop "vector (|..|) rules" $ \ x y xs ->
             (V.pack @V.PrimVector @Word8 xs V.|..| (x,y))  === (f x y . V.pack $ xs)
+
+    describe "vector splitAt == List.splitAt" $ do
+        prop "vector splitAt == List.splitAt" $ \ xs x ->
+            (V.splitAt x . V.pack @V.Vector @Integer $ xs)  ===
+                (let (a,b) = List.splitAt x $ xs in (V.pack a, V.pack b))
+        prop "vector splitAt == List.splitAt" $ \ xs x ->
+            (V.splitAt x . V.pack @V.PrimVector @Int $ xs)  ===
+                (let (a,b) = List.splitAt x $ xs in (V.pack a, V.pack b))
+        prop "vector splitAt == List.splitAt" $ \ xs x ->
+            (V.splitAt x . V.pack @V.PrimVector @Word8 $ xs)  ===
+                (let (a,b) = List.splitAt x $ xs in (V.pack a, V.pack b))
+
+    describe "vector takeWhile == List.takeWhile" $ do
+        prop "vector takeWhile == List.takeWhile" $ \ xs (Fun _ x) ->
+            (V.takeWhile x . V.pack @V.Vector @Integer $ xs)  ===
+                (V.pack . List.takeWhile x $ xs)
+        prop "vector takeWhile == List.takeWhile" $ \ xs (Fun _ x) ->
+            (V.takeWhile x . V.pack @V.PrimVector @Int $ xs)  ===
+                (V.pack . List.takeWhile x $ xs)
+        prop "vector takeWhile == List.takeWhile" $ \ xs (Fun _ x) ->
+            (V.takeWhile x . V.pack @V.PrimVector @Word8 $ xs)  ===
+                (V.pack . List.takeWhile x $ xs)
+
+    describe "vector dropWhile == List.dropWhile" $ do
+        prop "vector dropWhile == List.dropWhile" $ \ xs (Fun _ x) ->
+            (V.dropWhile x . V.pack @V.Vector @Integer $ xs)  ===
+                (V.pack . List.dropWhile x $ xs)
+        prop "vector dropWhile == List.dropWhile" $ \ xs (Fun _ x) ->
+            (V.dropWhile x . V.pack @V.PrimVector @Int $ xs)  ===
+                (V.pack . List.dropWhile x $ xs)
+        prop "vector dropWhile == List.dropWhile" $ \ xs (Fun _ x) ->
+            (V.dropWhile x . V.pack @V.PrimVector @Word8 $ xs)  ===
+                (V.pack . List.dropWhile x $ xs)
+
+    describe "vector break == List.break" $ do
+        prop "vector break == List.break" $ \ xs (Fun _ x) ->
+            (V.break x . V.pack @V.Vector @Integer $ xs)  ===
+                (let (a,b) = List.break x $ xs in (V.pack a, V.pack b))
+        prop "vector break == List.break" $ \ xs (Fun _ x) ->
+            (V.break x . V.pack @V.PrimVector @Int $ xs)  ===
+                (let (a,b) = List.break x $ xs in (V.pack a, V.pack b))
+        prop "vector break == List.break" $ \ xs (Fun _ x) ->
+            (V.break x . V.pack @V.PrimVector @Word8 $ xs)  ===
+                (let (a,b) = List.break x $ xs in (V.pack a, V.pack b))
+
+    describe "vector span == List.span" $ do
+        prop "vector span == List.span" $ \ xs (Fun _ x) ->
+            (V.span x . V.pack @V.Vector @Integer $ xs)  ===
+                (let (a,b) = List.span x $ xs in (V.pack a, V.pack b))
+        prop "vector span == List.span" $ \ xs (Fun _ x) ->
+            (V.span x . V.pack @V.PrimVector @Int $ xs)  ===
+                (let (a,b) = List.span x $ xs in (V.pack a, V.pack b))
+        prop "vector span == List.span" $ \ xs (Fun _ x) ->
+            (V.span x . V.pack @V.PrimVector @Word8 $ xs)  ===
+                (let (a,b) = List.span x $ xs in (V.pack a, V.pack b))
+
+    describe "vector breakEnd == List.break in reverse driection" $ do
+        prop "vector breakEnd == List.break in reverse driection" $ \ xs (Fun _ x) ->
+            (V.breakEnd x . V.pack @V.Vector @Integer $ xs)  ===
+                (let (b,a) = List.break x . List.reverse $ xs
+                 in (V.reverse $ V.pack a, V.reverse $ V.pack b))
+        prop "vector breakEnd == List.break in reverse driection" $ \ xs (Fun _ x) ->
+            (V.breakEnd x . V.pack @V.PrimVector @Int $ xs)  ===
+                (let (b,a) = List.break x . List.reverse $ xs
+                 in (V.reverse $ V.pack a, V.reverse $ V.pack b))
+        prop "vector breakEnd == List.break in reverse driection" $ \ xs (Fun _ x) ->
+            (V.breakEnd x . V.pack @V.PrimVector @Word8 $ xs)  ===
+                (let (b,a) = List.break x . List.reverse $ xs
+                 in (V.reverse $ V.pack a, V.reverse $ V.pack b))
+
+    describe "vector spanEnd == List.span in reverse driection" $ do
+        prop "vector spanEnd == List.span in reverse driection" $ \ xs (Fun _ x) ->
+            (V.spanEnd x . V.pack @V.Vector @Integer $ xs)  ===
+                (let (b,a) = List.span x . List.reverse $ xs
+                 in (V.reverse $ V.pack a, V.reverse $ V.pack b))
+        prop "vector spanEnd == List.span in reverse driection" $ \ xs (Fun _ x) ->
+            (V.spanEnd x . V.pack @V.PrimVector @Int $ xs)  ===
+                (let (b,a) = List.span x . List.reverse $ xs
+                 in (V.reverse $ V.pack a, V.reverse $ V.pack b))
+        prop "vector spanEnd == List.span in reverse driection" $ \ xs (Fun _ x) ->
+            (V.spanEnd x . V.pack @V.PrimVector @Word8 $ xs)  ===
+                (let (b,a) = List.span x . List.reverse $ xs
+                 in (V.reverse $ V.pack a, V.reverse $ V.pack b))
 
     describe "vector intercalate == List.intercalate" $ do
         prop "vector intercalate === List.intercalate" $ \ xs ys ->
