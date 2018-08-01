@@ -80,7 +80,7 @@ library
     include-dirs:       include
     includes:           bytes.h
                         hs_uv.h
-    install-includes:   bytes.hs
+    install-includes:   bytes.h
                         hs_uv.h
     c-sources:          cbits/bytes.c
                         cbits/hs_uv_base.c

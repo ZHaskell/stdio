@@ -209,16 +209,68 @@ spec =  do
                 (let (b,a) = List.span x . List.reverse $ xs
                  in (V.reverse $ V.pack a, V.reverse $ V.pack b))
 
-    describe "vector intercalate == List.intercalate" $ do
-        prop "vector intercalate === List.intercalate" $ \ xs ys ->
-            (V.intercalate (V.pack ys) . List.map (V.pack @V.Vector @Integer) $ xs)  ===
-                (V.pack . List.intercalate ys $ xs)
-        prop "vector intercalate ys === List.intercalate x" $ \ xs ys ->
-            (V.intercalate (V.pack ys) . List.map (V.pack @V.PrimVector @Int) $ xs)  ===
-                (V.pack . List.intercalate ys $ xs)
-        prop "vector intercalate ys === List.intercalate x" $ \ xs ys ->
-            (V.intercalate (V.pack ys) . List.map (V.pack @V.PrimVector @Word8) $ xs)  ===
-                (V.pack . List.intercalate ys $ xs)
+    describe "vector group == List.group" $ do
+        prop "vector group == List.group" $ \ xs ->
+            (V.group . V.pack @V.Vector @Integer $ xs)  ===
+                (V.pack <$> List.group xs)
+        prop "vector group == List.group" $ \ xs ->
+            (V.group . V.pack @V.PrimVector @Int $ xs)  ===
+                (V.pack <$> List.group xs)
+        prop "vector group == List.group" $ \ xs ->
+            (V.group . V.pack @V.PrimVector @Word8 $ xs)  ===
+                (V.pack <$> List.group xs)
+
+    describe "vector groupBy == List.groupBy" $ do
+        prop "vector groupBy == List.groupBy" $ \ xs x ->
+            (V.groupBy (applyFun2 x) . V.pack @V.Vector @Integer $ xs)  ===
+                (V.pack <$> List.groupBy (applyFun2 x) xs)
+        prop "vector groupBy == List.groupBy" $ \ xs x ->
+            (V.groupBy (applyFun2 x) . V.pack @V.PrimVector @Int $ xs)  ===
+                (V.pack <$> List.groupBy (applyFun2 x) xs)
+        prop "vector groupBy == List.groupBy" $ \ xs x ->
+            (V.groupBy (applyFun2 x) . V.pack @V.PrimVector @Word8 $ xs)  ===
+                (V.pack <$> List.groupBy (applyFun2 x) xs)
+
+    describe "vector stripPrefix a (a+b) = b " $ do
+        prop "vector stripPrefix == List.stripPrefix" $ \ xs ys ->
+            (V.stripPrefix (V.pack xs) . V.pack @V.Vector @Integer $ xs++ys) ===
+                (Just $ V.pack ys)
+        prop "vector stripPrefix == List.stripPrefix" $ \ xs ys ->
+            (V.stripPrefix (V.pack xs) . V.pack @V.PrimVector @Int $ xs++ys) ===
+                (Just $ V.pack ys)
+        prop "vector stripPrefix == List.stripPrefix" $ \ xs ys ->
+            (V.stripPrefix (V.pack xs) . V.pack @V.PrimVector @Word8 $ xs++ys) ===
+                (Just $ V.pack ys)
+
+    describe "vector stripSuffix b (a+b) = a " $ do
+        prop "vector stripSuffix == List.stripSuffix" $ \ xs ys ->
+            (V.stripSuffix (V.pack xs) . V.pack @V.Vector @Integer $ ys++xs) ===
+                (Just $ V.pack ys)
+        prop "vector stripSuffix == List.stripSuffix" $ \ xs ys ->
+            (V.stripSuffix (V.pack xs) . V.pack @V.PrimVector @Int $ ys++xs) ===
+                (Just $ V.pack ys)
+        prop "vector stripSuffix == List.stripSuffix" $ \ xs ys ->
+            (V.stripSuffix (V.pack xs) . V.pack @V.PrimVector @Word8 $ ys++xs) ===
+                (Just $ V.pack ys)
+
+    describe "vector isInfixOf b (a+b+c) = True " $ do
+        prop "vector isInfixOf == List.isInfixOf" $ \ xs ys zs ->
+            (V.isInfixOf (V.pack xs) . V.pack @V.Vector @Integer $ ys++xs++zs) === True
+        prop "vector isInfixOf == List.isInfixOf" $ \ xs ys zs ->
+            (V.isInfixOf (V.pack xs) . V.pack @V.PrimVector @Int $ ys++xs++zs) === True
+        prop "vector isInfixOf == List.isInfixOf" $ \ xs ys zs ->
+            (V.isInfixOf (V.pack xs) . V.pack @V.PrimVector @Word8 $ ys++xs++zs) === True
+
+    describe "vector intercalate [x] . split x == id" $ do
+        prop "vector split = List.split" $ \ xs x ->
+            (V.intercalate (V.singleton x) . V.split x . V.pack @V.Vector @Integer $ xs) ===
+                V.pack xs
+        prop "vector split = List.split" $ \ xs x ->
+            (V.intercalate (V.singleton x) . V.split x . V.pack @V.PrimVector @Int $ xs) ===
+                V.pack xs
+        prop "vector split = List.split" $ \ xs x ->
+            (V.intercalate (V.singleton x) . V.split x . V.pack @V.PrimVector @Word8 $ xs) ===
+                V.pack xs
 
     describe "vector reverse == List.reverse" $ do
         prop "vector reverse === List.reverse" $ \ xs ->
@@ -239,6 +291,67 @@ spec =  do
             (V.intersperse x . V.pack @V.PrimVector @Word8 $ xs)  ===
                 (V.pack . List.intersperse x $ xs)
 
+    describe "vector intercalate == List.intercalate" $ do
+        prop "vector intercalate === List.intercalate" $ \ xs ys ->
+            (V.intercalate (V.pack ys) . List.map (V.pack @V.Vector @Integer) $ xs)  ===
+                (V.pack . List.intercalate ys $ xs)
+        prop "vector intercalate ys === List.intercalate x" $ \ xs ys ->
+            (V.intercalate (V.pack ys) . List.map (V.pack @V.PrimVector @Int) $ xs)  ===
+                (V.pack . List.intercalate ys $ xs)
+        prop "vector intercalate ys === List.intercalate x" $ \ xs ys ->
+            (V.intercalate (V.pack ys) . List.map (V.pack @V.PrimVector @Word8) $ xs)  ===
+                (V.pack . List.intercalate ys $ xs)
+
+    describe "vector intercalateElem x == List.intercalate [x]" $ do
+        prop "vector intercalateElem x === List.intercalate [x]" $ \ xs x ->
+            (V.intercalateElem x . List.map (V.pack @V.Vector @Integer) $ xs)  ===
+                (V.pack . List.intercalate [x] $ xs)
+        prop "vector intercalateElem ys === List.intercalate x" $ \ xs x ->
+            (V.intercalateElem x . List.map (V.pack @V.PrimVector @Int) $ xs)  ===
+                (V.pack . List.intercalate [x] $ xs)
+        prop "vector intercalateElem ys === List.intercalate x" $ \ xs x ->
+            (V.intercalateElem x . List.map (V.pack @V.PrimVector @Word8) $ xs)  ===
+                (V.pack . List.intercalate [x] $ xs)
+
+    describe "vector transpose == List.transpose" $ do
+        prop "vector transpose == List.transpose" $ \ xs ->
+            (V.transpose $ V.pack @V.Vector @Integer <$> xs)  ===
+                (V.pack <$> List.transpose xs)
+        prop "vector transpose == List.transpose" $ \ xs ->
+            (V.transpose $ V.pack @V.PrimVector @Int <$> xs)  ===
+                (V.pack <$> List.transpose xs)
+        prop "vector transpose == List.transpose" $ \ xs ->
+            (V.transpose $ V.pack @V.PrimVector @Word8 <$> xs)  ===
+                (V.pack <$> List.transpose xs)
+
+    describe "vector zipWith' == List.zipWith" $ do
+        prop "vector zipWith' == List.zipWith" $ \ xs ys x ->
+            let pack' = V.pack @V.Vector @Integer
+            in (V.zipWith' (applyFun2 x) (pack' xs) (pack' ys))  ===
+                (pack' $ List.zipWith (applyFun2 x) xs ys)
+        prop "vector zipWith == List.zipWith" $ \ xs ys x ->
+            let pack' = V.pack @V.PrimVector @Int
+            in (V.zipWith' (applyFun2 x) (pack' xs) (pack' ys))  ===
+                (pack' $ List.zipWith (applyFun2 x) xs ys)
+        prop "vector zipWith' == List.zipWith" $ \ xs ys x ->
+            let pack' = V.pack @V.PrimVector @Word8
+            in (V.zipWith' (applyFun2 x) (pack' xs) (pack' ys))  ===
+                (pack' $ List.zipWith (applyFun2 x) xs ys)
+
+    describe "vector unzipWith' f == List.unzip . List.map f" $ do
+        prop "vector zipWith' == List.unzip . List.map f" $ \ zs (Fun _ x) ->
+            let pack' = V.pack @V.Vector @Integer
+            in (V.unzipWith' x (pack' zs))  ===
+                (let (a,b) = List.unzip (List.map x zs) in (pack' a, pack' b))
+        prop "vector zipWith == List.unzip . List.map f" $ \ zs (Fun _ x) ->
+            let pack' = V.pack @V.PrimVector @Int
+            in (V.unzipWith' x (pack' zs))  ===
+                (let (a,b) = List.unzip (List.map x zs) in (pack' a, pack' b))
+        prop "vector zipWith' == List.unzip . List.map f" $ \ zs (Fun _ x) ->
+            let pack' = V.pack @V.PrimVector @Word8
+            in (V.unzipWith' x (pack' zs))  ===
+                (let (a,b) = List.unzip (List.map x zs) in (pack' a, pack' b))
+
     describe "vector scanl' == List.scanl" $ do
         prop "vector scanl' === List.scanl" $ \ xs f x ->
             (V.scanl' @V.Vector @V.Vector (applyFun2 f :: Integer -> Integer -> Integer) x . V.pack @V.Vector @Integer $ xs)  ===
@@ -250,6 +363,17 @@ spec =  do
             (V.scanl' @V.PrimVector @V.Vector (applyFun2 f :: Int -> Word8 -> Int) x . V.pack @V.PrimVector @Word8 $ xs)  ===
                 (V.pack . List.scanl (applyFun2 f) x $ xs)
 
+    describe "vector scanl1' == List.scanl1" $ do
+        prop "vector scanl1' === List.scanl1" $ \ xs f ->
+            (V.scanl1' (applyFun2 f :: Integer -> Integer -> Integer) . V.pack @V.Vector @Integer $ xs)  ===
+                (V.pack . List.scanl1 (applyFun2 f) $ xs)
+        prop "vector scanl1' x === List.scanl1 x" $ \ xs f ->
+            (V.scanl1' (applyFun2 f :: Int -> Int -> Int) . V.pack @V.PrimVector @Int $ xs)  ===
+                (V.pack . List.scanl1 (applyFun2 f) $ xs)
+        prop "vector scanl1' x === List.scanl1 x" $ \ xs f ->
+            (V.scanl1' (applyFun2 f :: Word8 -> Word8 -> Word8) . V.pack @V.PrimVector @Word8 $ xs)  ===
+                (V.pack . List.scanl1 (applyFun2 f) $ xs)
+
     describe "vector scanr' == List.scanr" $ do
         prop "vector scanr' === List.scanr" $ \ xs f x ->
             (V.scanr' @V.Vector @V.Vector (applyFun2 f :: Integer -> Integer -> Integer) x . V.pack @V.Vector @Integer $ xs)  ===
@@ -260,3 +384,14 @@ spec =  do
         prop "vector scanr' x === List.scanr x" $ \ xs f x ->
             (V.scanr' @V.PrimVector @V.Vector (applyFun2 f :: Word8 -> Int -> Int) x . V.pack @V.PrimVector @Word8 $ xs)  ===
                 (V.pack . List.scanr (applyFun2 f) x $ xs)
+
+    describe "vector scanr1' == List.scanr1" $ do
+        prop "vector scanr1' === List.scanr1" $ \ xs f ->
+            (V.scanr1' (applyFun2 f :: Integer -> Integer -> Integer) . V.pack @V.Vector @Integer $ xs)  ===
+                (V.pack . List.scanr1 (applyFun2 f) $ xs)
+        prop "vector scanr1' x === List.scanr1 x" $ \ xs f ->
+            (V.scanr1' (applyFun2 f :: Int -> Int -> Int) . V.pack @V.PrimVector @Int $ xs)  ===
+                (V.pack . List.scanr1 (applyFun2 f) $ xs)
+        prop "vector scanr1' x === List.scanr1 x" $ \ xs f ->
+            (V.scanr1' (applyFun2 f :: Word8 -> Word8 -> Word8) . V.pack @V.PrimVector @Word8 $ xs)  ===
+                (V.pack . List.scanr1 (applyFun2 f) $ xs)

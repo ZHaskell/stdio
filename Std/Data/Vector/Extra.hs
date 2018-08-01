@@ -266,22 +266,26 @@ groupBy :: Vec v a =>  (a -> a -> Bool) -> v a -> [v a]
 {-# INLINE groupBy #-}
 groupBy f vs@(Vec arr s l)
     | l == 0    = []
-    | otherwise = (Vec arr s n) : groupBy f (Vec arr (s+n) (l-n))
+    | otherwise = Vec arr s n : groupBy f (Vec arr (s+n) (l-n))
   where
     n = case indexArr' arr s of
-        (# x #) -> 1 + findIndexOrEnd (not . f x) (Vec arr (s+1) l)
+        (# x #) -> 1 + findIndexOrEnd (not . f x) (Vec arr (s+1) (l-1))
 
 -- | /O(n)/ The 'stripPrefix' function takes two vectors and returns 'Just'
 -- the remainder of the second iff the first is its prefix, and otherwise
 -- 'Nothing'.
 --
-stripPrefix :: (Vec v a, Eq (v a)) => v a -> v a -> Maybe (v a)
+stripPrefix :: (Vec v a, Eq (v a))
+            => v a      -- ^ the prefix to be tested
+            -> v a -> Maybe (v a)
 {-# INLINE stripPrefix #-}
 stripPrefix v1@(Vec _ _ l1) v2@(Vec arr s l2)
    | v1 `isPrefixOf` v2 = Just (Vec arr (s+l1) (l2-l1))
    | otherwise = Nothing
 
-isPrefixOf :: (Vec v a, Eq (v a)) => v a -> v a -> Bool
+isPrefixOf :: (Vec v a, Eq (v a))
+           => v a       -- ^ the prefix to be tested
+           -> v a -> Bool
 {-# INLINE isPrefixOf #-}
 isPrefixOf (Vec arrA sA lA) (Vec arrB sB lB)
     | lA == 0 = True
@@ -305,9 +309,10 @@ isSuffixOf (Vec arrA sA lA) (Vec arrB sB lB)
 
 -- | Check whether one vector is a subvector of another.
 --
--- @needle `isInfixOf` haystack@ is equivalent to @indices needle haystake /= []@.
+-- @needle `isInfixOf` haystack@ is equivalent to
+-- @null needle || indices needle haystake /= []@.
 isInfixOf :: (Vec v a, Eq a) => v a -> v a -> Bool
-isInfixOf needle haystack = indices needle haystack False /= []
+isInfixOf needle haystack = null needle || indices needle haystack False /= []
 
 -- | /O(n)/ Break a vector into pieces separated by the delimiter element
 -- consuming the delimiter. I.e.
@@ -320,6 +325,9 @@ isInfixOf needle haystack = indices needle haystack False /= []
 --
 -- > intercalate [c] . split c == id
 -- > split == splitWith . (==)
+--
+-- NOTE, this function behavior different with bytestring's. see
+-- <https://github.com/haskell/bytestring/issues/56 #56>.
 split :: (Vec v a, Eq a) => a -> v a -> [v a]
 {-# INLINE split #-}
 split x = splitWith (==x)
@@ -330,14 +338,17 @@ split x = splitWith (==x)
 -- separators result in an empty component in the output.  eg.
 --
 -- > splitWith (=='a') "aabbaca" == ["","","bb","c",""]
--- > splitWith (=='a') []        == []
+-- > splitWith (=='a') []        == [""]
+--
+-- NOTE, this function behavior different with bytestring's. see
+-- <https://github.com/haskell/bytestring/issues/56 #56>.
 splitWith :: Vec v a => (a -> Bool) -> v a -> [v a]
 {-# INLINE splitWith #-}
 splitWith f (Vec arr s l) = go s s
   where
     !end = s + l
     go !p !q | q >= end  = let v = Vec arr p (q-p) in [v]
-             | f x       = let v = Vec arr p (q-p) in v:go q (q+1)
+             | f x       = let v = Vec arr p (q-p) in v:go (q+1) (q+1)
              | otherwise = go p (q+1)
         where (# x #) = indexArr' arr q
 
@@ -411,16 +422,18 @@ intercalateElem :: Vec v a => a -> [v a] -> v a
 {-# INLINE intercalateElem #-}
 intercalateElem _ [] = empty
 intercalateElem _ [v] = v
-intercalateElem w vs = create (len vs) (copy 0 vs)
+intercalateElem w vs = create (len vs 0) (copy 0 vs)
   where
-    len []             = 0
-    len [Vec _ _ l]    = l
-    len (Vec _ _ l:vs) = l + 1 + len vs
-    copy !i []                 !marr = return ()
+    len []             !acc = acc
+    len [Vec _ _ l]    !acc = l + acc
+    len (Vec _ _ l:vs) !acc = len vs (acc+l+1)
+    copy !i []               !marr = return ()
+    copy !i (Vec arr s l:[]) !marr = copyArr marr i arr s l
     copy !i (Vec arr s l:vs) !marr = do
         let !i' = i + l
         copyArr marr i arr s l
-        copy i' vs marr
+        writeArr marr i' w
+        copy (i'+1) vs marr
 
 -- | The 'transpose' function transposes the rows and columns of its
 -- vector argument.
