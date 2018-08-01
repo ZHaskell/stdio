@@ -139,23 +139,13 @@ library
 
 test-suite test
     type: exitcode-stdio-1.0
-    main-is: Main.hs
-    other-modules:          Property.Text
-                            Property.Vector
-                            Unit.FileSystem
-                            Unit.LowResTimer
-                            Unit.Resource
+    main-is: Spec.hs
     hs-source-dirs: test
     build-depends:  stdio
                   , base
-                  , tasty == 1.1.*
-                  , tasty-hunit
-                  , tasty-quickcheck 
-                  , tasty-hunit
+                  , hspec >= 2.5.4
                   , QuickCheck >= 2.10
-                  , async
                   , unboxed-ref
-
 
     ghc-options:         -threaded
     default-language:    Haskell2010 

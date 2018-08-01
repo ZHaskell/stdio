@@ -86,6 +86,7 @@ import Std.Data.PrimArray.Cast
 -- | Bottom value (@throw ('UndefinedElement' "Data.Array.uninitialized")@)
 -- for initialize new boxed array('Array', 'SmallArray'..).
 --
+-- NOTE: These functions may segfault when used with indices which are out of bounds.
 uninitialized :: a
 uninitialized = throw (UndefinedElement "Data.Array.uninitialized")
 
@@ -569,6 +570,7 @@ mutablePrimArrayContents (MutablePrimArray mba#) =
 -- This operation is only safe on /pinned/ primitive arrays allocated by 'newPinnedPrimArray' or
 -- 'newAlignedPinnedPrimArray'.
 --
+-- Don't pass a forever loop to this function, see <https://ghc.haskell.org/trac/ghc/ticket/14346 #14346>.
 withPrimArrayContents :: PrimArray a -> (Ptr a -> IO b) -> IO b
 {-# INLINE withPrimArrayContents #-}
 withPrimArrayContents (PrimArray ba#) f = do
@@ -583,6 +585,7 @@ withPrimArrayContents (PrimArray ba#) f = do
 -- This operation is only safe on /pinned/ primitive arrays allocated by 'newPinnedPrimArray' or
 -- 'newAlignedPinnedPrimArray'.
 --
+-- Don't pass a forever loop to this function, see <https://ghc.haskell.org/trac/ghc/ticket/14346 #14346>.
 withMutablePrimArrayContents :: MutablePrimArray RealWorld a -> (Ptr a -> IO b) -> IO b
 {-# INLINE withMutablePrimArrayContents #-}
 withMutablePrimArrayContents (MutablePrimArray mba#) f = do

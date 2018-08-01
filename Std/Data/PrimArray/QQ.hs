@@ -419,17 +419,17 @@ arrI64 = QuasiQuoter
 wordArrayFromAddr :: Int# -> Addr# -> PrimArray Word
 wordArrayFromAddr l addr# =
 #if SIZEOF_HSWORD == 8
-    castArray (word64ArrayFromAddr l addr#)
+    unsafeCoerce# (word64ArrayFromAddr l addr#)
 #else
-    castArray (word32ArrayFromAddr l addr#)
+    unsafeCoerce# (word32ArrayFromAddr l addr#)
 #endif
 
 intArrayFromAddr :: Int# -> Addr# -> PrimArray Int
 intArrayFromAddr l addr# =
 #if SIZEOF_HSWORD == 8
-    castArray (int64ArrayFromAddr l addr#)
+    unsafeCoerce# (int64ArrayFromAddr l addr#)
 #else
-    castArray (int32ArrayFromAddr l addr#)
+    unsafeCoerce# (int32ArrayFromAddr l addr#)
 #endif
 
 wordLiteral :: (ExpQ -> ExpQ -> ExpQ) -> String -> ExpQ

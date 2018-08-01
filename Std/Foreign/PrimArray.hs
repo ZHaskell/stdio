@@ -163,7 +163,7 @@ withPrimUnsafe f = do
 --
 -- The second 'Int' arguement is the element size not the bytes size.
 --
---
+-- Don't pass a forever loop to this function, see <https://ghc.haskell.org/trac/ghc/ticket/14346 #14346>.
 withPrimArraySafe :: (Prim a) => PrimArray a -> (Ptr a -> Int -> IO b) -> IO b
 withPrimArraySafe arr f
     | isPrimArrayPinned arr = do
@@ -180,6 +180,7 @@ withPrimArraySafe arr f
 --
 -- The mutable version of 'withPrimArraySafe'.
 --
+-- Don't pass a forever loop to this function, see <https://ghc.haskell.org/trac/ghc/ticket/14346 #14346>.
 withMutablePrimArraySafe :: (Prim a) => MutablePrimArray RealWorld a -> (Ptr a -> Int -> IO b) -> IO b
 withMutablePrimArraySafe marr f
     | isMutablePrimArrayPinned marr = do
@@ -196,6 +197,7 @@ withMutablePrimArraySafe marr f
 -- The 'PrimVector' version of 'withPrimArraySafe'. The 'Ptr' is already pointed
 -- to the first element, thus no offset is provided.
 --
+-- Don't pass a forever loop to this function, see <https://ghc.haskell.org/trac/ghc/ticket/14346 #14346>.
 withPrimVectorSafe :: forall a b. (Prim a) => PrimVector a -> (Ptr a -> Int -> IO b) -> IO b
 withPrimVectorSafe v@(PrimVector arr s l) f
     | isPrimArrayPinned arr =
@@ -210,6 +212,7 @@ withPrimVectorSafe v@(PrimVector arr s l) f
 
 -- | Create an one element primitive array and use it as a pointer to the primitive element.
 --
+-- Don't pass a forever loop to this function, see <https://ghc.haskell.org/trac/ghc/ticket/14346 #14346>.
 withPrimSafe :: forall a b. Prim a => (Ptr a -> IO b) -> IO (a, b)
 withPrimSafe f = do
     buf <- newAlignedPinnedPrimArray 1

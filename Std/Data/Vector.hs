@@ -24,7 +24,8 @@ Maintainer  : drkoster@qq.com
 Stability   : experimental
 Portability : non-portable
 
-This module provide fast boxed and unboxed vector with unified interface. The API is similar to bytestring and vector. If you find missing functions, please report!
+This module provide fast boxed and unboxed vector with unified interface.
+The API is similar to bytestring and vector. If you find missing functions, please report!
 
 Performance consideration:
 
@@ -40,14 +41,16 @@ Performance consideration:
 
   * The 'Functor' instance for 'Vector' are lazy in order to abid 'Functor' law.
     namely @fmap id vectorConatinBottom == vectorContainBottom@, if you need strict mapping
-    for lifted 'Vector', use 'map' ('PrimVector' will never contain bottom thus it's not
+    for lifted 'Vector', use 'map'' ('PrimVector' will never contain bottom thus it's not
     a problem). THIS MAY COME AS A SURPRISE SO MAKE SURE YOU USE THE CORRECT 'map' s.
 
   * The 'Foldable' instance for 'Vector' is fine, use 'Prelude' functions such as
-    'null', 'length', etc. should not incur performance overhead.
+    'null', 'length', etc. should not incur performance overhead, though there're
+    partial functions you should avoid, i.e. foldl1, foldr1, maximum, minimum. Use
+    'foldl1Maybe'', 'foldr1Maybe'', 'maximumMaybe', 'minmumMaybe' instead.
 
   * The 'Traversable' instance have specialized implementations for 'ST' and 'IO',
-    if you don't write thunks into result, use @return <$!>@ idiom.
+    if you don't want to write thunks into result vector, use @return <$!>@ idiom.
 
   * When use stateful generating functions like 'mapAccumL', 'mapAccumR' ,etc. force
     both the accumulator and value with @acc `seq` v `seq` (acc, v)@ idiom to avoid
@@ -64,7 +67,10 @@ Performance consideration:
 
         will create intermediate vectors on the fly, which have different time/space characteristic.
 
-Since all functions works on more general types, inlining and specialization are the keys to achieve high performance, e.g. the performance gap between running in GHCi and compiled binary may be huge due to dictionary passing. If there're cases that GHC fail to specialized these functions, it should be regarded as a bug either in this library or GHC.
+Since all functions works on more general types, inlining and specialization are the keys
+to achieve high performance, e.g. the performance gap between running in GHCi and
+compiled binary may be huge due to dictionary passing. If there're cases that GHC fail to
+specialized these functions, it should be regarded as a bug either in this library or GHC.
 
 -}
 
@@ -86,11 +92,11 @@ module Std.Data.Vector (
   , length
   , append
   , map, map', imap'
-  , foldl', ifoldl', foldl1'
-  , foldr', ifoldr', foldr1'
+  , foldl', ifoldl', foldl1', foldl1Maybe'
+  , foldr', ifoldr', foldr1', foldr1Maybe'
     -- ** Special folds
   , concat, concatMap
-  , maximum, minimum
+  , maximumMaybe, minimumMaybe
   , sum
   , count
   , product, product'
@@ -108,8 +114,8 @@ module Std.Data.Vector (
   -- * Slice manipulation
   , cons, snoc
   , uncons, unsnoc
-  , headM, tailE
-  , lastM, initE
+  , headMaybe, tailMayEmpty
+  , lastMaybe, initMayEmpty
   , inits, tails
   , take, drop
   , slice , (|..|)

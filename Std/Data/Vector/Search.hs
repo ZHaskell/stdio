@@ -87,9 +87,9 @@ elemIndicesBytes w (PrimVector (PrimArray ba#) s l) = go s
     go !i
         | i >= end = []
         | otherwise =
-            case fromIntegral (c_memchr ba# i w (end - i)) of
+            case c_memchr ba# i w (end - i) of
                 -1 -> []
-                r  -> r : go (i + r)
+                r  -> let !i' = (i+r) in i': go (i'+1)
 
 -- | /O(n)/ find the first index and element matching the predicate
 -- in a vector from left to right, if there isn't one, return 'Nothing'.
@@ -127,7 +127,7 @@ findIndexOrEnd f (Vec arr s l) = go s
 elemIndexOrEndBytes :: Word8 -> Bytes -> Int
 {-# INLINE elemIndexOrEndBytes #-}
 elemIndexOrEndBytes w (PrimVector (PrimArray ba#) s l) =
-    case fromIntegral (c_memchr ba# s w l) of
+    case c_memchr ba# s w l of
         -1 -> l
         r  -> r
 

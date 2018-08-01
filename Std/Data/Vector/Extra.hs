@@ -21,8 +21,8 @@ module Std.Data.Vector.Extra (
   -- * Slice manipulation
     cons, snoc
   , uncons, unsnoc
-  , headM, tailE
-  , lastM, initE
+  , headMaybe, tailMayEmpty
+  , lastMaybe, initMayEmpty
   , inits, tails
   , take, drop
   , slice , (|..|)
@@ -101,34 +101,34 @@ unsnoc (Vec arr s l)
                   in case indexArr' arr (s+l-1) of (# x #) -> Just (v, x)
 
 -- | /O(1)/ Extract the first element of a vector,
-headM :: Vec v a => v a -> Maybe a
-{-# INLINE headM #-}
-headM (Vec arr s l)
+headMaybe :: Vec v a => v a -> Maybe a
+{-# INLINE headMaybe #-}
+headMaybe (Vec arr s l)
     | l <= 0    = Nothing
     | otherwise = indexArrM arr s
 
 -- | /O(1)/ Extract the elements after the head of a vector.
 --
--- NOTE: 'tailE' return empty vector in the case of an empty vector.
-tailE :: Vec v a => v a -> v a
-{-# INLINE tailE #-}
-tailE (Vec arr s l)
+-- NOTE: 'tailMayEmpty' return empty vector in the case of an empty vector.
+tailMayEmpty :: Vec v a => v a -> v a
+{-# INLINE tailMayEmpty #-}
+tailMayEmpty (Vec arr s l)
     | l <= 0    = empty
     | otherwise = fromArr arr (s+1) (l-1)
 
 -- | /O(1)/ Extract the last element of a vector.
-lastM :: Vec v a => v a -> Maybe a
-{-# INLINE lastM #-}
-lastM (Vec arr s l)
+lastMaybe :: Vec v a => v a -> Maybe a
+{-# INLINE lastMaybe #-}
+lastMaybe (Vec arr s l)
     | l <= 0    = Nothing
     | otherwise = indexArrM arr (s+l-1)
 
 -- | /O(1)/ Extract the elements before of the last one,
 --
--- NOTE: 'initE' return empty vector in the case of an empty vector.
-initE :: Vec v a => v a -> v a
-{-# INLINE initE #-}
-initE (Vec arr s l)
+-- NOTE: 'initMayEmpty' return empty vector in the case of an empty vector.
+initMayEmpty :: Vec v a => v a -> v a
+{-# INLINE initMayEmpty #-}
+initMayEmpty (Vec arr s l)
     | l <= 0    = empty
     | otherwise = fromArr arr s (l-1)
 
@@ -168,16 +168,14 @@ drop n v@(Vec arr s l)
 -- @
 -- slice 1 3 "hello"   == "ell"
 -- slice -1 -1 "hello" == ""
+-- slice -2 2 "hello"  == ""
 -- slice 2 10 "hello"  == "llo"
 -- @
 --
+-- This holds for all x y: @slice x y vs == drop x . take (x+y) vs@
 slice :: Vec v a => Int -> Int -> v a -> v a
 {-# INLINE slice #-}
-slice s' l' (Vec arr s l) | l'' == 0  = empty
-                          | otherwise = fromArr arr s'' l''
-  where
-    !s'' = rangeCut (s+s') s (s+l)
-    !l'' = rangeCut l' 0 (s+l-s'')
+slice x y = drop x . take (x+y)
 
 -- | /O(1)/ Extract a sub-range vector with give start and end index
 -- (sliced vector will include the end index element), both
@@ -189,17 +187,25 @@ slice s' l' (Vec arr s l) | l'' == 0  = empty
 -- @
 -- "hello" |..| (1, 2) == "el"
 -- "hello" |..| (1, -2) == "ell"
--- slice "hello" (-3, -2) == "ll"
--- slice "hello" (-3, -4) == ""
+-- "hello" |..| (-3, -2) == "ll"
+-- "hello" |..| (-3, -4) == ""
 -- @
-infixl 9 |..|
+-- This holds for all x y:
+--
+-- @
+-- vs |..| x y == let l = length vs
+--                    x' = if x >= 0 then x else l+x
+--                    y' = if y >= 0 then y else l+y
+--                in slice x' (y'-x'+1) vs
+-- @
 (|..|) :: Vec v a => v a -> (Int, Int) -> v a
 {-# INLINE (|..|) #-}
+infixl 9 |..|
 (Vec arr s l) |..| (s1, s2) | s1' >  s2' = empty
-                            | otherwise  = fromArr arr s1' (s2' - s1'+1)
+                            | otherwise  = fromArr arr s1' (s2' - s1')
   where
     !s1' = rangeCut (if s1>=0 then s+s1 else s+l+s1) s (s+l)
-    !s2' = rangeCut (if s2>=0 then s+s2 else s+l+s2) s (s+l)
+    !s2' = rangeCut (if s2>=0 then s+s2+1 else s+l+s2+1) s (s+l)
 
 -- | /O(1)/ 'splitAt' @n xs@ is equivalent to @('take' n xs, 'drop' n xs)@.
 splitAt :: Vec v a => Int -> v a -> (v a, v a)

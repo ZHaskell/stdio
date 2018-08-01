@@ -6,6 +6,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE CPP #-}
 
 {-|
@@ -34,7 +35,7 @@ instance Radix Foo where
     -- You should add INLINE pragmas to following methods
     bucketSize = bucketSize . key
     passes = passes . key
-    radix0 = radix0 . key
+    radixLSB = radixLSB . key
     radix i = radix i . key
 @
 
@@ -65,6 +66,7 @@ import           Prelude                hiding (splitAt)
 import           Std.Data.Array
 import           Std.Data.Vector.Base
 import           Std.Data.Vector.Extra
+import           Std.Data.PrimArray.Cast
 
 --------------------------------------------------------------------------------
 -- Comparison Sort
@@ -207,32 +209,36 @@ class Radix a where
     -- | The number of passes necessary to sort an array of es,
     --   it equals to the key's byte number.
     passes :: a -> Int
-    -- | The radix function used in the first pass.
-    radix0  :: a -> Int
-    -- | The radix function parameterized by the current pass (0 < pass < passes e).
+    -- | The radix function used in the first pass, works on the least significant bit.
+    radixLSB  :: a -> Int
+    -- | The radix function parameterized by the current pass (0 < pass < passes e-1).
     radix  :: Int -> a -> Int
+    -- | The radix function used in the last pass, works on the most significant bit.
+    radixMSB  :: a -> Int
 
 instance Radix Int8 where
     {-# INLINE bucketSize #-};
     bucketSize _ = 256
     {-# INLINE passes #-}
     passes _ = 1
-    {-# INLINE radix0 #-}
-    radix0 a =  255 .&. fromIntegral a `xor` 128
+    {-# INLINE radixLSB #-}
+    radixLSB a =  255 .&. fromIntegral a `xor` 128
     {-# INLINE radix #-}
-    radix _ _ = 0
+    radix _ a =  255 .&. fromIntegral a `xor` 128
+    {-# INLINE radixMSB #-}
+    radixMSB a =  255 .&. fromIntegral a `xor` 128
 
 #define MULTI_BYTES_INT_RADIX(T) \
     {-# INLINE bucketSize #-}; \
     bucketSize _ = 256; \
     {-# INLINE passes #-}; \
     passes _ = sizeOf (undefined :: T); \
-    {-# INLINE radix0 #-}; \
-    radix0 a = fromIntegral (255 .&. a); \
+    {-# INLINE radixLSB #-}; \
+    radixLSB a = fromIntegral (255 .&. a); \
     {-# INLINE radix #-}; \
-    radix i a = \
-        if fromIntegral i == passes a - 1 then radix' (a `xor` minBound) else radix' a \
-      where radix' a = fromIntegral (a `unsafeShiftR` (i `unsafeShiftL` 3)) .&. 255
+    radix i a = fromIntegral (a `unsafeShiftR` (i `unsafeShiftL` 3)) .&. 255; \
+    {-# INLINE radixMSB #-}; \
+    radixMSB a = fromIntegral ((a `xor` minBound) `unsafeShiftR` ((passes a-1) `unsafeShiftL` 3)) .&. 255
 
 instance Radix Int where MULTI_BYTES_INT_RADIX(Int)
 instance Radix Int16 where MULTI_BYTES_INT_RADIX(Int16)
@@ -244,20 +250,24 @@ instance Radix Word8 where
     bucketSize _ = 256
     {-# INLINE passes #-}
     passes _ = 1
-    {-# INLINE radix0 #-}
-    radix0 = fromIntegral
+    {-# INLINE radixLSB #-}
+    radixLSB = fromIntegral
     {-# INLINE radix #-}
-    radix _ _ = 0
+    radix _  = fromIntegral
+    {-# INLINE radixMSB #-}
+    radixMSB = fromIntegral
 
 #define MULTI_BYTES_WORD_RADIX(T) \
     {-# INLINE bucketSize #-}; \
     bucketSize _ = 256; \
     {-# INLINE passes #-}; \
     passes _ = sizeOf (undefined :: T); \
-    {-# INLINE radix0 #-}; \
-    radix0 a = fromIntegral (255 .&. a); \
+    {-# INLINE radixLSB #-}; \
+    radixLSB a = fromIntegral (255 .&. a); \
     {-# INLINE radix #-}; \
-    radix i a = fromIntegral (a `unsafeShiftR` (i `unsafeShiftL` 3)) .&. 255
+    radix i a = fromIntegral (a `unsafeShiftR` (i `unsafeShiftL` 3)) .&. 255; \
+    {-# INLINE radixMSB #-}; \
+    radixMSB a = fromIntegral (a `unsafeShiftR` ((passes a-1) `unsafeShiftL` 3)) .&. 255
 
 instance Radix Word where MULTI_BYTES_INT_RADIX(Word)
 instance Radix Word16 where MULTI_BYTES_INT_RADIX(Word16)
@@ -273,10 +283,12 @@ instance Radix a => Radix (RadixDown a) where
     bucketSize (RadixDown a) = bucketSize a
     {-# INLINE passes #-}
     passes (RadixDown a)  = passes a
-    {-# INLINE radix0 #-}
-    radix0 (RadixDown a) = bucketSize a - radix0 a -1
+    {-# INLINE radixLSB #-}
+    radixLSB (RadixDown a) = bucketSize a - radixLSB a -1
     {-# INLINE radix #-}
     radix i (RadixDown a) = bucketSize a - radix i a -1
+    {-# INLINE radixMSB #-}
+    radixMSB (RadixDown a) = bucketSize a - radixMSB a -1
 
 -- | /O(n)/ Sort vector based on element's 'Radix' instance with
 -- <https://en.wikipedia.org/wiki/Radix_sort radix-sort>,
@@ -298,7 +310,7 @@ radixSort (Vec arr s l) = runST (do
         firstCountPass arr bucket s
         accumBucket bucket buktSiz 0 0
         firstMovePass arr s bucket w1
-        w <- if (passSiz == 1)
+        w <- if passSiz == 1
             then unsafeFreezeArr w1
             else do
                 w2 <- newArr l
@@ -314,7 +326,7 @@ radixSort (Vec arr s l) = runST (do
         | i >= end  = return ()
         | otherwise = case indexArr' arr i of
             (# x #) -> do
-                let !r = radix0 x
+                let !r = radixLSB x
                 c <- readArr bucket r
                 writeArr bucket r (c+1)
                 firstCountPass arr bucket (i+1)
@@ -332,7 +344,7 @@ radixSort (Vec arr s l) = runST (do
         | i >= end  = return ()
         | otherwise = case indexArr' arr i of
             (# x #) -> do
-                let !r = radix0 x
+                let !r = radixLSB x
                 c <- readArr bucket r
                 writeArr bucket r (c+1)
                 writeArr w c x
@@ -340,7 +352,12 @@ radixSort (Vec arr s l) = runST (do
 
     {-# INLINABLE radixLoop #-}
     radixLoop !w1 !w2 !bucket !buktSiz !pass
-        | pass >= passSiz = unsafeFreezeArr w1
+        | pass >= passSiz-1 = do
+            setArr bucket 0 buktSiz 0   -- clear the counting bucket
+            lastCountPass w1 bucket 0
+            accumBucket bucket buktSiz 0 0
+            lastMovePass w1 bucket w2 0
+            unsafeFreezeArr w2
         | otherwise = do
             setArr bucket 0 buktSiz 0   -- clear the counting bucket
             countPass w1 bucket pass 0
@@ -368,3 +385,75 @@ radixSort (Vec arr s l) = runST (do
                 writeArr bucket r (c+1)
                 writeArr target c x
                 movePass src bucket pass target (i+1)
+
+    {-# INLINABLE lastCountPass #-}
+    lastCountPass !marr !bucket !i
+        | i >= l  = return ()
+        | otherwise = do
+                x <- readArr marr i
+                let !r = radixMSB x
+                c <- readArr bucket r
+                writeArr bucket r (c+1)
+                lastCountPass marr bucket (i+1)
+
+    {-# INLINABLE lastMovePass #-}
+    lastMovePass !src !bucket !target !i
+        | i >= l  = return ()
+        | otherwise = do
+                x <- readArr src i
+                let !r = radixMSB x
+                c <- readArr bucket r
+                writeArr bucket r (c+1)
+                writeArr target c x
+                lastMovePass src bucket target (i+1)
+
+{- In fact IEEE float can be radix sorted like following:
+
+newtype RadixDouble = RadixDouble Int64 deriving (Show, Eq, Prim)
+instance Cast RadixDouble Double where cast (RadixDouble a) = cast a
+instance Cast Double RadixDouble where cast a = RadixDouble (cast a)
+instance Radix RadixDouble where
+    {-# INLINE bucketSize #-}
+    bucketSize (RadixDouble _) = 256
+    {-# INLINE passes #-}
+    passes (RadixDouble _)  = 8
+    {-# INLINE radixLSB #-}
+    radixLSB (RadixDouble a) | a > 0 = r
+                             | otherwise = 255 - r
+      where r = radixLSB a
+    {-# INLINE radix #-}
+    radix i (RadixDouble a) | a > 0 = r
+                            | otherwise = 255 - r
+      where r = radix i a
+    {-# INLINE radixMSB #-}
+    radixMSB (RadixDouble a) | r < 128  = r + 128
+                             | otherwise = 255 - r
+      where r = radixMSB (fromIntegral a :: Word64)
+
+radixSortDouble :: PrimVector Double -> PrimVector Double
+radixSortDouble v =  castVector (radixSort (castVector v :: PrimVector RadixDouble))
+
+newtype RadixFloat = RadixFloat Int32 deriving (Show, Eq, Prim)
+instance Cast RadixFloat Float where cast (RadixFloat a) = cast a
+instance Cast Float RadixFloat where cast a = RadixFloat (cast a)
+instance Radix RadixFloat where
+    {-# INLINE bucketSize #-}
+    bucketSize (RadixFloat _) = 256
+    {-# INLINE passes #-}
+    passes (RadixFloat _)  = 4
+    {-# INLINE radixLSB #-}
+    radixLSB (RadixFloat a) | a > 0 = r
+                            | otherwise = 255 - r
+      where r = radixLSB a
+    {-# INLINE radix #-}
+    radix i (RadixFloat a) | a > 0 = r
+                           | otherwise = 255 - r
+      where r = radix i a
+    {-# INLINE radixMSB #-}
+    radixMSB (RadixFloat a) | r < 128  = r + 128
+                            | otherwise = 255 - r
+      where r = radixMSB (fromIntegral a :: Word32)
+
+radixSortFloat :: PrimVector Float -> PrimVector Float
+radixSortFloat v =  castVector (radixSort (castVector v :: PrimVector RadixFloat))
+-}

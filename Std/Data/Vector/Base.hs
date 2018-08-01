@@ -54,11 +54,12 @@ module Std.Data.Vector.Base (
   , length
   , append
   , map, map', imap'
-  , foldl', ifoldl', foldl1'
-  , foldr', ifoldr', foldr1'
+  , foldl', ifoldl', foldl1', foldl1Maybe'
+  , foldr', ifoldr', foldr1', foldr1Maybe'
     -- ** Special folds
   , concat, concatMap
   , maximum, minimum
+  , maximumMaybe, minimumMaybe
   , sum
   , count
   , product, product'
@@ -746,6 +747,16 @@ foldl1' f (Vec arr s l)
     | otherwise = case indexArr' arr s of
                     (# x0 #) -> foldl' f x0 (fromArr arr (s+1) (l-1) :: v a)
 
+-- | Strict left to right fold using first element as the initial value.
+--   return 'Nothing' when vector is empty.
+foldl1Maybe' :: forall v a. Vec v a => (a -> a -> a) -> v a -> Maybe a
+{-# INLINE foldl1Maybe' #-}
+foldl1Maybe' f (Vec arr s l)
+    | l <= 0    = Nothing
+    | otherwise = case indexArr' arr s of
+                    (# x0 #) -> let !r = foldl' f x0 (fromArr arr (s+1) (l-1) :: v a)
+                                in Just r
+
 -- | Strict right to left fold
 foldr' :: Vec v a => (a -> b -> b) -> b -> v a -> b
 {-# INLINE foldr' #-}
@@ -772,6 +783,16 @@ foldr1' f (Vec arr s l)
     | l <= 0 = errorEmptyVector "foldr1'"
     | otherwise = case indexArr' arr (s+l-1) of
                     (# x0 #) -> foldl' f x0 (fromArr arr s (l-1) :: v a)
+
+-- | Strict right to left fold using last element as the initial value,
+--   return 'Nothing' when vector is empty.
+foldr1Maybe' :: forall v a. Vec v a => (a -> a -> a) -> v a -> Maybe a
+{-# INLINE foldr1Maybe' #-}
+foldr1Maybe' f (Vec arr s l)
+    | l <= 0 = Nothing
+    | otherwise = case indexArr' arr (s+l-1) of
+                    (# x0 #) -> let !r = foldl' f x0 (fromArr arr s (l-1) :: v a)
+                                in Just r
 
 --------------------------------------------------------------------------------
 --
@@ -814,12 +835,24 @@ maximum :: (Vec v a, Ord a, HasCallStack) => v a -> a
 {-# INLINE maximum #-}
 maximum = foldl1' max
 
+-- | /O(n)/ 'maximum' returns the maximum value from a vector,
+--   return 'Nothing' in the case of an empty vector.
+maximumMaybe :: (Vec v a, Ord a, HasCallStack) => v a -> Maybe a
+{-# INLINE maximumMaybe #-}
+maximumMaybe = foldl1Maybe' max
+
 -- | /O(n)/ 'minimum' returns the minimum value from a 'vector'
 --
 -- An 'EmptyVector' exception will be thrown in the case of an empty vector.
 minimum :: (Vec v a, Ord a, HasCallStack) => v a -> a
 {-# INLINE minimum #-}
 minimum = foldl1' min
+
+-- | /O(n)/ 'minimum' returns the minimum value from a vector,
+--   return 'Nothing' in the case of an empty vector.
+minimumMaybe :: (Vec v a, Ord a, HasCallStack) => v a -> Maybe a
+{-# INLINE minimumMaybe #-}
+minimumMaybe = foldl1Maybe' min
 
 -- | /O(n)/ 'product' returns the product value from a vector
 product :: (Vec v a, Num a) => v a -> a
@@ -937,10 +970,10 @@ mapAccumR f z (Vec ba s l)
 -- the value of every element.
 --
 -- Note: 'replicate' will not force the element.
---
 replicate :: (Vec v a) => Int -> a -> v a
 {-# INLINE replicate #-}
-replicate n x = create n (\ marr -> setArr marr 0 n x)
+replicate n x | n <= 0    = empty
+              | otherwise = create n (\ marr -> setArr marr 0 n x)
 
 -- | /O(n)/, where /n/ is the length of the result.  The 'unfoldr'
 -- function is analogous to the List \'unfoldr\'.  'unfoldr' builds a

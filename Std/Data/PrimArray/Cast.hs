@@ -14,35 +14,7 @@ Maintainer  : drkoster@qq.com
 Stability   : experimental
 Portability : non-portable
 
-This module is borrowed from basement's Cast module. The purpose of 'Cast' is to provide primitive types which share the same byte size, so that arrays and vectors parameterized by them can be safely coerced without breaking the index bounds. You can also use it to directly cast primitives just like @reinterpret_cast@.
-
-NOTE, there's some conditional instances base on compiling machine's word size:
-
-@
-    instance Cast Word   Word64
-    instance Cast Word64 Word
-    instance Cast Word   Int64
-    instance Cast Int64  Word
-    instance Cast Int    Int64
-    instance Cast Int64  Int
-    instance Cast Int    Word64
-    instance Cast Word64 Int
-@
-
-are only available on 64bit machines, while
-
-@
-    instance Cast Word   Word32
-    instance Cast Word32 Word
-    instance Cast Word   Int32
-    instance Cast Int32  Word
-    instance Cast Int    Int32
-    instance Cast Int32  Int
-    instance Cast Int    Word32
-    instance Cast Word32 Int
-@
-
-are only available on 32bit machines. Use them with CPP guarded. If possible, avoid use them at all. A 'Coercible' based instance is also provide for convenience.
+This module is borrowed from basement's Cast module with conditional instances removed. The purpose of 'Cast' is to provide primitive types which share the same byte size, so that arrays and vectors parameterized by them can be safely coerced without breaking the index bounds. You can also use it to directly cast primitives just like @reinterpret_cast@. A 'Coercible' based instance is also provide for convenience.
 
 -}
 
@@ -97,48 +69,6 @@ instance Cast Word64 Int64 where
 #endif
 instance Cast Word   Int where
     cast (W# w) = I# (word2Int# w)
-
-#if WORD_SIZE_IN_BITS == 64
-instance Cast Word   Word64 where
-    cast (W# w) = W64# w
-instance Cast Word64 Word where
-    cast (W64# w) = W# w
-
-instance Cast Word   Int64 where
-    cast (W# w) = I64# (word2Int# w)
-instance Cast Int64  Word where
-    cast (I64# i) = W# (int2Word# i)
-
-instance Cast Int    Int64 where
-    cast (I# i) = I64# i
-instance Cast Int64  Int where
-    cast (I64# i) = I# i
-
-instance Cast Int    Word64 where
-    cast (I# i) = W64# (int2Word# i)
-instance Cast Word64 Int where
-    cast (W64# w) = I# (word2Int# w)
-#else
-instance Cast Word   Word32 where
-    cast (W# w) = W32# w
-instance Cast Word32 Word where
-    cast (W32# w) = W# w
-
-instance Cast Word   Int32 where
-    cast (W# w) = I32# (word2Int# w)
-instance Cast Int32  Word where
-    cast (I32# i) = W# (int2Word# i)
-
-instance Cast Int    Int32 where
-    cast (I# i) = I32# i
-instance Cast Int32  Int where
-    cast (I32# i) = I# i
-
-instance Cast Int    Word32 where
-    cast (I# i) = W32# (int2Word# i)
-instance Cast Word32 Int where
-    cast (W32# w) = I# (word2Int# w)
-#endif
 
 instance Cast Word64 Double where
     cast = castWord64ToDouble
