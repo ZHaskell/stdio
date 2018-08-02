@@ -141,8 +141,7 @@ module Std.Data.Vector (
   -- * Search
   -- ** element-wise search
   , findIndices, elemIndices
-  , find, findIndexOrEnd
-  , findIndexReverseOrStart
+  , find, findIndex, findIPair
   , filter, partition
   -- ** sub-vector search
   , indicesOverlapping

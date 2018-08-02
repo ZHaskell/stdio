@@ -20,7 +20,8 @@ module Std.Data.Vector.Search (
   -- * Search in vectors
   -- ** element-wise search
     findIndices, elemIndices, elemIndicesBytes
-  , find, findIndexOrEnd, elemIndexOrEndBytes
+  , find, findIndex, findIPair
+  , findIndexOrEnd, elemIndexOrEndBytes
   , findIndexReverseOrStart, elemIndexReverseOrStartBytes
   , filter, partition
   -- ** sub-vector search
@@ -93,13 +94,27 @@ elemIndicesBytes w (PrimVector (PrimArray ba#) s l) = go s
 
 -- | /O(n)/ find the first index and element matching the predicate
 -- in a vector from left to right, if there isn't one, return 'Nothing'.
-find :: Vec v a => (a -> Bool) -> v a -> Maybe (Int, a)
+find :: Vec v a => (a -> Bool) -> v a -> Maybe a
 {-# INLINE find #-}
-find f v@(Vec arr s l) = go s
+find f v =  case findIPair f v of Just (IPair _ a) -> Just a
+                                  _                -> Nothing
+
+-- | /O(n)/ find the first index and element matching the predicate
+-- in a vector from left to right, return index.
+findIndex :: Vec v a => (a -> Bool) -> v a -> Maybe Int
+{-# INLINE findIndex #-}
+findIndex f v =  case findIPair f v of Just (IPair i _) -> Just i
+                                       _                -> Nothing
+
+-- | /O(n)/ find the first index and element matching the predicate
+-- in a vector from left to right, along with its index.
+findIPair :: Vec v a => (a -> Bool) -> v a -> Maybe (IPair a)
+{-# INLINE findIPair #-}
+findIPair f v@(Vec arr s l) = go s
   where
     !end = s + l
     go !p | p >= end  = Nothing
-          | f x       = let !i = p-s in Just (i, x)
+          | f x       = let !i = p-s in Just (IPair i x)
           | otherwise = go (p+1)
         where (# x #) = indexArr' arr p
 
@@ -226,24 +241,27 @@ indicesOverlapping :: (Vec v a, Eq a)
         -> [Int]
 {-# INLINE[1] indicesOverlapping #-}
 {-# RULES "indicesOverlapping/Bytes" indicesOverlapping = indicesOverlappingBytes #-}
-indicesOverlapping needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) reportPartial
-    | nlen == 1             = case indexArr' narr 0 of
-                                (# x #) -> elemIndices x haystack
-    | nlen <= 0 || hlen < 0 = []
-    | otherwise             = kmp 0 0
+indicesOverlapping needle@(Vec narr noff nlen) = search
   where
-    {-# NOINLINE next #-} -- force sharing
     next = kmpNextTable needle
-    kmp !i !j | i >= hlen = if j >= nlen then [i-j]
-                            else if reportPartial && j /= 0 then [-j] else []
-              | j >= nlen = let !i' = i-j
-                            in case next `indexArr` j of
-                                -1 -> i' : kmp i 0
-                                j' -> i' : kmp i j'
-              | narr `indexArr` (j+noff) == harr `indexArr` (i+hoff) = kmp (i+1) (j+1)
-              | otherwise = case next `indexArr` j of
-                                -1 -> kmp (i+1) 0
-                                j' -> kmp i j'
+    search haystack@(Vec harr hoff hlen) reportPartial
+        | nlen <= 0 || hlen <= 0 = []
+        | nlen == 1              = case indexArr' narr 0 of
+                                    (# x #) -> elemIndices x haystack
+        | otherwise              = kmp 0 0
+      where
+        kmp !i !j | i >= hlen = if reportPartial && j /= 0 then [-j] else []
+                  | narr `indexArr` (j+noff) == harr `indexArr` (i+hoff) =
+                        let !j' = j+1
+                        in if j' >= nlen
+                        then let !i' = i-j
+                            in case next `indexArr` j' of
+                                -1 -> i' : kmp (i+1) 0
+                                j'' -> i' : kmp (i+1) j''
+                        else kmp (i+1) j'
+                  | otherwise = case next `indexArr` j of
+                                    -1 -> kmp (i+1) 0
+                                    j' -> kmp i j'
 
 -- | /O(n\/m)/ Find the offsets of all indices (possibly overlapping) of @needle@
 -- within @haystack@ using KMP algorithm, combined with simplified sunday's
@@ -266,63 +284,70 @@ indicesOverlappingBytes :: Bytes -- ^ bytes to search for (@needle@)
                         -> Bool -- ^ report partial match at the end of haystack
                         -> [Int]
 {-# INLINE indicesOverlappingBytes #-}
-indicesOverlappingBytes needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) reportPartial
-    | nlen == 1             = elemIndices (indexArr narr 0) haystack
-    | nlen <= 0 || hlen < 0 = []
-    | otherwise             = sunday 0 0
+indicesOverlappingBytes needle@(Vec narr noff nlen) = search
   where
-    {-# NOINLINE next #-} -- force sharing
     next = kmpNextTable needle
-    {-# NOINLINE bloom #-} -- force sharing
     bloom = sundayBloom needle
-    kmp !i !j | i >= hlen = if j >= nlen then [i-j]
-                            else if reportPartial && j /= 0 then [-j] else []
-              | j >= nlen = let !i' = i-j
-                            in case next `indexArr` j of
-                                -1 -> i' : kmp i 0
-                                j' -> i' : kmp i j'
-              | narr `indexArr` (j+noff) == harr `indexArr` (i+hoff) = kmp (i+1) (j+1)
-              | otherwise = case next `indexArr` j of
-                                -1 -> kmp (i+1) 0
-                                j' -> kmp i j'
-
-    !hlen' = hlen - nlen
-    sunday !i !j | i >= hlen' = kmp i j
-                 | j >= nlen  = let !i' = i-j
-                                in case next `indexArr` j of
-                                    -1 -> i' : sunday i 0
-                                    j' -> i' : sunday i j'
-                 | narr `indexArr` (j+noff) == harr `indexArr` (i+hoff) = sunday (i+1) (j+1)
-                 | otherwise = let !k = i+nlen-j
-                                   !afterNeedle = indexArr harr (k+hoff)
-                               in if elemSundayBloom bloom afterNeedle
-                                  -- fallback to KMP
-                                  then case next `indexArr` j of
-                                           -1 -> sunday (i+1) 0
-                                           j' -> sunday i j'
-                                  -- sunday's shifting
-                                  else sunday (k+1) 0
+    search haystack@(Vec harr hoff hlen) reportPartial
+        | nlen <= 0 || hlen <= 0 = []
+        | nlen == 1              = elemIndices (indexArr narr 0) haystack
+        | otherwise              = sunday 0 0
+      where
+        kmp !i !j | i >= hlen = if reportPartial && j /= 0 then [-j] else []
+                  | narr `indexArr` (j+noff) == harr `indexArr` (i+hoff) =
+                        let !j' = j+1
+                        in if j' >= nlen
+                        then let !i' = i-j
+                            in case next `indexArr` j' of
+                                -1 -> i' : kmp (i+1) 0
+                                j'' -> i' : kmp (i+1) j''
+                        else kmp (i+1) j'
+                  | otherwise = case next `indexArr` j of
+                                    -1 -> kmp (i+1) 0
+                                    j' -> kmp i j'
+        !hlen' = hlen - nlen
+        sunday !i !j | i >= hlen' = kmp i j
+                     | narr `indexArr` (j+noff) == harr `indexArr` (i+hoff) =
+                            let !j' = j+1
+                            in if j' >= nlen
+                            then let !i' = i-j
+                                in case next `indexArr` j' of
+                                    -1 -> i' : sunday (i+1) 0
+                                    j'' -> i' : sunday (i+1) j''
+                            else sunday (i+1) j'
+                     | otherwise = let !k = i+nlen-j
+                                       !afterNeedle = indexArr harr (k+hoff)
+                                   in if elemSundayBloom bloom afterNeedle
+                                      -- fallback to KMP
+                                      then case next `indexArr` j of
+                                               -1 -> sunday (i+1) 0
+                                               j' -> sunday i j'
+                                      -- sunday's shifting
+                                      else sunday (k+1) 0
 
 -- | /O(n+m)/ Find the offsets of all non-overlapping indices of @needle@
 -- within @haystack@ using KMP algorithm.
 indices :: (Vec v a, Eq a) => v a -> v a -> Bool -> [Int]
 {-# INLINE[1] indices #-}
 {-# RULES "indices/Bytes" indices = indicesBytes #-}
-indices needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) reportPartial
-    | nlen == 1             = case indexArr' narr 0 of
-                                (# x #) -> elemIndices x haystack
-    | nlen <= 0 || hlen < 0 = []
-    | otherwise             = kmp 0 0
+indices needle@(Vec narr noff nlen) = search
   where
-    {-# NOINLINE next #-} -- force sharing
     next = kmpNextTable needle
-    kmp !i !j | i >= hlen = if j >= nlen then [i-j]
-                            else if reportPartial && j /= 0 then [-j] else []
-                | j >= nlen = let !i' = i-j in i' : kmp i 0
-                | narr `indexArr` (j+noff) == harr `indexArr` (i+hoff) = kmp (i+1) (j+1)
-                | otherwise = case next `indexArr` j of
-                                -1 -> kmp (i+1) 0
-                                j' -> kmp i j'
+    search haystack@(Vec harr hoff hlen) reportPartial
+        | nlen <= 0 || hlen <= 0 = []
+        | nlen == 1              = case indexArr' narr 0 of
+                                    (# x #) -> elemIndices x haystack
+        | otherwise              = kmp 0 0
+      where
+        kmp !i !j | i >= hlen = if reportPartial && j /= 0 then [-j] else []
+                  | narr `indexArr` (j+noff) == harr `indexArr` (i+hoff) =
+                        let !j' = j+1
+                        in if j' >= nlen
+                            then let !i' = i-j in i' : kmp (i+1) 0
+                            else kmp (i+1) j'
+                  | otherwise = case next `indexArr` j of
+                                    -1 -> kmp (i+1) 0
+                                    j' -> kmp i j'
 
 -- | /O(n\/m)/ Find the offsets of all non-overlapping indices of @needle@
 -- within @haystack@ using KMP algorithm, combined with simplified sunday's
@@ -335,36 +360,40 @@ indicesBytes :: Bytes -- ^ bytes to search for (@needle@)
              -> Bool -- ^ report partial match at the end of haystack
              -> [Int]
 {-# INLINE indicesBytes #-}
-indicesBytes needle@(Vec narr noff nlen) haystack@(Vec harr hoff hlen) reportPartial
-    | nlen == 1             = elemIndices (indexArr narr 0) haystack
-    | nlen <= 0 || hlen < 0 = []
-    | otherwise             = sunday 0 0
+indicesBytes needle@(Vec narr noff nlen) = search
   where
-    {-# NOINLINE next #-} -- force sharing
     next = kmpNextTable needle
-    {-# NOINLINE bloom #-} -- force sharing
     bloom = sundayBloom needle
-    kmp !i !j | i >= hlen = if j >= nlen then [i-j]
-                            else if reportPartial && j /= 0 then [-j] else []
-              | j >= nlen = let !i' = i-j in i' : kmp i 0
-              | narr `indexArr` (j+noff) == harr `indexArr` (i+hoff) = kmp (i+1) (j+1)
-              | otherwise = case next `indexArr` j of
-                                -1 -> kmp (i+1) 0
-                                j' -> kmp i j'
-
-    !hlen' = hlen - nlen
-    sunday !i !j | i >= hlen' = kmp i j
-                 | j >= nlen  = let !i' = i-j in  i' : sunday i 0
-                 | narr `indexArr` (j+noff) == harr `indexArr` (i+hoff) = sunday (i+1) (j+1)
-                 | otherwise = let !k = i+nlen-j
-                                   !afterNeedle = indexArr harr (k+hoff)
-                               in if elemSundayBloom bloom afterNeedle
-                                  -- fallback to KMP
-                                  then case next `indexArr` j of
-                                           -1 -> sunday (i+1) 0
-                                           j' -> sunday i j'
-                                  -- sunday's shifting
-                                  else sunday (k+1) 0
+    search haystack@(Vec harr hoff hlen) reportPartial
+        | nlen <= 0 || hlen <= 0 = []
+        | nlen == 1              = elemIndices (indexArr narr 0) haystack
+        | otherwise              = sunday 0 0
+      where
+        kmp !i !j | i >= hlen = if reportPartial && j /= 0 then [-j] else []
+                  | narr `indexArr` (j+noff) == harr `indexArr` (i+hoff) =
+                        let !j' = j+1
+                        in if j' >= nlen
+                            then let !i' = i-j in i' : kmp (i+1) 0
+                            else kmp (i+1) j'
+                  | otherwise = case next `indexArr` j of
+                                    -1 -> kmp (i+1) 0
+                                    j' -> kmp i j'
+        !hlen' = hlen - nlen
+        sunday !i !j | i >= hlen' = kmp i j
+                     | narr `indexArr` (j+noff) == harr `indexArr` (i+hoff) =
+                            let !j' = j+1
+                            in if j' >= nlen
+                                then let !i' = i-j in i' : sunday (i+1) 0
+                                else sunday (i+1) j'
+                     | otherwise = let !k = i+nlen-j
+                                       !afterNeedle = indexArr harr (k+hoff)
+                                   in if elemSundayBloom bloom afterNeedle
+                                      -- fallback to KMP
+                                      then case next `indexArr` j of
+                                               -1 -> sunday (i+1) 0
+                                               j' -> sunday i j'
+                                      -- sunday's shifting
+                                      else sunday (k+1) 0
 
 -- | /O(m)/ Calculate the KMP next shift table.
 --
