@@ -29,7 +29,7 @@ spec = do
         prop "vector compare === List.compare" $ \ xs ys ->
             (V.pack @V.PrimVector @Word8 xs `compare` V.pack ys) === (xs `compare` ys)
 
-    describe "vector Eq Ord property" $ do
+    describe "vector unpack(R) . pack(R)(N) == id" . modifyMaxSuccess (*50) . modifyMaxSize (*50) $ do
         prop "unpack . pack === id" $ \ xs ->
             (V.unpack @V.Vector @Integer) (V.pack xs)  === xs
         prop "unpack . pack === id" $ \ xs ->
@@ -37,7 +37,6 @@ spec = do
         prop "unpack . pack === id" $ \ xs ->
             (V.unpack @V.PrimVector @Word8) (V.pack xs)  === xs
 
-    describe "vector unpack(R) . pack(R)(N) == id" $ do
         prop "unpackR . packR === id" $ \ xs ->
             (V.unpackR @V.Vector @Integer) (V.packR xs)  === xs
         prop "unpackR . packR === id" $ \ xs ->
@@ -45,6 +44,7 @@ spec = do
         prop "unpackR . packR === id" $ \ xs ->
             (V.unpackR @V.PrimVector @Word8) (V.packR xs)  === xs
 
+    describe "vector pack == packN" . modifyMaxSuccess (*50) . modifyMaxSize (*50) $ do
         prop "pack === packN XX" $ \ xs d ->
             (V.pack @V.Vector @Integer xs) === (V.packN d xs)
         prop "pack === packN XX" $ \ xs d ->
@@ -59,6 +59,7 @@ spec = do
         prop "packR === packRN XX" $ \ xs d ->
             (V.packR @V.PrimVector @Word8 xs) === (V.packRN d xs)
 
+    describe "vector reverse . pack == packR" . modifyMaxSuccess (*50) . modifyMaxSize (*50) $ do
         prop "reverse . pack === packR XX" $ \ xs ->
             (V.reverse $ V.pack @V.Vector @Integer xs) === (V.packR xs)
         prop "reverse . pack === packR XX" $ \ xs ->

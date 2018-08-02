@@ -154,7 +154,6 @@ module Std.Data.Vector (
   , insertSort
   , insertSortBy
   , Down(..)
-  , PrimDown(..)
   -- ** radix search
   , radixSort
   , Radix(..)

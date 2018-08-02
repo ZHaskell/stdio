@@ -2,7 +2,7 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Unit.FileSystem where
+module Std.IO.FileSystemSpec where
 
 import           Control.Concurrent.MVar (readMVar)
 import           Data.Bits
@@ -14,19 +14,19 @@ import           Std.IO.Exception
 import           Std.IO.FileSystem       as FS
 import           Std.IO.Resource
 import           Std.IO.UV.Manager
-import           Test.Tasty              hiding (withResource)
-import           Test.Tasty.HUnit
+import           Test.Hspec
+import           Test.HUnit
 
-unitFileSystem :: TestTree
-unitFileSystem = testGroup "filesystem operations" [
-    testCase "Opens and writes a file" $ do
+spec :: Spec
+spec = describe "filesystem operations" $ do
+    it "Opens and writes a file" $ do
 
         let flags = uV_FS_O_RDWR .|. uV_FS_O_CREAT
             mode = defaultMode
             filename = "stdio-unit"
 
-            content = [bytes|Hello world!|]
-            content2 = [bytes|quick fox jumps over the lazy dog|]
+            content = [ascii|Hello world!|]
+            content2 = [ascii|quick fox jumps over the lazy dog|]
             size = V.length content
             size2 = V.length content2
 
@@ -51,5 +51,3 @@ unitFileSystem = testGroup "filesystem operations" [
             written @=? content2
 
         unlink filename
-
-    ]

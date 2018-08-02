@@ -26,7 +26,7 @@ This module provide three stable sorting algorithms, which are:
 
   * 'radixSort' a /O(n)/ sorting algorithms based on 'Radix' instance, which is prefered on large vectors.
 
-Sorting is always performed in ascending order. To reverse the order, either use @XXSortBy@ or use 'Down', 'PrimDown', 'RadixDown' newtypes. In general changing comparing functions can be done by creating auxiliary newtypes and 'Ord' instances (make sure you inline instance's method for performence!). Or 'Radix' instances in 'radixSort' case, for example:
+Sorting is always performed in ascending order. To reverse the order, either use @XXSortBy@ or use 'Down', 'RadixDown' newtypes. In general changing comparing functions can be done by creating auxiliary newtypes and 'Ord' instances (make sure you inline instance's method for performence!). Or 'Radix' instances in 'radixSort' case, for example:
 
 @
 data Foo = Foo { key :: Int16, ... }
@@ -37,6 +37,7 @@ instance Radix Foo where
     passes = passes . key
     radixLSB = radixLSB . key
     radix i = radix i . key
+    radixMSB = radixMSB . key
 @
 
 -}
@@ -49,7 +50,6 @@ module Std.Data.Vector.Sort (
   , insertSort
   , insertSortBy
   , Down(..)
-  , PrimDown(..)
   , radixSort
   , Radix(..)
   , RadixDown(..)
@@ -181,21 +181,6 @@ insertSortToMArr cmp (Vec arr s l) moff marr = go s
                     writeArr marr i x
                     insert temp (i-1)
                 _ -> writeArr marr i temp
-
--- | 'Down' newtype with 'Prim' support, this newtype can inverse the order of a 'Ord' 'Prim'.
-newtype PrimDown a = PrimDown a deriving (Show, Eq, Prim)
-
-instance Ord a => Ord (PrimDown a) where
-    {-# INLINE compare #-}
-    compare (PrimDown x) (PrimDown y) = y `compare` x
-    {-# INLINE (<) #-}
-    (PrimDown x) < (PrimDown y) = x >= y
-    {-# INLINE (>) #-}
-    (PrimDown x) > (PrimDown y) = x <= y
-    {-# INLINE (<=) #-}
-    (PrimDown x) <= (PrimDown y) = x > y
-    {-# INLINE (>=) #-}
-    (PrimDown x) >= (PrimDown y) = x < y
 
 --------------------------------------------------------------------------------
 -- Radix Sort
