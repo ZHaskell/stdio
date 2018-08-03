@@ -13,7 +13,7 @@ import           Test.Hspec
 import           Test.Hspec.QuickCheck
 
 spec :: Spec
-spec = do
+spec = describe "text" $ do
     describe "UTF8Bytes instance property" $ do
         prop "text eq === string eq" $ \ xs ys ->
             (T.pack xs == T.pack ys) === (xs == ys)

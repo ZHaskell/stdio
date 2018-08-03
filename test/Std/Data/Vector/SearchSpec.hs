@@ -14,30 +14,14 @@ import           Test.Hspec
 import           Test.Hspec.QuickCheck
 
 spec :: Spec
-spec = do
-    describe "vector find == List.find" $ do
-        prop "vector find = List.find" $ \ (Fun _ y) x ->
-            (V.find y . V.pack @V.Vector @Integer $ x)  === (List.find y $ x)
-        prop "vector find = List.find" $ \ (Fun _ y) x ->
-            (V.find y . V.pack @V.PrimVector @Int $ x)  === (List.find y $ x)
-        prop "vector find = List.find" $ \ (Fun _ y) x ->
-            (V.find y . V.pack @V.PrimVector @Word8 $ x)  === (List.find y $ x)
-
-    describe "vector findIndex == List.findIndex" $ do
-        prop "vector findIndex = List.findIndex" $ \ (Fun _ y) x ->
-            (V.findIndex y . V.pack @V.Vector @Integer $ x)  === (List.findIndex y $ x)
-        prop "vector findIndex = List.findIndex" $ \ (Fun _ y) x ->
-            (V.findIndex y . V.pack @V.PrimVector @Int $ x)  === (List.findIndex y $ x)
-        prop "vector findIndex = List.findIndex" $ \ (Fun _ y) x ->
-            (V.findIndex y . V.pack @V.PrimVector @Word8 $ x)  === (List.findIndex y $ x)
-
-    describe "vector findIndex == List.findIndex" $ do
-        prop "vector findIndex = List.findIndex" $ \ (Fun _ y) x ->
-            (V.findIndex y . V.pack @V.Vector @Integer $ x)  === (List.findIndex y $ x)
-        prop "vector findIndex = List.findIndex" $ \ (Fun _ y) x ->
-            (V.findIndex y . V.pack @V.PrimVector @Int $ x)  === (List.findIndex y $ x)
-        prop "vector findIndex = List.findIndex" $ \ (Fun _ y) x ->
-            (V.findIndex y . V.pack @V.PrimVector @Word8 $ x)  === (List.findIndex y $ x)
+spec = describe "vector search" $ do
+    describe "snd . vector find == List.find" $ do
+        prop "snd .vector find = List.find" $ \ (Fun _ y) x ->
+            (snd . V.find y . V.pack @V.Vector @Integer $ x)  === (List.find y $ x)
+        prop "snd . vector find = List.find" $ \ (Fun _ y) x ->
+            (snd . V.find y . V.pack @V.PrimVector @Int $ x)  === (List.find y $ x)
+        prop "snd . vector find = List.find" $ \ (Fun _ y) x ->
+            (snd . V.find y . V.pack @V.PrimVector @Word8 $ x)  === (List.find y $ x)
 
     describe "vector findIndexOrEnd == maybe List.length List.findIndexOrEnd" $ do
         prop "vector findIndexOrEnd = maybe List.length List.findIndexOrEnd" $ \ (Fun _ y) x ->
@@ -50,16 +34,16 @@ spec = do
             (V.findIndexOrEnd y . V.pack @V.PrimVector @Word8 $ x)  ===
                 (maybe (List.length x) id $ List.findIndex y x)
 
-    describe "vector findIndexOrEnd ==  length - findIndexReverseOrStart . reverse - 1" $ do
-        prop "vector findIndexOrEnd = length - findIndexReverseOrStart . reverse - 1" $ \ (Fun _ y) x ->
+    describe "vector findIndexOrEnd ==  length - findLastIndexOrStart . reverse - 1" $ do
+        prop "vector findIndexOrEnd = length - findLastIndexOrStart . reverse - 1" $ \ (Fun _ y) x ->
             (V.findIndexOrEnd y . V.pack @V.Vector @Integer $ x)  ===
-                (List.length x - 1 - (V.findIndexReverseOrStart y . V.reverse . V.pack @V.Vector @Integer $ x))
-        prop "vector findIndexOrEnd = length - findIndexReverseOrStart . reverse - 1" $ \ (Fun _ y) x ->
+                (List.length x - 1 - (V.findLastIndexOrStart y . V.reverse . V.pack @V.Vector @Integer $ x))
+        prop "vector findIndexOrEnd = length - findLastIndexOrStart . reverse - 1" $ \ (Fun _ y) x ->
             (V.findIndexOrEnd y . V.pack @V.PrimVector @Int $ x)  ===
-                (List.length x - 1 - (V.findIndexReverseOrStart y . V.reverse . V.pack @V.PrimVector @Int $ x))
-        prop "vector findIndexOrEnd = length - findIndexReverseOrStart . reverse - 1" $ \ (Fun _ y) x ->
+                (List.length x - 1 - (V.findLastIndexOrStart y . V.reverse . V.pack @V.PrimVector @Int $ x))
+        prop "vector findIndexOrEnd = length - findLastIndexOrStart . reverse - 1" $ \ (Fun _ y) x ->
             (V.findIndexOrEnd y . V.pack @V.PrimVector @Word8 $ x)  ===
-                (List.length x - 1 - (V.findIndexReverseOrStart y . V.reverse . V.pack @V.PrimVector @Word8 $ x))
+                (List.length x - 1 - (V.findLastIndexOrStart y . V.reverse . V.pack @V.PrimVector @Word8 $ x))
 
     describe "vector elemIndices == List.elemIndices" $ do
         prop "vector elemIndices = List.elemIndices" $ \ y x ->
@@ -68,12 +52,6 @@ spec = do
             (V.elemIndices y . V.pack @V.PrimVector @Int $ x)  === (List.elemIndices y $ x)
         prop "vector elemIndices = List.elemIndices" $ \ y x ->
             (V.elemIndices y . V.pack @V.PrimVector @Word8 $ x)  === (List.elemIndices y $ x)
-
-    describe "vector elemIndexOrEndBytes == List.elemIndex" $ do
-        prop "vector splitAt == List.splitAt" $ \ xs x ->
-            (V.elemIndexOrEndBytes x . V.pack $ xs)  ===
-                (case List.elemIndex x xs of Just r -> r
-                                             Nothing -> List.length xs)
 
     describe "vector filter == List.filter" $ do
         prop "vector filter = List.filter" $ \ (Fun _ y) x ->
@@ -162,7 +140,7 @@ spec = do
             (let is = V.indicesOverlapping (V.pack needle) (V.pack @V.Vector @Integer $ haystack) False
              in all (\i -> List.take (List.length needle) (List.drop i haystack) == needle) is
             ) === True
-        prop "subvector not at indicesOverlapping should be not equal to needle" $ \ (NonEmpty needle) haystack  ->
+        prop "subvector not at indicesOverlapping should be not equal to needle" $ \ needle haystack  ->
             (let is = V.indicesOverlapping (V.pack needle) (V.pack @V.Vector @Integer $ haystack) False
                  is' = filter (`notElem` is) [0..List.length haystack-1]
              in all (\i -> List.take (List.length needle) (List.drop i haystack) /= needle) is'
@@ -171,7 +149,7 @@ spec = do
             (let is = V.indicesOverlapping (V.pack needle) (V.pack @V.PrimVector @Int $ haystack) False
              in all (\i -> List.take (List.length needle) (List.drop i haystack) == needle) is
             ) === True
-        prop "subvector not at indicesOverlapping should be not equal to needle" $ \ (NonEmpty needle) haystack  ->
+        prop "subvector not at indicesOverlapping should be not equal to needle" $ \ needle haystack  ->
             (let is = V.indicesOverlapping (V.pack needle) (V.pack @V.PrimVector @Int $ haystack) False
                  is' = filter (`notElem` is) [0..List.length haystack-1]
              in all (\i -> List.take (List.length needle) (List.drop i haystack) /= needle) is'
@@ -180,7 +158,7 @@ spec = do
             (let is = V.indicesOverlapping (V.pack needle) (V.pack @V.PrimVector @Word8 $ haystack) False
              in all (\i -> List.take (List.length needle) (List.drop i haystack) == needle) is
             ) === True
-        prop "subvector not at indicesOverlapping should be not equal to needle" $ \ (NonEmpty needle) haystack  ->
+        prop "subvector not at indicesOverlapping should be not equal to needle" $ \ needle haystack  ->
             (let is = V.indicesOverlapping (V.pack needle) (V.pack @V.PrimVector @Word8 $ haystack) False
                  is' = filter (`notElem` is) [0..List.length haystack-1]
              in all (\i -> List.take (List.length needle) (List.drop i haystack) /= needle) is'

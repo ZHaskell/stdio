@@ -13,7 +13,7 @@ import           Test.Hspec
 import           Test.Hspec.QuickCheck
 
 spec :: Spec
-spec = do
+spec = describe "vector base" $ do
     describe "vector Eq Ord property" $ do
         prop "vector eq === List.eq" $ \ xs ys ->
             (V.pack @V.Vector @Integer xs == V.pack ys) === (xs == ys)

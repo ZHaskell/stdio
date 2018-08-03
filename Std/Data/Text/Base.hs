@@ -17,7 +17,37 @@ A 'Text' which wrap a 'Bytes' that are correctly UTF-8 encoded codepoints. WIP
 
 -}
 
-module Std.Data.Text where
+module Std.Data.Text.Base (
+  -- * Text type
+    Text(..)
+  , (!!)
+  -- * Basic creating
+  , empty, singleton
+  -- * Conversion between list
+  , pack, packR
+  , unpack, unpackR
+  -- * Basic interface
+  , null
+  , length
+  , append
+  , map', imap'
+  , foldl', ifoldl', foldl1', foldl1Maybe'
+  , foldr', ifoldr', foldr1', foldr1Maybe'
+    -- ** Special folds
+  , concat, concatMap
+  , maximumMaybe, minimumMaybe
+  , count
+  , all, any
+  -- * Building vector
+  -- ** Accumulating maps
+  , mapAccumL
+  , mapAccumR
+  -- ** Generating and unfolding vector
+  , replicate
+  , repeatN
+  , unfoldr
+  , unfoldrN
+ ) where
 
 import           Control.DeepSeq
 import           Control.Monad.ST
@@ -37,47 +67,28 @@ import           Std.Data.Vector.Base     (Bytes, pattern Vec)
 import qualified Std.Data.Vector.Base     as V
 import qualified Std.Data.Vector.Extra    as V
 
-import Prelude hiding (reverse,head,tail,last,init,null
-    ,length,map,lines,foldl,foldr,unlines
-    ,concat,any,take,drop,splitAt,takeWhile
-    ,dropWhile,span,break,elem,filter,maximum
-    ,minimum,all,concatMap,foldl1,foldr1
-    ,scanl,scanl1,scanr,scanr1
-    ,readFile,writeFile,appendFile,replicate
-    ,getContents,getLine,putStr,putStrLn,interact
-    ,zip,zipWith,unzip,notElem
-    )
+import           Prelude                       hiding (concat, concatMap,
+                                                elem, notElem, null, length, map,
+                                                foldl, foldl1, foldr, foldr1,
+                                                maximum, minimum, product, sum,
+                                                all, any, replicate, traverse)
 
 -- | 'Text' represented as UTF-8 encoded 'Bytes'
 --
 newtype Text = Text { getUTF8Bytes :: Bytes }
 
 instance Eq Text where
-    (Text b1) == (Text b2) = b1 == b2
+    Text b1 == Text b2 = b1 == b2
     {-# INLINE (==) #-}
 
 instance Ord Text where
-    compare = compareText
+    Text b1 `compare` Text b2 = b1 `compare` b2 -- UTF-8 encoding property
     {-# INLINE compare #-}
-
-compareText :: Text -> Text -> Ordering
-{-# INLINE compareText #-}
-compareText (Text (V.PrimVector baA sA lA)) (Text (V.PrimVector baB sB lB))
-    | baA `sameArr` baB = if sA == sB then lA `compare` lB else go sA sB
-    | otherwise = go sA sB
-  where
-    !endA = sA + lA
-    !endB = sB + lB
-    go !i !j | i >= endA  = endA `compare` endB
-             | j >= endB  = endA `compare` endB
-             | otherwise = let (# ca, ka #) = decodeChar baA i
-                               (# cb, kb #) = decodeChar baB j
-                           in case ca `compare` cb of
-                                EQ -> go (i+ka) (j+kb)
-                                x  -> x
 
 instance Show Text where
     showsPrec p t = showsPrec p (unpack t)
+instance Read Text where
+    readsPrec p str = [ (pack x, y) | (x, y) <- readsPrec p str ]
 instance NFData Text where
     rnf (Text bs) = rnf bs
 
@@ -101,14 +112,13 @@ validateUTF8 bs@(V.PrimVector ba s l) = go s
             r
                 | r > 0  -> go (i + r)
                 | r == 0 ->
-                    ValidatePartialBytes
+                    PartialBytes
                         (Text (V.PrimVector ba s (i-s)))
                         (V.PrimVector ba i (end-i))
                 | otherwise ->
-                    ValidateInvalidBytes
+                    InvalidBytes
                         (V.PrimVector ba i (-r))
-                        (V.PrimVector ba i (end-i))
-        | otherwise = ValidateSuccess (Text bs)
+        | otherwise = Success (Text bs)
 
 data RepairResult
     = RepairSuccess !Text
@@ -118,7 +128,6 @@ data RepairResult
 --
 -- https://stackoverflow.com/questions/2547262/why-is-python-decode-replacing-more-than-the-invalid-bytes-from-an-encoded-strin
 
-{-
 repairUTF8 :: Bytes -> RepairResult
 repairUTF8 (Vec arr s l) = runST $ do
     ma <- newArr l
@@ -139,6 +148,7 @@ repairUTF8 (Vec arr s l) = runST $ do
                         (V.PrimVector ba i (-r))
         | otherwise = Success (Text bs)
 
+{-
 fromUTF8 :: Bytes -> (Text, Bytes)
 fromUTF8Lenient :: Bytes -> (Text, Bytes)
 toUTF8 :: Text -> Bytes
@@ -389,3 +399,4 @@ errorEmptyText :: String -> a
 errorEmptyText fun = error ("Data.Text." ++ fun ++ ": empty Text")
 
 --------------------------------------------------------------------------------
+

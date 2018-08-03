@@ -130,7 +130,7 @@ library
       -- The C runtime dependencies are imposed by libuv.
       extra-libraries:   psapi, Iphlpapi, userenv, Ws2_32
     else
-      extra-libraries:   uv
+      extra-libraries:   uv, utf8proc
 
     -- hs-source-dirs:
     default-language:    Haskell2010

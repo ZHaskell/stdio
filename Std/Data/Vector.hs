@@ -140,8 +140,8 @@ module Std.Data.Vector (
   , scanr', scanr1'
   -- * Search
   -- ** element-wise search
+  , find, findLast
   , findIndices, elemIndices
-  , find, findIndex, findIPair
   , filter, partition
   -- ** sub-vector search
   , indicesOverlapping

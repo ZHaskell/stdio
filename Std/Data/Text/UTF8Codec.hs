@@ -248,8 +248,9 @@ decodeCharLenReverse# ba# idx# =
 --
 -- If the codepoint is valid, return the utf8 bytes length, otherwise return the negation of
 -- offset we should skip(so that a replacing decoder can meet the security rules).
--- If @0#@ is returned, then you should feed more bytes to continue validation. Note this function
--- guarantee only return @0@ when the trailing bytes are partial valid codepoint. That means you
+-- If @0#@ is returned, it means either we reached the end, or we should feed more bytes
+-- to continue validation. Note this function guarantee only return @0@ when end is reached, or
+-- the trailing bytes are partial valid codepoint. That means you
 -- can safely replace them with a replacement char or ignore it if no more bytes are to be fed.
 --
 -- reference: https://howardhinnant.github.io/utf_summary.html
@@ -263,15 +264,17 @@ validateChar (PrimArray ba#) (I# idx#) (I# end#) =
     let i# = validateChar# ba# idx# end# in I# i#
 
 
--- | The unboxed version of 'decodeCharLenReverse'
+-- | The unboxed version of 'validateChar'
 --
--- This function is marked as @NOINLINE@ to reduce code size.
+-- This function is marked as @NOINLINE@ to stop GHC's case transform mess up the result code.
+-- The code is full of branches anyway, so an extra jump is not really expensive.
 --
 validateChar# :: ByteArray# -> Int# -> Int# -> Int#
 {-# NOINLINE validateChar# #-}
 validateChar# ba# idx# end# =
     let w1# = indexWord8Array# ba# idx#
     in case end# -# idx# of
+        0# -> 0#
         1#
             | isTrue# (w1# `leWord#` 0x7F##) -> 1#
             | isTrue# (w1# `leWord#` 0xC1##) -> -1#
@@ -482,3 +485,5 @@ copyChar !l !mba !j !ba !i = case l of
             writePrimArray mba (j+1) $ indexPrimArray ba (i+1)
             writePrimArray mba (j+2) $ indexPrimArray ba (i+2)
             writePrimArray mba (j+3) $ indexPrimArray ba (i+3)
+
+--------------------------------------------------------------------------------

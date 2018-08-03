@@ -19,10 +19,9 @@ Portability : non-portable
 module Std.Data.Vector.Search (
   -- * Search in vectors
   -- ** element-wise search
-    findIndices, elemIndices, elemIndicesBytes
-  , find, findIndex, findIPair
-  , findIndexOrEnd, elemIndexOrEndBytes
-  , findIndexReverseOrStart, elemIndexReverseOrStartBytes
+    findIndices, elemIndices
+  , find, findLast
+  , findIndexOrEnd, findLastIndexOrStart
   , filter, partition
   -- ** sub-vector search
   , indicesOverlapping
@@ -92,90 +91,61 @@ elemIndicesBytes w (PrimVector (PrimArray ba#) s l) = go s
                 -1 -> []
                 r  -> let !i' = (i+r) in i': go (i'+1)
 
--- | /O(n)/ find the first index and element matching the predicate
--- in a vector from left to right, if there isn't one, return 'Nothing'.
-find :: Vec v a => (a -> Bool) -> v a -> Maybe a
-{-# INLINE find #-}
-find f v =  case findIPair f v of Just (IPair _ a) -> Just a
-                                  _                -> Nothing
-
--- | /O(n)/ find the first index and element matching the predicate
--- in a vector from left to right, return index.
-findIndex :: Vec v a => (a -> Bool) -> v a -> Maybe Int
-{-# INLINE findIndex #-}
-findIndex f v =  case findIPair f v of Just (IPair i _) -> Just i
-                                       _                -> Nothing
-
--- | /O(n)/ find the first index and element matching the predicate
--- in a vector from left to right, along with its index.
-findIPair :: Vec v a => (a -> Bool) -> v a -> Maybe (IPair a)
-{-# INLINE findIPair #-}
-findIPair f v@(Vec arr s l) = go s
-  where
-    !end = s + l
-    go !p | p >= end  = Nothing
-          | f x       = let !i = p-s in Just (IPair i x)
-          | otherwise = go (p+1)
-        where (# x #) = indexArr' arr p
-
--- | /O(n)/ find the first index matching the predicate in a vector
--- from left to right, if there isn't one, return the length of the vector,
--- which is not a legal index for the vector!
---
--- To leverage @memchr(3)@, following rewrite rules are included:
---
---   * @findIndexOrEnd (w `eqWord8`) = elemIndexOrEndBytes@
---   * @findIndexOrEnd (`eqWord8` w) = elemIndexOrEndBytes@
 findIndexOrEnd :: Vec v a => (a -> Bool) -> v a -> Int
-{-# INLINE [1] findIndexOrEnd #-}
-{-# RULES "findIndexOrEnd/Bytes" forall w. findIndexOrEnd (w `eqWord8`) = elemIndexOrEndBytes w #-}
-{-# RULES "findIndexOrEnd/Bytes" forall w. findIndexOrEnd (`eqWord8` w) = elemIndexOrEndBytes w #-}
-findIndexOrEnd f (Vec arr s l) = go s
+{-# INLINE findIndexOrEnd #-}
+findIndexOrEnd f v = fst (find f v)
+
+findLastIndexOrStart :: Vec v a => (a -> Bool) -> v a -> Int
+{-# INLINE findLastIndexOrStart #-}
+findLastIndexOrStart f v = fst (findLast f v)
+
+-- | /O(n)/ find the first index and element matching the predicate in a vector
+-- from left to right, if there isn't one, return (length of the vector, Nothing).
+find :: Vec v a => (a -> Bool) -> v a -> (Int, Maybe a)
+{-# INLINE [1] find #-}
+{-# RULES "find/Bytes" forall w. find (w `eqWord8`) = findByte w #-}
+{-# RULES "find/Bytes" forall w. find (`eqWord8` w) = findByte w #-}
+find f (Vec arr s l) = go s
   where
     !end = s + l
-    go !p | p >= end  = l
-          | f x       = p-s
+    go !p | p >= end  = (l, Nothing)
+          | f x       = let !i = p-s in (i, Just x)
           | otherwise = go (p+1)
         where (# x #) = indexArr' arr p
 
--- | /O(n)/ Special 'elemIndexOrEndBytes' for 'Bytes' using @memchr(3)@
+-- | /O(n)/ Special 'findByte' for 'Word8' using @memchr(3)@
 --
 --  return l (then length of the vector) if not find target.
-elemIndexOrEndBytes :: Word8 -> Bytes -> Int
-{-# INLINE elemIndexOrEndBytes #-}
-elemIndexOrEndBytes w (PrimVector (PrimArray ba#) s l) =
+findByte :: Word8 -> Bytes -> (Int, Maybe Word8)
+{-# INLINE findByte #-}
+findByte w (PrimVector (PrimArray ba#) s l) =
     case c_memchr ba# s w l of
-        -1 -> l
-        r  -> r
+        -1 -> (l, Nothing)
+        r  -> (r, Just w)
 
--- | /O(n)/ find the first index matching the predicate in a vector
--- from right to left, if there isn't one, return -1.
---
--- To leverage bit twidding, following rewrite rules are included:
---
---   * @findIndexReverseOrStart (w `eqWord8`) = elemIndexReverseOrStartBytes@
---   * @findIndexReverseOrStart (`eqWord8` w) = elemIndexReverseOrStartBytes@
-findIndexReverseOrStart :: Vec v a => (a -> Bool) -> v a -> Int
-{-# INLINE [1] findIndexReverseOrStart #-}
-{-# RULES
-"findIndexReverseOrStart/Bytes"
-    forall w. findIndexReverseOrStart (w `eqWord8`) = elemIndexReverseOrStartBytes w
-    #-}
-{-# RULES "findIndexReverseOrStart/Bytes"
-    forall w. findIndexReverseOrStart (`eqWord8` w) = elemIndexReverseOrStartBytes w
-    #-}
-findIndexReverseOrStart f (Vec arr s l) = go (s+l-1)
+
+-- | /O(n)/ find the first index and element matching the predicate
+-- in a vector from right to left (last if viewed as left to right),
+-- if there isn't one, return '(-1, Nothing)'.
+findLast :: Vec v a => (a -> Bool) -> v a -> (Int, Maybe a)
+{-# INLINE [1] findLast #-}
+{-# RULES "findLast/Bytes" forall w. findLast (w `eqWord8`) = findByteLast w #-}
+{-# RULES "findLast/Bytes" forall w. findLast (`eqWord8` w) = findByteLast w #-}
+findLast f (Vec arr s l) = go (s+l-1)
   where
-    go !p | p < s     = -1
-          | f x       = p-s
+    go !p | p < s     = (-1, Nothing)
+          | f x       = let !i = p-s in (i, Just x)
           | otherwise = go (p-1)
         where (# x #) = indexArr' arr p
 
--- | /O(n)/ Special 'elemIndexReverseOrStartBytes' for 'Bytes' with handle roll
+-- | /O(n)/ Special 'findByteLast' for 'Bytes' with handle roll
 -- bit twiddling.
-elemIndexReverseOrStartBytes :: Word8 -> Bytes -> Int
-{-# INLINE elemIndexReverseOrStartBytes #-}
-elemIndexReverseOrStartBytes w (PrimVector ba s l) = memchrReverse ba w (s+l-1) l
+findByteLast :: Word8 -> Bytes -> (Int, Maybe Word8)
+{-# INLINE findByteLast #-}
+findByteLast w (PrimVector ba s l) =
+    case memchrReverse ba w (s+l-1) l of
+        -1 -> (-1, Nothing)
+        r  -> (r, Just w)
 
 -- | /O(n)/ 'filter', applied to a predicate and a vector,
 -- returns a vector containing those elements that satisfy the
@@ -230,6 +200,11 @@ partition f (Vec arr s l)
 --
 -- Where @-2@ is the length of the partial match part @ad@ 's negation.
 --
+-- If an empty pattern is supplied, we will return every possible index of haystack,
+-- e.g.
+--
+-- > indicesOverlapping "" "abc" = [0,1,2]
+--
 -- References:
 --
 --  * Knuth, Donald; Morris, James H.; Pratt, Vaughan: "Fast pattern matching in strings" (1977)
@@ -239,16 +214,16 @@ indicesOverlapping :: (Vec v a, Eq a)
         -> v a -- ^ vector to search in (@haystack@)
         -> Bool -- ^ report partial match at the end of haystack
         -> [Int]
-{-# INLINE[1] indicesOverlapping #-}
+{-# INLINABLE[1] indicesOverlapping #-}
 {-# RULES "indicesOverlapping/Bytes" indicesOverlapping = indicesOverlappingBytes #-}
 indicesOverlapping needle@(Vec narr noff nlen) = search
   where
     next = kmpNextTable needle
     search haystack@(Vec harr hoff hlen) reportPartial
-        | nlen <= 0 || hlen <= 0 = []
-        | nlen == 1              = case indexArr' narr 0 of
-                                    (# x #) -> elemIndices x haystack
-        | otherwise              = kmp 0 0
+        | nlen <= 0 = [0..hlen-1]
+        | nlen == 1 = case indexArr' narr 0 of
+                       (# x #) -> elemIndices x haystack
+        | otherwise = kmp 0 0
       where
         kmp !i !j | i >= hlen = if reportPartial && j /= 0 then [-j] else []
                   | narr `indexArr` (j+noff) == harr `indexArr` (i+hoff) =
@@ -283,15 +258,15 @@ indicesOverlappingBytes :: Bytes -- ^ bytes to search for (@needle@)
                         -> Bytes -- ^ bytes to search in (@haystack@)
                         -> Bool -- ^ report partial match at the end of haystack
                         -> [Int]
-{-# INLINE indicesOverlappingBytes #-}
+{-# INLINABLE indicesOverlappingBytes #-}
 indicesOverlappingBytes needle@(Vec narr noff nlen) = search
   where
     next = kmpNextTable needle
     bloom = sundayBloom needle
     search haystack@(Vec harr hoff hlen) reportPartial
-        | nlen <= 0 || hlen <= 0 = []
-        | nlen == 1              = elemIndices (indexArr narr 0) haystack
-        | otherwise              = sunday 0 0
+        | nlen <= 0 = [0..hlen-1]
+        | nlen == 1 = elemIndices (indexArr narr 0) haystack
+        | otherwise = sunday 0 0
       where
         kmp !i !j | i >= hlen = if reportPartial && j /= 0 then [-j] else []
                   | narr `indexArr` (j+noff) == harr `indexArr` (i+hoff) =
@@ -327,17 +302,22 @@ indicesOverlappingBytes needle@(Vec narr noff nlen) = search
 
 -- | /O(n+m)/ Find the offsets of all non-overlapping indices of @needle@
 -- within @haystack@ using KMP algorithm.
+--
+-- If an empty pattern is supplied, we will return every possible index of haystack,
+-- e.g.
+--
+-- > indicesOverlapping "" "abc" = [0,1,2]
 indices :: (Vec v a, Eq a) => v a -> v a -> Bool -> [Int]
-{-# INLINE[1] indices #-}
+{-# INLINABLE[1] indices #-}
 {-# RULES "indices/Bytes" indices = indicesBytes #-}
 indices needle@(Vec narr noff nlen) = search
   where
     next = kmpNextTable needle
     search haystack@(Vec harr hoff hlen) reportPartial
-        | nlen <= 0 || hlen <= 0 = []
-        | nlen == 1              = case indexArr' narr 0 of
-                                    (# x #) -> elemIndices x haystack
-        | otherwise              = kmp 0 0
+        | nlen <= 0 = [0..hlen-1]
+        | nlen == 1 = case indexArr' narr 0 of
+                       (# x #) -> elemIndices x haystack
+        | otherwise = kmp 0 0
       where
         kmp !i !j | i >= hlen = if reportPartial && j /= 0 then [-j] else []
                   | narr `indexArr` (j+noff) == harr `indexArr` (i+hoff) =
@@ -359,15 +339,15 @@ indicesBytes :: Bytes -- ^ bytes to search for (@needle@)
              -> Bytes -- ^ bytes to search in (@haystack@)
              -> Bool -- ^ report partial match at the end of haystack
              -> [Int]
-{-# INLINE indicesBytes #-}
+{-# INLINABLE indicesBytes #-}
 indicesBytes needle@(Vec narr noff nlen) = search
   where
     next = kmpNextTable needle
     bloom = sundayBloom needle
     search haystack@(Vec harr hoff hlen) reportPartial
-        | nlen <= 0 || hlen <= 0 = []
-        | nlen == 1              = elemIndices (indexArr narr 0) haystack
-        | otherwise              = sunday 0 0
+        | nlen <= 0 = [0..hlen-1]
+        | nlen == 1 = elemIndices (indexArr narr 0) haystack
+        | otherwise = sunday 0 0
       where
         kmp !i !j | i >= hlen = if reportPartial && j /= 0 then [-j] else []
                   | narr `indexArr` (j+noff) == harr `indexArr` (i+hoff) =
@@ -401,7 +381,7 @@ indicesBytes needle@(Vec narr noff nlen) = search
 -- is found, check if @next[j] == -1@, if so next search continue with @needle[0]@
 -- and @haystack[i+1]@, otherwise continue with @needle[next[j]]@ and @haystack[i]@.
 kmpNextTable :: (Vec v a, Eq a) => v a -> PrimArray Int
-{-# INLINABLE kmpNextTable #-}
+{-# INLINE kmpNextTable #-}
 kmpNextTable (Vec arr s l) = runST (do
     ma <- newArr (l+1)
     writeArr ma 0 (-1)
@@ -432,7 +412,7 @@ kmpNextTable (Vec arr s l) = runST (do
 -- This's particularly suitable for search UTF-8 bytes since the significant bits
 -- of a beginning byte is usually the same.
 sundayBloom :: Bytes -> Word64
-{-# INLINABLE sundayBloom #-}
+{-# INLINE sundayBloom #-}
 sundayBloom (Vec arr s l) = go 0x00 s
   where
     !end = s+l

@@ -36,6 +36,7 @@ module Std.Data.Vector.Base (
   -- * The Vec typeclass
     Vec(..)
   , pattern Vec
+  , (!)
   -- * Boxed and unboxed vector type
   , Vector(..)
   , PrimVector(..)
@@ -70,11 +71,11 @@ module Std.Data.Vector.Base (
   , mapAccumR
   -- ** Generating and unfolding vector
   , replicate
+  , repeatN
   , unfoldr
   , unfoldrN
   -- * Searching by equality
-  , elem, notElem
-  , elemIndex, elemIndexBytes
+  , elem, notElem, elemIndex
   -- * Misc
   , IPair(..)
   , defaultInitSize
@@ -974,6 +975,16 @@ replicate :: (Vec v a) => Int -> a -> v a
 {-# INLINE replicate #-}
 replicate n x | n <= 0    = empty
               | otherwise = create n (\ marr -> setArr marr 0 n x)
+
+-- | /O(n*m)/ 'repeatN' a vector n times.
+repeatN :: forall v a. Vec v a => Int -> v a -> v a
+{-# INLINE repeatN #-}
+repeatN n (Vec arr s l) = create end (go 0)
+  where
+    !end = n*l
+    go :: Int -> MArray v s a -> ST s ()
+    go !i !marr | i >= end  = return ()
+                | otherwise = copyArr marr i arr s l >> go (i+l) marr
 
 -- | /O(n)/, where /n/ is the length of the result.  The 'unfoldr'
 -- function is analogous to the List \'unfoldr\'.  'unfoldr' builds a

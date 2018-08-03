@@ -203,11 +203,11 @@ readLine :: (HasCallStack, Input i) => BufferedInput i -> IO T.Text
 readLine h = do
     bss <- go h (V.c2w '\n')
     case T.validateUTF8 (V.concat bss) of
-        T.Success t -> return t
-        T.PartialBytes _ bs ->
+        T.ValidateSuccess t -> return t
+        T.ValidatePartialBytes _ bs ->
             throwIO (UTF8PartialBytesException bs
                 (IOEInfo "" "utf8 decode error" callStack))
-        T.InvalidBytes bs ->
+        T.ValidateInvalidBytes bs _ ->
             throwIO (UTF8InvalidBytesException bs
                 (IOEInfo "" "utf8 decode error" callStack))
   where
@@ -227,8 +227,8 @@ readLine h = do
 
 -- | Read a chunk of utf8 text
 --
-readTextChunkUTF8 :: (HasCallStack, Input i) => BufferedInput i -> IO T.Text
-readTextChunkUTF8 h@BufferedInput{..} = do
+readChunkUTF8 :: (HasCallStack, Input i) => BufferedInput i -> IO T.Text
+readChunkUTF8 h@BufferedInput{..} = do
     chunk <- readBuffer h
     if V.null chunk
     then return T.empty
@@ -260,11 +260,11 @@ readTextChunkUTF8 h@BufferedInput{..} = do
         else decode chunk
   where
     decode bs = case T.validateUTF8 bs of
-        T.Success t -> return t
-        T.PartialBytes t bs -> do
+        T.ValidateSuccess t -> return t
+        T.ValidatePartialBytes t bs -> do
             unReadBuffer bs h
             return t
-        T.InvalidBytes bs -> throwIO (UTF8InvalidBytesException bs
+        T.ValidateInvalidBytes bs _ -> throwIO (UTF8InvalidBytesException bs
                 (IOEInfo "" "utf8 decode error" callStack))
 
 
