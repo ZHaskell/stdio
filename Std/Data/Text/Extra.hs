@@ -36,6 +36,7 @@ module Std.Data.Text.Extra (
   , isPrefixOf, isSuffixOf, isInfixOf
   , commonPrefixes
   , words, lines, unwords, unlines
+  , padLeft, padRight
   -- * Transform
   , reverse
   , intersperse

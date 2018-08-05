@@ -4,3 +4,6 @@
 [submodule "third_party/utf8proc"]
 	path = third_party/utf8proc
 	url = https://github.com/JuliaStrings/utf8proc
+[submodule "third_party/utf8rewind"]
+	path = third_party/utf8rewind
+	url = git@github.com:haskell-stdio/utf8rewind.git

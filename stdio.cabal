@@ -23,6 +23,67 @@ extra-source-files:  ChangeLog.md
                      cbits/hs_uv_base.c
                      cbits/hs_uv_stream.c
                      cbits/hs_uv_file.c
+                     -- libuv C sources (for Windows)
+                     third_party/libuv/include/uv.h
+                     third_party/libuv/include/uv/win.h
+                     third_party/libuv/include/uv/tree.h
+                     third_party/libuv/include/uv/errno.h
+                     third_party/libuv/include/uv/threadpool.h 
+                     third_party/libuv/include/uv/version.h
+
+                     third_party/libuv/src/win/async.c
+                     third_party/libuv/src/win/atomicops-inl.h
+                     third_party/libuv/src/win/core.c
+                     third_party/libuv/src/win/detect-wakeup.c
+                     third_party/libuv/src/win/dl.c
+                     third_party/libuv/src/win/error.c
+                     third_party/libuv/src/win/fs-event.c
+                     third_party/libuv/src/win/fs.c
+                     third_party/libuv/src/win/getaddrinfo.c
+                     third_party/libuv/src/win/getnameinfo.c
+                     third_party/libuv/src/win/handle.c
+                     third_party/libuv/src/win/handle-inl.h
+                     third_party/libuv/src/win/internal.h
+                     third_party/libuv/src/win/loop-watcher.c
+                     third_party/libuv/src/win/pipe.c
+                     third_party/libuv/src/win/poll.c
+                     third_party/libuv/src/win/process-stdio.c
+                     third_party/libuv/src/win/process.c
+                     third_party/libuv/src/win/req.c
+                     third_party/libuv/src/win/req-inl.h
+                     third_party/libuv/src/win/signal.c
+                     third_party/libuv/src/win/stream.c
+                     third_party/libuv/src/win/stream-inl.h
+                     third_party/libuv/src/win/tcp.c
+                     third_party/libuv/src/win/thread.c
+                     third_party/libuv/src/win/tty.c
+                     third_party/libuv/src/win/udp.c
+                     third_party/libuv/src/win/util.c
+                     third_party/libuv/src/win/winapi.c
+                     third_party/libuv/src/win/winapi.h
+                     third_party/libuv/src/win/winsock.c
+                     third_party/libuv/src/win/winsock.h
+
+                     -- utf8rewind C sources
+                     third_party/utf8rewind/include/utf8rewind/utf8rewind.h
+                     third_party/utf8rewind/source/unicodedatabase.c
+                     third_party/utf8rewind/source/unicodedatabase.h
+                     third_party/utf8rewind/source/internal/base.h
+                     third_party/utf8rewind/source/internal/casemapping.c
+                     third_party/utf8rewind/source/internal/casemapping.h
+                     third_party/utf8rewind/source/internal/codepoint.c
+                     third_party/utf8rewind/source/internal/codepoint.h
+                     third_party/utf8rewind/source/internal/composition.c
+                     third_party/utf8rewind/source/internal/composition.h
+                     third_party/utf8rewind/source/internal/database.c
+                     third_party/utf8rewind/source/internal/database.h
+                     third_party/utf8rewind/source/internal/decomposition.c
+                     third_party/utf8rewind/source/internal/decomposition.h
+                     third_party/utf8rewind/source/internal/seeking.c
+                     third_party/utf8rewind/source/internal/seeking.h
+                     third_party/utf8rewind/source/internal/streaming.c
+                     third_party/utf8rewind/source/internal/streaming.h
+                     third_party/utf8rewind/source/utf8rewind.c
 
 source-repository head
   type:     git
@@ -46,6 +107,7 @@ library
                             Std.Data.Parser
                             Std.Data.Text
                             Std.Data.Text.UTF8Codec
+                            Std.Data.Text.UTF8Rewind
                             Std.Data.Binary
                             Std.Data.Builder
 
@@ -78,51 +140,65 @@ library
                         ,   stm
 
     include-dirs:       include
+                        third_party/utf8rewind/include/utf8rewind
+                        third_party/utf8rewind/source/internal
+                        third_party/utf8rewind/source
     includes:           bytes.h
                         hs_uv.h
+                        utf8rewind.h
     install-includes:   bytes.h
                         hs_uv.h
+                        utf8rewind.h
     c-sources:          cbits/bytes.c
                         cbits/hs_uv_base.c
                         cbits/hs_uv_stream.c
                         cbits/hs_uv_file.c
+                        third_party/utf8rewind/source/unicodedatabase.c
+                        third_party/utf8rewind/source/internal/casemapping.c
+                        third_party/utf8rewind/source/internal/codepoint.c
+                        third_party/utf8rewind/source/internal/composition.c
+                        third_party/utf8rewind/source/internal/database.c
+                        third_party/utf8rewind/source/internal/decomposition.c
+                        third_party/utf8rewind/source/internal/seeking.c
+                        third_party/utf8rewind/source/internal/streaming.c
+                        third_party/utf8rewind/source/utf8rewind.c
 
     if os(windows)
       c-sources:
         -- Note: The c-sources list is taken from libuv's Makefile.mingw, needs to be
         -- updated when we bump up libuv's version.
           third_party/libuv/src/fs-poll.c
-        , third_party/libuv/src/inet.c
-        , third_party/libuv/src/threadpool.c
-        , third_party/libuv/src/timer.c
-        , third_party/libuv/src/uv-data-getter-setters.c
-        , third_party/libuv/src/uv-common.c
-        , third_party/libuv/src/version.c
-        , third_party/libuv/src/win/async.c
-        , third_party/libuv/src/win/core.c
-        , third_party/libuv/src/win/detect-wakeup.c
-        , third_party/libuv/src/win/dl.c
-        , third_party/libuv/src/win/error.c
-        , third_party/libuv/src/win/fs-event.c
-        , third_party/libuv/src/win/fs.c
-        , third_party/libuv/src/win/getaddrinfo.c
-        , third_party/libuv/src/win/getnameinfo.c
-        , third_party/libuv/src/win/handle.c
-        , third_party/libuv/src/win/loop-watcher.c
-        , third_party/libuv/src/win/pipe.c
-        , third_party/libuv/src/win/poll.c
-        , third_party/libuv/src/win/process-stdio.c
-        , third_party/libuv/src/win/process.c
-        , third_party/libuv/src/win/req.c
-        , third_party/libuv/src/win/signal.c
-        , third_party/libuv/src/win/stream.c
-        , third_party/libuv/src/win/tcp.c
-        , third_party/libuv/src/win/thread.c
-        , third_party/libuv/src/win/tty.c
-        , third_party/libuv/src/win/udp.c
-        , third_party/libuv/src/win/util.c
-        , third_party/libuv/src/win/winapi.c
-        , third_party/libuv/src/win/winsock.c
+          third_party/libuv/src/inet.c
+          third_party/libuv/src/threadpool.c
+          third_party/libuv/src/timer.c
+          third_party/libuv/src/uv-data-getter-setters.c
+          third_party/libuv/src/uv-common.c
+          third_party/libuv/src/version.c
+          third_party/libuv/src/win/async.c
+          third_party/libuv/src/win/core.c
+          third_party/libuv/src/win/detect-wakeup.c
+          third_party/libuv/src/win/dl.c
+          third_party/libuv/src/win/error.c
+          third_party/libuv/src/win/fs-event.c
+          third_party/libuv/src/win/fs.c
+          third_party/libuv/src/win/getaddrinfo.c
+          third_party/libuv/src/win/getnameinfo.c
+          third_party/libuv/src/win/handle.c
+          third_party/libuv/src/win/loop-watcher.c
+          third_party/libuv/src/win/pipe.c
+          third_party/libuv/src/win/poll.c
+          third_party/libuv/src/win/process-stdio.c
+          third_party/libuv/src/win/process.c
+          third_party/libuv/src/win/req.c
+          third_party/libuv/src/win/signal.c
+          third_party/libuv/src/win/stream.c
+          third_party/libuv/src/win/tcp.c
+          third_party/libuv/src/win/thread.c
+          third_party/libuv/src/win/tty.c
+          third_party/libuv/src/win/udp.c
+          third_party/libuv/src/win/util.c
+          third_party/libuv/src/win/winapi.c
+          third_party/libuv/src/win/winsock.c
       cc-options:        -Wall -Wextra -Wno-unused-parameter -Wstrict-prototypes -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0600
       cpp-options:       -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0600
       include-dirs:      third_party/libuv/include

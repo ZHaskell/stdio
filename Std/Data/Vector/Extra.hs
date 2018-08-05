@@ -36,6 +36,7 @@ module Std.Data.Vector.Extra (
   , isPrefixOf, isSuffixOf, isInfixOf
   , commonPrefix
   , words, lines, unwords, unlines
+  , padLeft, padRight
   -- * Transform
   , reverse
   , intersperse
@@ -517,6 +518,20 @@ unlines vs = create (len vs 0) (copy 0 vs)
         copyArr marr i arr s l
         writeArr marr i' 10
         copy (i'+1) vs marr
+
+padLeft :: Vec v a => Int -> a -> v a -> v a
+{-# INLINE padLeft #-}
+padLeft n x v@(Vec arr s l) | n <= l = v
+                            | otherwise = create n (\ marr -> do
+                                    setArr marr 0 (n-l) x
+                                    copyArr marr (n-l) arr s l)
+
+padRight :: Vec v a => Int -> a -> v a -> v a
+{-# INLINE padRight #-}
+padRight n x v@(Vec arr s l) | n <= l = v
+                             | otherwise = create n (\ marr -> do
+                                    copyArr marr 0 arr s l
+                                    setArr marr l (n-l) x)
 
 --------------------------------------------------------------------------------
 -- Transform

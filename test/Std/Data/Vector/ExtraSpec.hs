@@ -317,6 +317,23 @@ spec =  describe "vector extras" $ do
         prop "vector isInfixOf == List.isInfixOf" $ \ xs ys zs ->
             (V.isInfixOf (V.pack xs) . V.pack @V.PrimVector @Word8 $ ys++xs++zs) === True
 
+    describe "let (c,a,b) = vector commonPrefix x y in (a,b) = (stripPrefix c x,stripPrefix c y) " $ do
+        prop "vector commonPrefix rules" $ \ xs ys ->
+            let (c,a,b) = V.commonPrefix (V.pack xs) . V.pack @V.Vector @Integer $ ys
+                Just xs' = V.stripPrefix c $ V.pack xs
+                Just ys' = V.stripPrefix c $ V.pack ys
+            in (a,b) === (xs', ys')
+        prop "vector commonPrefix rules" $ \ xs ys ->
+            let (c,a,b) = V.commonPrefix (V.pack xs) . V.pack @V.PrimVector @Int $ ys
+                Just xs' = V.stripPrefix c $ V.pack xs
+                Just ys' = V.stripPrefix c $ V.pack ys
+            in (a,b) === (xs', ys')
+        prop "vector commonPrefix rules" $ \ xs ys ->
+            let (c,a,b) = V.commonPrefix (V.pack xs) . V.pack @V.PrimVector @Word8 $ ys
+                Just xs' = V.stripPrefix c $ V.pack xs
+                Just ys' = V.stripPrefix c $ V.pack ys
+            in (a,b) === (xs', ys')
+
     describe "vector intercalate [x] . split x == id" $ do
         prop "vector intercalate [x] . split x == id" $ \ xs x ->
             (V.intercalate (V.singleton x) . V.split x . V.pack @V.Vector @Integer $ xs) ===
@@ -358,6 +375,40 @@ spec =  describe "vector extras" $ do
         prop "vector unlines === List.unlines" $ \ xs ->
             (V.unlines $ V.pack @V.PrimVector @Word8 <$> xs)  ===
                 (V.pack (List.map V.c2w . List.unlines $ List.map V.w2c <$> xs))
+
+    describe "vector padLeft n x xs = if l >= n then xs else replicate (n-l) x ++ xs" $ do
+        prop "vector padLeft n x xs = if l >= n then xs else replicate (n-l) x ++ xs" $ \ xs n x ->
+            (V.padLeft n x . V.pack @V.Vector @Integer $ xs) ===
+                (let l = List.length xs
+                 in if l >= n then V.pack xs
+                              else V.pack $ (List.replicate (n-l) x ++ xs))
+        prop "vector padLeft n x xs = if l >= n then xs else replicate (n-l) x ++ xs" $ \ xs n x ->
+            (V.padLeft n x . V.pack @V.PrimVector @Int $ xs) ===
+                (let l = List.length xs
+                 in if l >= n then V.pack xs
+                              else V.pack $ (List.replicate (n-l) x ++ xs))
+        prop "vector padLeft n x xs = if l >= n then xs else replicate (n-l) x ++ xs" $ \ xs n x ->
+            (V.padLeft n x . V.pack @V.PrimVector @Word8 $ xs) ===
+                (let l = List.length xs
+                 in if l >= n then V.pack xs
+                              else V.pack $ (List.replicate (n-l) x ++ xs))
+
+    describe "vector padRight n x xs = if l >= n then xs else xs ++ List.replicate (n-l) x" $ do
+        prop "vector padRight n x xs = if l >= n then xs else xs ++ List.replicate (n-l) x" $ \ xs n x ->
+            (V.padRight n x . V.pack @V.Vector @Integer $ xs) ===
+                (let l = List.length xs
+                 in if l >= n then V.pack xs
+                              else V.pack $ xs ++ (List.replicate (n-l) x))
+        prop "vector padRight n x xs = if l >= n then xs else xs ++ List.replicate (n-l) x" $ \ xs n x ->
+            (V.padRight n x . V.pack @V.PrimVector @Int $ xs) ===
+                (let l = List.length xs
+                 in if l >= n then V.pack xs
+                              else V.pack $ xs ++ (List.replicate (n-l) x))
+        prop "vector padRight n x xs = if l >= n then xs else xs ++ List.replicate (n-l) x" $ \ xs n x ->
+            (V.padRight n x . V.pack @V.PrimVector @Word8 $ xs) ===
+                (let l = List.length xs
+                 in if l >= n then V.pack xs
+                              else V.pack $ xs ++ (List.replicate (n-l) x))
 
     describe "vector reverse == List.reverse" $ do
         prop "vector reverse === List.reverse" $ \ xs ->
