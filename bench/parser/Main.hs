@@ -11,7 +11,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import Std.Data.Binary hiding (Test(..))
 import Std.Data.Parser
-import qualified Std.Data.Vector as V
+import qualified Std.Data.Vector.Base as V
 import Control.Monad
 
 data Test = Test

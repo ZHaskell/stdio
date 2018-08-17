@@ -17,6 +17,10 @@ uTF8_LOCALE_DEFAULT = #const UTF8_LOCALE_DEFAULT
 
 
 foreign import ccall unsafe utf8toupper :: Addr## -> Int## -> Ptr Int8 -> Int -> CSize -> Ptr Int32 -> IO CSize
+foreign import ccall unsafe utf8toupper :: Addr## -> Int## -> Ptr Int8 -> Int -> CSize -> Ptr Int32 -> IO CSize
+foreign import ccall unsafe utf8toupper :: Addr## -> Int## -> Ptr Int8 -> Int -> CSize -> Ptr Int32 -> IO CSize
+foreign import ccall unsafe utf8toupper :: Addr## -> Int## -> Ptr Int8 -> Int -> CSize -> Ptr Int32 -> IO CSize
+foreign import ccall unsafe utf8toupper :: Addr## -> Int## -> Ptr Int8 -> Int -> CSize -> Ptr Int32 -> IO CSize
 
 
 

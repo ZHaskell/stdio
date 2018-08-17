@@ -13,14 +13,15 @@ Maintainer  : drkoster@qq.com
 Stability   : experimental
 Portability : non-portable
 
-A 'Text' which wrap a 'Bytes' that are correctly UTF-8 encoded codepoints. WIP
+A 'Text' simply wrap a 'Bytes' which will be interpreted using UTF-8 encoding, illegal UTF-8 encoded codepoints will be interpreted as the @\U+FFFD@ replacement character. You can use 'validateUTF8' to check if a 'Text' value
+contain illegal byte sequence.
 
 -}
 
 module Std.Data.Text.Base (
   -- * Text type
     Text(..)
-  , (!!)
+  , charAt
   -- * Basic creating
   , empty, singleton
   -- * Conversion between list
@@ -65,9 +66,10 @@ import           GHC.Prim
 import           GHC.Types
 import           Std.Data.Array
 import           Std.Data.Text.UTF8Codec
-import           Std.Data.Vector.Base     (Bytes, pattern Vec)
+import           Std.Data.Vector.Base     (Bytes, PrimVector)
 import qualified Std.Data.Vector.Base     as V
 import qualified Std.Data.Vector.Extra    as V
+import           Std.Data.Parser   (Result(..))
 
 import           Prelude                       hiding (concat, concatMap,
                                                 elem, notElem, null, length, map,
@@ -94,6 +96,18 @@ instance Read Text where
 instance NFData Text where
     rnf (Text bs) = rnf bs
 
+-- | /O(n)/ Get the nth codepoint from 'Text'.
+charAt :: Text -> Int -> Maybe Char
+charAt (Text (V.PrimVector ba s l)) n | n < 0 = Nothing
+                              | otherwise = go s 0
+  where
+    !end = s + l
+    go !i !j
+        | i >= end = Nothing
+        | j >= n = let !c = decodeChar_ ba i in Just c
+        | otherwise =
+            let l = decodeCharLen ba i in go (i+l) (j+1)
+
 --------------------------------------------------------------------------------
 
 data ValidateResult
@@ -103,52 +117,112 @@ data ValidateResult
   deriving (Show, Eq)
 
 -- | /O(n)/ Validate a sequence of bytes is UTF-8 encoded.
-validateUTF8 :: Bytes -> ValidateResult
-{-# INLINE validateUTF8 #-}
-validateUTF8 bs@(V.PrimVector ba s l) = go s
-  where
-    end = s + l
-    go :: Int -> ValidateResult
-    go !i
-        | i < end = case validateChar ba i end of
-            r
-                | r > 0  -> go (i + r)
-                | r == 0 ->
-                    PartialBytes
-                        (Text (V.PrimVector ba s (i-s)))
-                        (V.PrimVector ba i (end-i))
-                | otherwise ->
-                    InvalidBytes
-                        (V.PrimVector ba i (-r))
-        | otherwise = Success (Text bs)
-
-data RepairResult
-    = RepairSuccess !Text
-    | RepairPartialBytes !Text  !Bytes
-
--- | /O(n)/ Repair UTF-8 bytes by convert illegal codepoint to replacement char @\U+FFFD@.
 --
--- https://stackoverflow.com/questions/2547262/why-is-python-decode-replacing-more-than-the-invalid-bytes-from-an-encoded-strin
-
-repairUTF8 :: Bytes -> RepairResult
-repairUTF8 (Vec arr s l) = runST $ do
-    ma <- newArr l
-    go 0 ma
+-- This function only copy as little as possible: i.e. only characters spanning
+-- across boundray will be merged into a single character 'Text'.
+validateUTF8 :: Bytes -> Result Text
+{-# INLINE validateUTF8 #-}
+validateUTF8 bs@(V.PrimVector ba s l) | l == 0    = Success bs empty
+                                      | otherwise = go s
   where
     end = s + l
-    go :: Int -> MutablePrimArray Word8 -> ValidateResult
-    go !i
-        | i < end = case validateChar ba i end of
-            r
-                | r > 0  -> go (i + r)
-                | r == 0 ->
-                    PartialBytes
-                        (Text (V.PrimVector ba s (i-s)))
+    go !i = case validateChar ba i end of
+                r
+                    | r > 0  -> go (i + r)
+                    | r == 0 ->
+                        if i > s
+                        then Success
+                                (V.PrimVector ba i (end-i))
+                                (Text (V.PrimVector ba s (i-s)))
+                        else NeedMore (more bs)
+                    | otherwise ->
+                        Failure
+                            (V.PrimVector ba i (end-i))
+                            [ "Illegal bytes: " ++ show (V.PrimVector ba i (-r)) ]
+    more trailing input
+        | V.null input = Failure trailing  [ "Trailing bytes: " ++ show trailing ]
+        | otherwise =
+            let trailing'@(V.PrimVector ba s l) = trailing' `V.append` V.take 3 input
+            in case validateChar ba s l of
+                r
+                    | r > 0  ->
+                        Success
+                            (V.drop (r - V.length trailing) input)
+                            (Text (V.take r trailing'))
+                    | r == 0 ->
+                        NeedMore (more trailing')
+                    | otherwise ->
+                        Failure
+                            (V.drop (r - V.length trailing) input)
+                            [ "Illegal bytes: " ++ show (V.take (-r) trailing') ]
+
+-- | /O(n)/ Repair UTF-8 bytes by convert illegal codepoint to replacement char @\U+FFFD@
+-- (encoded as @0xEF 0xBF 0xBD@ 3 bytes).
+--
+-- This function always perform allocation and copying. It never return 'Failure', so be
+-- careful using this function, since it may silently convert non UTF-8 encoded bytes into
+-- garbage.
+--
+-- The replacing process follows Option #2 in
+-- <http://www.unicode.org/review/pr-121.html Public Review Issue #121>.
+--
+-- Partial trailing bytes are converted into a single replacement char.
+repairUTF8 :: Bytes -> Result Text
+repairUTF8 bs@(V.PrimVector ba s l) | l == 0    = Success bs empty
+                                    | otherwise = runST $ do
+    mba <- newPrimArray l
+    go s 0 mba
+  where
+    end = s + l
+    go !i !j !mba =
+        case validateChar ba i end of
+            0 ->
+                if i > s
+                then do
+                    ba' <- unsafeFreezePrimArray mba
+                    return (Success
                         (V.PrimVector ba i (end-i))
-                | otherwise ->
-                    InvalidBytes
-                        (V.PrimVector ba i (-r))
-        | otherwise = Success (Text bs)
+                        (Text (V.PrimVector ba' 0 j)))
+                else return (NeedMore (more bs))
+
+            1 -> do writePrimArray mba j $ indexPrimArray ba i
+                    go (i+1) (j+1)
+            2 -> do writePrimArray mba j $ indexPrimArray ba i
+                    writePrimArray mba (j+1) $ indexPrimArray ba (i+1)
+                    go (i+2) (j+2)
+            3 -> do writePrimArray mba j $ indexPrimArray ba i
+                    writePrimArray mba (j+1) $ indexPrimArray ba (i+1)
+                    writePrimArray mba (j+2) $ indexPrimArray ba (i+2)
+                    go (i+3) (j+3)
+            4 -> do writePrimArray mba j $ indexPrimArray ba i
+                    writePrimArray mba (j+1) $ indexPrimArray ba (i+1)
+                    writePrimArray mba (j+2) $ indexPrimArray ba (i+2)
+                    writePrimArray mba (j+3) $ indexPrimArray ba (i+3)
+                    go (i+4) (j+4)
+            r -> do writePrimArray mba j 0xEF
+                    writePrimArray mba (j+1) 0xBF
+                    writePrimArray mba (j+2) 0xBD
+                    go (i-r) (j+3)
+
+    more trailing input
+        | V.null input = Failure trailing  [ "Trailing bytes: " ++ show trailing ]
+        | otherwise = do
+            mba <- newPrimArray l
+            go s 0 mba
+            let trailing'@(V.PrimVector ba s l) = trailing' `V.append` V.take 3 input
+            in case validateChar ba s l of
+                r
+                    | r > 0  ->
+                        Success
+                            (V.drop (r - V.length trailing) input)
+                            (Text (V.take r trailing'))
+                    | r == 0 ->
+                        NeedMore (more trailing')
+                    | otherwise ->
+                        Failure
+                            (V.drop (r - V.length trailing) input)
+                            [ "Illegal bytes: " ++ show (V.take (-r) trailing') ]
+
 
 {-
 fromUTF8 :: Bytes -> (Text, Bytes)
@@ -256,54 +330,9 @@ empty = Text V.empty
 --------------------------------------------------------------------------------
 -- * Basic interface
 
-cons :: Char -> Text -> Text
-{-# INLINABLE cons #-}
-cons c (Text (V.PrimVector ba s l)) = Text $ V.createN (4 + l) $ \ mba -> do
-        i <- encodeChar mba 0 c
-        copyPrimArray mba i ba s l
-        return $! i + l
-
-snoc :: Text -> Char -> Text
-{-# INLINABLE snoc #-}
-snoc (Text (V.PrimVector ba s l)) c = Text $ V.createN (4 + l) $ \ mba -> do
-    copyPrimArray mba 0 ba s l
-    encodeChar mba l c
-
 append :: Text -> Text -> Text
 append ta tb = Text ( getUTF8Bytes ta `V.append` getUTF8Bytes tb )
 {-# INLINE append #-}
-
-uncons :: Text -> Maybe (Char, Text)
-{-# INLINE uncons #-}
-uncons (Text (V.PrimVector ba s l))
-    | l == 0  = Nothing
-    | otherwise =
-        let (# c, i #) = decodeChar ba s
-        in Just (c, Text (V.PrimVector ba (s+i) (l-i)))
-
-unsnoc :: Text -> Maybe (Text, Char)
-{-# INLINE unsnoc #-}
-unsnoc (Text (V.PrimVector ba s l))
-    | l == 0  = Nothing
-    | otherwise =
-        let (# c, i #) = decodeCharReverse ba (s + l - 1)
-        in Just (Text (V.PrimVector ba s (l-i)), c)
-
-head :: Text -> Char
-{-# INLINABLE head #-}
-head t = case uncons t of { Nothing -> errorEmptyText "head"; Just (c, _) -> c }
-
-tail :: Text -> Text
-{-# INLINABLE tail #-}
-tail t = case uncons t of { Nothing -> empty; Just (_, t) -> t }
-
-last :: Text -> Char
-{-# INLINABLE last #-}
-last t = case unsnoc t of { Nothing -> errorEmptyText "last"; Just (_, c) -> c }
-
-init :: Text -> Text
-{-# INLINABLE init #-}
-init t = case unsnoc t of { Nothing -> empty; Just (t, _) -> t }
 
 null :: Text -> Bool
 {-# INLINABLE null #-}
@@ -316,7 +345,6 @@ length (Text (V.PrimVector ba s l)) = go s 0
     !end = s + l
     go !i !acc | i >= end = acc
                | otherwise = let j = decodeCharLen ba i in go (i+j) (1+acc)
-
 
 --------------------------------------------------------------------------------
 -- * Transformations

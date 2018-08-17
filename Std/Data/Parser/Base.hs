@@ -30,28 +30,29 @@ import qualified Std.Data.Vector                    as V
 
 -- | Simple parsing result, that represent respectively:
 --
+-- * success: the remaining unparsed data and the parser value
+--
 -- * failure: with the error message
 --
 -- * continuation: that need for more input data
 --
--- * success: the remaining unparsed data and the parser value
---
-data Result a
+-- EOF is indicated by supplying an empty 'Bytes' to 'NeedMore'.
+data ParseResult a
     = Success !V.Bytes a
     | Failure !V.Bytes [String]
-    | NeedMore (V.Bytes -> Result a)
+    | NeedMore (V.Bytes -> ParseResult a)
 
-instance Functor Result where
+instance Functor ParseResult where
     fmap f (Success s a)   = Success s (f a)
     fmap _ (Failure s msg) = Failure s msg
     fmap f (NeedMore k) = NeedMore (fmap f . k)
 
-instance Show a => Show (Result a) where
+instance Show a => Show (ParseResult a) where
     show (Failure _ errs) = "ParseFailure: " ++ show errs
     show (NeedMore _)     = "NeedMore _"
     show (Success _ a)    = "ParseOK " ++ show a
 
-type ParseStep r = V.Bytes -> Result r
+type ParseStep r = V.Bytes -> ParseResult r
 
 -- | Simple CPSed parser
 --
@@ -98,7 +99,7 @@ instance Alternative Parser where
             _ -> error "Binary: impossible"
     {-# INLINE (<|>) #-}
 
-parse :: Parser a -> V.Bytes -> Result a
+parse :: Parser a -> V.Bytes -> ParseResult a
 {-# INLINABLE parse #-}
 parse (Parser p) input = p (\ a input' -> Success input' a) input
 
@@ -106,10 +107,10 @@ parse (Parser p) input = p (\ a input' -> Success input' a) input
 -- Once it's finished, return the final result (always 'Success' or 'Failure') and
 -- all consumed chunks.
 --
-runAndKeepTrack :: Parser a -> Parser (Result a, [V.Bytes])
+runAndKeepTrack :: Parser a -> Parser (ParseResult a, [V.Bytes])
 {-# INLINE runAndKeepTrack #-}
-runAndKeepTrack (Parser pa) = Parser $ \ k0 input ->
-    let r0 = pa (\ a input' -> Success input' a) input in go [] r0 k0
+runAndKeepTrack (Parser pa) = Parser (\ k0 input ->
+    let r0 = pa (\ a input' -> Success input' a) input in go [] r0 k0)
   where
     go !acc r k0 = case r of
         NeedMore k -> NeedMore (\ input -> go (input:acc) (k input) k0)
@@ -120,6 +121,14 @@ pushBack :: [V.Bytes] -> Parser ()
 {-# INLINE pushBack #-}
 pushBack [] = return ()
 pushBack bs = Parser (\ k input -> k () (V.concat (input : bs)))
+
+(<?>) :: Parser a
+      -> String                 -- ^ the message to prepend if parsing fails
+      -> Parser a
+{-# INLINE (<?>) #-}
+Parser p <?> msg = Parse (\ k0 input ->
+    case p k0 input of Failure rest msgs -> Failure rest (msg:msgs)
+                       r                 -> r)
 
 -- | Get the current chunk.
 get :: Parser V.Bytes

@@ -124,6 +124,8 @@ encodeCBytesChar# mba# i# c# = case (int2Word# (ord# c#)) of
                 s4# = writeWord8Array# mba# (i# +# 3#) (0x80## `or#` (n# `and#` 0x3F##)) s3#
             in (# s4#, i# +# 4# #)
 
+--------------------------------------------------------------------------------
+
 -- | Decode a 'Char' from bytes
 --
 -- This function assumed all bytes are UTF-8 encoded, and the index param point to the
@@ -135,6 +137,11 @@ decodeChar :: PrimArray Word8 -> Int -> (# Char, Int #)
 {-# INLINE decodeChar #-}
 decodeChar (PrimArray ba#) (I# idx#) =
     let (# c#, i# #) = decodeChar# ba# idx# in (# C# c#, I# i# #)
+
+decodeChar_ :: PrimArray Word8 -> Int -> Char
+{-# INLINE decodeChar_ #-}
+decodeChar_ (PrimArray ba#) (I# idx#) =
+    let (# c#, i# #) = decodeChar# ba# idx# in C# c#
 
 -- | The unboxed version of 'decodeChar'
 --
@@ -244,6 +251,8 @@ decodeCharLenReverse# ba# idx# =
         else 2#
     else 1#
 
+--------------------------------------------------------------------------------
+
 -- | Validate if current index point to a valid utf8 codepoint.
 --
 -- If the codepoint is valid, return the utf8 bytes length, otherwise return the negation of
@@ -253,8 +262,10 @@ decodeCharLenReverse# ba# idx# =
 -- the trailing bytes are partial valid codepoint. That means you
 -- can safely replace them with a replacement char or ignore it if no more bytes are to be fed.
 --
--- reference: https://howardhinnant.github.io/utf_summary.html
+-- reference:
 --
+--  * <https://howardhinnant.github.io/utf_summary.html>
+--  * <http://www.unicode.org/review/pr-121.html Public Review Issue #121>.
 validateChar :: PrimArray Word8
              -> Int  -- current index
              -> Int  -- end index(which shouldn't be accessed)
@@ -418,6 +429,8 @@ validateChar# ba# idx# end# =
             | isTrue# (w1# `geWord#` 0xF5##) -> -1#
             | otherwise -> -1#
 
+--------------------------------------------------------------------------------
+
 between# :: Word# -> Word# -> Word# -> Bool
 {-# INLINE between# #-}
 between# w# l# h# = isTrue# (w# `geWord#` l#) && isTrue# (w# `leWord#` h#)
@@ -465,6 +478,8 @@ chr4# x1# x2# x3# x4# = chr# (z1# +# z2# +# z3# +# z4#)
     !z3# = uncheckedIShiftL# (y3# -# 0x80#) 6#
     !z4# = y4# -# 0x80#
 
+--------------------------------------------------------------------------------
+
 -- | Unrolled copy loop for copying a utf8-encoded codepoint from source array to target array.
 --
 copyChar :: Int                       -- copy length, must be 1, 2, 3 or 4
@@ -486,4 +501,3 @@ copyChar !l !mba !j !ba !i = case l of
             writePrimArray mba (j+2) $ indexPrimArray ba (i+2)
             writePrimArray mba (j+3) $ indexPrimArray ba (i+3)
 
---------------------------------------------------------------------------------

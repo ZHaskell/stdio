@@ -50,6 +50,57 @@ module Std.Data.Text.Extra (
   , scanr', scanr1'
   ) where
 
+import Std.Data.Vector
+
+
+--------------------------------------------------------------------------------
+-- Slice manipulation
+
+cons :: Char -> Text -> Text
+{-# INLINABLE cons #-}
+cons c (Text (PrimVector ba s l)) = Text (createN (4 + l) (\ mba -> do
+    i <- encodeChar mba 0 c
+    copyPrimArray mba i ba s l
+    return $! i + l))
+
+snoc :: Text -> Char -> Text
+{-# INLINABLE snoc #-}
+snoc (Text (PrimVector ba s l)) c = Text (createN (4 + l) (\ mba -> do
+    copyPrimArray mba 0 ba s l
+    encodeChar mba l c))
+
+uncons :: Text -> Maybe (Char, Text)
+{-# INLINE uncons #-}
+uncons (Text (V.PrimVector ba s l))
+    | l == 0  = Nothing
+    | otherwise =
+        let (# c, i #) = decodeChar ba s
+        in Just (c, Text (V.PrimVector ba (s+i) (l-i)))
+
+unsnoc :: Text -> Maybe (Text, Char)
+{-# INLINE unsnoc #-}
+unsnoc (Text (V.PrimVector ba s l))
+    | l == 0  = Nothing
+    | otherwise =
+        let (# c, i #) = decodeCharReverse ba (s + l - 1)
+        in Just (Text (V.PrimVector ba s (l-i)), c)
+
+head :: Text -> Char
+{-# INLINABLE head #-}
+head t = case uncons t of { Nothing -> errorEmptyText "head"; Just (c, _) -> c }
+
+tail :: Text -> Text
+{-# INLINABLE tail #-}
+tail t = case uncons t of { Nothing -> empty; Just (_, t) -> t }
+
+last :: Text -> Char
+{-# INLINABLE last #-}
+last t = case unsnoc t of { Nothing -> errorEmptyText "last"; Just (_, c) -> c }
+
+init :: Text -> Text
+{-# INLINABLE init #-}
+init t = case unsnoc t of { Nothing -> empty; Just (t, _) -> t }
+
 --------------------------------------------------------------------------------
 -- Transform
 
