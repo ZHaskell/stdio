@@ -4,3 +4,6 @@
 [submodule "third_party/utf8rewind"]
 	path = third_party/utf8rewind
 	url = git@github.com:haskell-stdio/utf8rewind.git
+[submodule "third_party/fastvalidate-utf-8"]
+	path = third_party/fastvalidate-utf-8
+	url = https://github.com/lemire/fastvalidate-utf-8.git

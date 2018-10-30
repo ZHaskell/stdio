@@ -85,6 +85,9 @@ extra-source-files:  ChangeLog.md
                      third_party/utf8rewind/source/internal/streaming.h
                      third_party/utf8rewind/source/utf8rewind.c
 
+                     -- simd utf8 code
+                     third_party/fastvalidate-utf-8/include/simdutf8check.h
+
 source-repository head
   type:     git
   location: git://github.com/haskell-stdio/stdio.git
@@ -144,12 +147,16 @@ library
                         third_party/utf8rewind/include/utf8rewind
                         third_party/utf8rewind/source/internal
                         third_party/utf8rewind/source
+                        third_party/fastvalidate-utf-8/include
     includes:           bytes.h
                         hs_uv.h
                         utf8rewind.h
+                        simdutf8check.h
     install-includes:   bytes.h
                         hs_uv.h
                         utf8rewind.h
+                        simdutf8check.h
+    cc-options:         -march=native
     c-sources:          cbits/bytes.c
                         cbits/hs_uv_base.c
                         cbits/hs_uv_stream.c
@@ -200,7 +207,7 @@ library
           third_party/libuv/src/win/util.c
           third_party/libuv/src/win/winapi.c
           third_party/libuv/src/win/winsock.c
-      cc-options:        -Wall -Wextra -Wno-unused-parameter -Wstrict-prototypes -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0600
+      cc-options:        -Wall -Wextra -Wno-unused-parameter -Wstrict-prototypes -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0600 -march=native
       cpp-options:       -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0600
       include-dirs:      third_party/libuv/include
                          third_party/libuv/src

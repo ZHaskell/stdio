@@ -28,6 +28,8 @@
  * SUCH DAMAGE.
  */
 
-#include <stdint.h>
-#include <utf8rewind.h>
 #include <Rts.h>
+
+HsInt hs_utf8_length(const char* p, HsInt off, HsInt len);
+HsChar utf8_char_at(const char* p, HsInt off, HsInt len, HsInt index);
+HsInt utf8_validate(const char* p, HsInt off, HsInt len);

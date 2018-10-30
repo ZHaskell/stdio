@@ -13,7 +13,9 @@ Maintainer  : drkoster@qq.com
 Stability   : experimental
 Portability : non-portable
 
-A 'Text' which wrap a 'Bytes' that are correctly UTF-8 encoded codepoints. WIP
+A 'Text' which wrap a 'Bytes' that are will be interpreted as UTF-8 encoded codepoints (which may contain illegal bytes, and will be taken as replacement chars @\U+FFFD@).
+
+The design choice here is to balance security and convenience, while it's wasteful to validate every pieces of bytes when constructing 'Text', it's also a basic requirement to resist unicode attack. When interpreting malformed byte sequences, we follow the second option in (http://www.unicode.org/review/pr-121.html Recommended Practice for Replacement Characters).
 
 -}
 

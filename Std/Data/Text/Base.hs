@@ -13,7 +13,7 @@ Maintainer  : drkoster@qq.com
 Stability   : experimental
 Portability : non-portable
 
-A 'Text' simply wrap a 'Bytes' which will be interpreted using UTF-8 encoding, illegal UTF-8 encoded codepoints will be interpreted as the @\U+FFFD@ replacement character. You can use 'validateUTF8' to check if a 'Text' value
+A 'Text' simply wrap a 'Bytes' which will be interpreted using UTF-8 encoding, illegal UTF-8 encoded codepoints will be interpreted as the @\U+FFFD@ replacement character. You can use 'validate' to check if a 'Bytes' value
 contain illegal byte sequence.
 
 -}
@@ -54,6 +54,7 @@ module Std.Data.Text.Base (
 
 import           Control.DeepSeq
 import           Control.Monad.ST
+import           Control.Monad
 import           Data.Bits
 import           Data.Char
 import           Data.Foldable            (foldlM)
@@ -64,11 +65,13 @@ import           Data.Word
 import           GHC.Exts                 (build)
 import           GHC.Prim
 import           GHC.Types
+import           GHC.Stack
 import           Std.Data.Array
 import           Std.Data.Text.UTF8Codec
 import           Std.Data.Vector.Base     (Bytes, PrimVector)
 import qualified Std.Data.Vector.Base     as V
 import qualified Std.Data.Vector.Extra    as V
+import qualified Data.Primitive.PrimArray (PrimArray)
 import           Std.Data.Parser   (Result(..))
 
 import           Prelude                       hiding (concat, concatMap,
@@ -110,130 +113,25 @@ charAt (Text (V.PrimVector ba s l)) n | n < 0 = Nothing
 
 --------------------------------------------------------------------------------
 
-data ValidateResult
-    = ValidateSuccess !Text
-    | ValidatePartialBytes !Text  !Bytes
-    | ValidateInvalidBytes !Bytes !Bytes
-  deriving (Show, Eq)
-
 -- | /O(n)/ Validate a sequence of bytes is UTF-8 encoded.
 --
--- This function only copy as little as possible: i.e. only characters spanning
--- across boundray will be merged into a single character 'Text'.
-validateUTF8 :: Bytes -> Result Text
-{-# INLINE validateUTF8 #-}
-validateUTF8 bs@(V.PrimVector ba s l) | l == 0    = Success bs empty
-                                      | otherwise = go s
-  where
-    end = s + l
-    go !i = case validateChar ba i end of
-                r
-                    | r > 0  -> go (i + r)
-                    | r == 0 ->
-                        if i > s
-                        then Success
-                                (V.PrimVector ba i (end-i))
-                                (Text (V.PrimVector ba s (i-s)))
-                        else NeedMore (more bs)
-                    | otherwise ->
-                        Failure
-                            (V.PrimVector ba i (end-i))
-                            [ "Illegal bytes: " ++ show (V.PrimVector ba i (-r)) ]
-    more trailing input
-        | V.null input = Failure trailing  [ "Trailing bytes: " ++ show trailing ]
-        | otherwise =
-            let trailing'@(V.PrimVector ba s l) = trailing' `V.append` V.take 3 input
-            in case validateChar ba s l of
-                r
-                    | r > 0  ->
-                        Success
-                            (V.drop (r - V.length trailing) input)
-                            (Text (V.take r trailing'))
-                    | r == 0 ->
-                        NeedMore (more trailing')
-                    | otherwise ->
-                        Failure
-                            (V.drop (r - V.length trailing) input)
-                            [ "Illegal bytes: " ++ show (V.take (-r) trailing') ]
-
--- | /O(n)/ Repair UTF-8 bytes by convert illegal codepoint to replacement char @\U+FFFD@
--- (encoded as @0xEF 0xBF 0xBD@ 3 bytes).
+-- Throw error in case of invalid codepoint.
 --
--- This function always perform allocation and copying. It never return 'Failure', so be
--- careful using this function, since it may silently convert non UTF-8 encoded bytes into
--- garbage.
---
--- The replacing process follows Option #2 in
--- <http://www.unicode.org/review/pr-121.html Public Review Issue #121>.
---
--- Partial trailing bytes are converted into a single replacement char.
-repairUTF8 :: Bytes -> Result Text
-repairUTF8 bs@(V.PrimVector ba s l) | l == 0    = Success bs empty
-                                    | otherwise = runST $ do
-    mba <- newPrimArray l
-    go s 0 mba
-  where
-    end = s + l
-    go !i !j !mba =
-        case validateChar ba i end of
-            0 ->
-                if i > s
-                then do
-                    ba' <- unsafeFreezePrimArray mba
-                    return (Success
-                        (V.PrimVector ba i (end-i))
-                        (Text (V.PrimVector ba' 0 j)))
-                else return (NeedMore (more bs))
+validate :: HasCallStack => Bytes -> Text
+{-# INLINE validate #-}
+validate bs@(V.PrimVector (PrimArray ba#) (I# s#) l@(I# l#))
+    | l == 0 = Text bs
+    | utf8_validate ba# s# l# > 0 = Text bs
+    | otherwise = error "invalid UTF8 bytes"
 
-            1 -> do writePrimArray mba j $ indexPrimArray ba i
-                    go (i+1) (j+1)
-            2 -> do writePrimArray mba j $ indexPrimArray ba i
-                    writePrimArray mba (j+1) $ indexPrimArray ba (i+1)
-                    go (i+2) (j+2)
-            3 -> do writePrimArray mba j $ indexPrimArray ba i
-                    writePrimArray mba (j+1) $ indexPrimArray ba (i+1)
-                    writePrimArray mba (j+2) $ indexPrimArray ba (i+2)
-                    go (i+3) (j+3)
-            4 -> do writePrimArray mba j $ indexPrimArray ba i
-                    writePrimArray mba (j+1) $ indexPrimArray ba (i+1)
-                    writePrimArray mba (j+2) $ indexPrimArray ba (i+2)
-                    writePrimArray mba (j+3) $ indexPrimArray ba (i+3)
-                    go (i+4) (j+4)
-            r -> do writePrimArray mba j 0xEF
-                    writePrimArray mba (j+1) 0xBF
-                    writePrimArray mba (j+2) 0xBD
-                    go (i-r) (j+3)
+validateMaybe :: Bytes -> Maybe Text
+{-# INLINE validateMaybe #-}
+validateMaybe bs@(V.PrimVector (PrimArray ba#) (I# s#) l@(I# l#))
+    | l == 0 = Just (Text bs)
+    | utf8_validate ba# s# l# > 0 = Just (Text bs)
+    | otherwise = Nothing
 
-    more trailing input
-        | V.null input = Failure trailing  [ "Trailing bytes: " ++ show trailing ]
-        | otherwise = do
-            mba <- newPrimArray l
-            go s 0 mba
-            let trailing'@(V.PrimVector ba s l) = trailing' `V.append` V.take 3 input
-            in case validateChar ba s l of
-                r
-                    | r > 0  ->
-                        Success
-                            (V.drop (r - V.length trailing) input)
-                            (Text (V.take r trailing'))
-                    | r == 0 ->
-                        NeedMore (more trailing')
-                    | otherwise ->
-                        Failure
-                            (V.drop (r - V.length trailing) input)
-                            [ "Illegal bytes: " ++ show (V.take (-r) trailing') ]
-
-
-{-
-fromUTF8 :: Bytes -> (Text, Bytes)
-fromUTF8Lenient :: Bytes -> (Text, Bytes)
-toUTF8 :: Text -> Bytes
-
-fromUTF16 :: Bytes -> (Text, Bytes)
-fromUTF16Lenient :: Bytes -> (Text, Bytes)
-toUTF16 :: Text -> Bytes
-
--}
+foreign import ccall unsafe utf8_validate :: ByteArray# -> Int# -> Int# -> Int
 
 --------------------------------------------------------------------------------
 
@@ -251,7 +149,7 @@ pack = packN V.defaultInitSize
 packN :: Int -> String -> Text
 {-# INLINE packN #-}
 packN n0 = \ ws0 -> runST (do mba <- newPrimArray n0
-                              (SP2 i mba') <- foldlM go (SP2 0 mba) ws0
+                              (IPair i mba') <- foldlM go (IPair 0 mba) ws0
                               shrinkMutablePrimArray mba' i
                               ba <- unsafeFreezePrimArray mba'
                               return (Text (V.fromArr ba 0 i))
@@ -259,21 +157,56 @@ packN n0 = \ ws0 -> runST (do mba <- newPrimArray n0
   where
     -- It's critical that this function get specialized and unboxed
     -- Keep an eye on its core!
-    go :: SP2 s -> Char -> ST s (SP2 s)
-    go (SP2 i mba) !c = do
+    go :: IPair s -> Char -> ST s (IPair s)
+    go (IPair i mba) !c = do
         siz <- getSizeofMutablePrimArray mba
         if i < siz - 3  -- we need at least 4 bytes for safety
         then do
             i' <- encodeChar mba i c
-            return (SP2 i' mba)
+            return (IPair i' mba)
         else do
             let !siz' = siz `shiftL` 1
             !mba' <- resizeMutablePrimArray mba siz'
             i' <- encodeChar mba' i c
-            return (SP2 i' mba')
+            return (IPair i' mba')
 
-data SP2 s = SP2 {-# UNPACK #-}!Int {-# UNPACK #-}!(MutablePrimArray s Word8)
+data IPair s = IPair {-# UNPACK #-}!Int {-# UNPACK #-}!(MutablePrimArray s Word8)
 
+-- | /O(n)/
+--
+-- Alias for @'packRN' 'defaultInitSize'@.
+--
+packR :: String -> Text
+{-# INLINE packR #-}
+packR = packRN V.defaultInitSize
+
+-- | /O(n)/ 'packN' in reverse order.
+--
+-- This function is a /good consumer/ in the sense of build/foldr fusion.
+--
+packRN :: Int -> String -> Text
+{-# INLINE packRN #-}
+packRN n0 = \ ws0 -> runST (do let n = max 4 n0
+                               marr <- newArr n
+                               (IPair i marr') <- foldM go (IPair (n-1) marr) ws0
+                               ba <- unsafeFreezeArr marr'
+                               let i' = i + 1
+                                   n' = sizeofArr ba
+                               return $! Text (V.fromArr ba i' (n'-i'))
+                           )
+  where
+    go :: IPair s -> Char -> ST s (IPair s)
+    go (IPair i marr) !c = do
+        n <- sizeofMutableArr marr
+        let l = encodeCharLength c
+        if i >= l-1
+        then do encodeChar marr (i-l+1) c
+                return (IPair (i-l) marr)
+        else do let !n' = n `shiftL` 1  -- double the buffer
+                !marr' <- newArr n'
+                copyMutableArr marr' (n-i+1) marr (i+1) (n-i-1)
+                encodeChar marr (n-i-l+1) c
+                return (IPair (n-i-l) marr')
 
 unpack :: Text -> String
 {-# INLINE [1] unpack #-}
@@ -352,9 +285,11 @@ length (Text (V.PrimVector ba s l)) = go s 0
 -- | /O(n)/ 'map' @f@ @t@ is the 'Text' obtained by applying @f@ to
 -- each element of @t@. Performs replacement on invalid scalar values.
 --
-map :: (Char -> Char) -> Text -> Text
-map f = \ t@(Text v) -> packN (V.length v + 3) (List.map f (unpack t)) -- the 3 bytes buffer is here for optimizing ascii mapping
-{-# INLINE map #-}                                                     -- because we do resize if less than 3 bytes left when building
+map' :: (Char -> Char) -> Text -> Text
+map' f = \ t@(Text v) -> packN (V.length v + 3) (List.map f (unpack t)) -- the 3 bytes buffer is here for optimizing ascii mapping
+{-# INLINE map #-}                                                      -- because we do resize if less than 3 bytes left when building
+
+imap' :: (Int -> Char -> Char) -> Text -> Text
 
 -- | /O(n)/ The 'intercalate' function takes a 'Text' and a list of
 -- 'Text's and concatenates the list after interspersing the first
