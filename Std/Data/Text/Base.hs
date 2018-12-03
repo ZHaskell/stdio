@@ -3,9 +3,11 @@
 {-# LANGUAGE UnliftedFFITypes #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE CPP #-}
 
 {-|
-Module      : Std.Data.Text
+Module      : Std.Data.Text.Base
 Description : Unicode text processing
 Copyright   : (c) Winterland, 2017-2018
 License     : BSD
@@ -13,43 +15,41 @@ Maintainer  : drkoster@qq.com
 Stability   : experimental
 Portability : non-portable
 
-A 'Text' simply wrap a 'Bytes' which will be interpreted using UTF-8 encoding, illegal UTF-8 encoded codepoints will be interpreted as the @\U+FFFD@ replacement character. You can use 'validate' to check if a 'Bytes' value
-contain illegal byte sequence.
+A 'Text' wrap a 'Bytes' which will be interpreted using UTF-8 encoding. User should always use 'validate' to construt a 'Text' (instead of using construtor directly or coercing), otherwise illegal UTF-8
+encoded codepoints will cause undefined behaviours.
 
 -}
 
 module Std.Data.Text.Base (
   -- * Text type
     Text(..)
-  , charAt
+  , validate
+  , validateMaybe
+  , charAt, byteAt, charAtLast, byteAtLast
   -- * Basic creating
   , empty, singleton
   -- * Conversion between list
-  , pack, packR
+  , pack, packN, packR, packRN
   , unpack, unpackR
+  -- * Conversion between codepoint vector
+  , fromVector
+  , toVector
   -- * Basic interface
   , null
   , length
   , append
   , map', imap'
-  , foldl', ifoldl', foldl1', foldl1Maybe'
-  , foldr', ifoldr', foldr1', foldr1Maybe'
+  , foldl', ifoldl'
+  , foldr', ifoldr'
     -- ** Case conversion
-  , toCaseFold, toLower, toUpper, toTitle
+  , toCaseFold, toCaseFold', toLower, toUpper, toTitle
     -- ** Special folds
   , concat, concatMap
-  , maximumMaybe, minimumMaybe
   , count
   , all, any
-  -- * Building vector
-  -- ** Accumulating maps
-  , mapAccumL
-  , mapAccumR
-  -- ** Generating and unfolding vector
+  -- * Building text
   , replicate
-  , repeatN
-  , unfoldr
-  , unfoldrN
+  , cycleN
  ) where
 
 import           Control.DeepSeq
@@ -62,17 +62,20 @@ import qualified Data.List                as List
 import           Data.Primitive.PrimArray
 import           Data.Typeable
 import           Data.Word
+import           Foreign.C.Types          (CSize(..))
 import           GHC.Exts                 (build)
 import           GHC.Prim
 import           GHC.Types
 import           GHC.Stack
 import           Std.Data.Array
 import           Std.Data.Text.UTF8Codec
+import           Std.Data.Text.UTF8Rewind
 import           Std.Data.Vector.Base     (Bytes, PrimVector)
 import qualified Std.Data.Vector.Base     as V
 import qualified Std.Data.Vector.Extra    as V
-import qualified Data.Primitive.PrimArray (PrimArray)
+import qualified Std.Data.Vector.Search   as V
 import           Std.Data.Parser   (Result(..))
+import           System.IO.Unsafe (unsafeDupablePerformIO)
 
 import           Prelude                       hiding (concat, concatMap,
                                                 elem, notElem, null, length, map,
@@ -101,8 +104,10 @@ instance NFData Text where
 
 -- | /O(n)/ Get the nth codepoint from 'Text'.
 charAt :: Text -> Int -> Maybe Char
-charAt (Text (V.PrimVector ba s l)) n | n < 0 = Nothing
-                              | otherwise = go s 0
+{-# INLINABLE charAt #-}
+charAt (Text (V.PrimVector ba s l)) n
+    | n < 0 = Nothing
+    | otherwise = go s 0
   where
     !end = s + l
     go !i !j
@@ -110,6 +115,53 @@ charAt (Text (V.PrimVector ba s l)) n | n < 0 = Nothing
         | j >= n = let !c = decodeChar_ ba i in Just c
         | otherwise =
             let l = decodeCharLen ba i in go (i+l) (j+1)
+
+-- | /O(n)/ Find the nth codepoint's byte index (pointing to the next char's begining byte).
+--
+-- The index is only meaningful to the whole byte slice, if there's less than n codepoints,
+-- the index will point to next byte after the end.
+byteAt :: Text -> Int -> Int
+{-# INLINABLE byteAt #-}
+byteAt (Text (V.PrimVector ba s l)) n
+    | n < 0 = s
+    | otherwise = go s 0
+  where
+    !end = s + l
+    go !i !j
+        | i >= end = i
+        | j >= n = i
+        | otherwise =
+            let l = decodeCharLen ba i in go (i+l) (j+1)
+
+-- | /O(n)/ Get the nth codepoint from 'Text' counting from the end.
+charAtLast :: Text -> Int -> Maybe Char
+{-# INLINABLE charAtLast #-}
+charAtLast (Text (V.PrimVector ba s l)) n
+    | n < 0 = Nothing
+    | otherwise = go (s+l-1) 0
+  where
+    go !i !j
+        | i < s = Nothing
+        | j >= n = let !c = decodeCharReverse_ ba i in Just c
+        | otherwise =
+            let l = decodeCharLenReverse ba i in go (i-l) (j+1)
+
+-- | /O(n)/ Find the nth codepoint's byte index from the end
+-- (pointing to the previous char's ending byte).
+--
+-- The index is only meaningful to the whole byte slice, if there's less than n codepoints,
+-- the index will point to previous byte before the start.
+byteAtLast :: Text -> Int -> Int
+{-# INLINABLE byteAtLast #-}
+byteAtLast (Text (V.PrimVector ba s l)) n
+    | n < 0 = s+l
+    | otherwise = go (s+l-1) 0
+  where
+    go !i !j
+        | i < s = i
+        | j >= n = i
+        | otherwise =
+            let l = decodeCharLenReverse ba i in go (i-l) (j+1)
 
 --------------------------------------------------------------------------------
 
@@ -148,29 +200,23 @@ pack = packN V.defaultInitSize
 --
 packN :: Int -> String -> Text
 {-# INLINE packN #-}
-packN n0 = \ ws0 -> runST (do mba <- newPrimArray n0
-                              (IPair i mba') <- foldlM go (IPair 0 mba) ws0
-                              shrinkMutablePrimArray mba' i
-                              ba <- unsafeFreezePrimArray mba'
-                              return (Text (V.fromArr ba 0 i))
-                          )
+packN n0 = \ ws0 ->
+    Text (V.create' (max 4 n0) (\ marr -> foldlM go (V.IPair 0 marr) ws0))
   where
     -- It's critical that this function get specialized and unboxed
     -- Keep an eye on its core!
-    go :: IPair s -> Char -> ST s (IPair s)
-    go (IPair i mba) !c = do
-        siz <- getSizeofMutablePrimArray mba
+    go :: V.IPair (MutablePrimArray s Word8) -> Char -> ST s (V.IPair (MutablePrimArray s Word8))
+    go (V.IPair i marr) !c = do
+        siz <- getSizeofMutablePrimArray marr
         if i < siz - 3  -- we need at least 4 bytes for safety
         then do
-            i' <- encodeChar mba i c
-            return (IPair i' mba)
+            i' <- encodeChar marr i c
+            return (V.IPair i' marr)
         else do
             let !siz' = siz `shiftL` 1
-            !mba' <- resizeMutablePrimArray mba siz'
-            i' <- encodeChar mba' i c
-            return (IPair i' mba')
-
-data IPair s = IPair {-# UNPACK #-}!Int {-# UNPACK #-}!(MutablePrimArray s Word8)
+            !marr' <- resizeMutablePrimArray marr siz'
+            i' <- encodeChar marr' i c
+            return (V.IPair i' marr')
 
 -- | /O(n)/
 --
@@ -188,25 +234,24 @@ packRN :: Int -> String -> Text
 {-# INLINE packRN #-}
 packRN n0 = \ ws0 -> runST (do let n = max 4 n0
                                marr <- newArr n
-                               (IPair i marr') <- foldM go (IPair (n-1) marr) ws0
+                               (V.IPair i marr') <- foldM go (V.IPair n marr) ws0
                                ba <- unsafeFreezeArr marr'
-                               let i' = i + 1
-                                   n' = sizeofArr ba
-                               return $! Text (V.fromArr ba i' (n'-i'))
+                               return $! Text (V.fromArr ba i (sizeofArr ba-i))
                            )
   where
-    go :: IPair s -> Char -> ST s (IPair s)
-    go (IPair i marr) !c = do
+    go :: V.IPair (MutablePrimArray s Word8) -> Char -> ST s (V.IPair (MutablePrimArray s Word8))
+    go (V.IPair i marr) !c = do
         n <- sizeofMutableArr marr
         let l = encodeCharLength c
-        if i >= l-1
-        then do encodeChar marr (i-l+1) c
-                return (IPair (i-l) marr)
+        if i >= l
+        then do encodeChar marr (i-l) c
+                return (V.IPair (i-l) marr)
         else do let !n' = n `shiftL` 1  -- double the buffer
                 !marr' <- newArr n'
-                copyMutableArr marr' (n-i+1) marr (i+1) (n-i-1)
-                encodeChar marr (n-i-l+1) c
-                return (IPair (n-i-l) marr')
+                copyMutableArr marr' (n+i) marr i (n-i)
+                let i' = n+i-l
+                encodeChar marr' i' c
+                return (V.IPair i' marr')
 
 unpack :: Text -> String
 {-# INLINE [1] unpack #-}
@@ -254,7 +299,7 @@ unpackRFB (Text (V.PrimVector ba s l)) k z = go (s+l-1)
 
 singleton :: Char -> Text
 {-# INLINABLE singleton #-}
-singleton c = Text $ V.createN 4 $ \ mba -> encodeChar mba 0 c
+singleton c = Text $ V.createN 4 $ \ marr -> encodeChar marr 0 c
 
 empty :: Text
 {-# INLINABLE empty #-}
@@ -286,28 +331,213 @@ length (Text (V.PrimVector ba s l)) = go s 0
 -- each element of @t@. Performs replacement on invalid scalar values.
 --
 map' :: (Char -> Char) -> Text -> Text
-map' f = \ t@(Text v) -> packN (V.length v + 3) (List.map f (unpack t)) -- the 3 bytes buffer is here for optimizing ascii mapping
-{-# INLINE map #-}                                                      -- because we do resize if less than 3 bytes left when building
+{-# INLINE map' #-}
+map' f (Text (V.PrimVector arr s l)) | l == 0 = empty
+                                     | otherwise = Text (V.create' (l+3) (go s 0))
+  where
+    end = s + l
+    -- the 3 bytes buffer is here for optimizing ascii mapping
+    -- we do resize if less than 4 bytes left when building
+    -- to save us from pre-checking encoding char length everytime
+    go :: Int -> Int -> MutablePrimArray s Word8 -> ST s (V.IPair (MutablePrimArray s Word8))
+    go !i !j !marr
+        | i >= end = return (V.IPair j marr)
+        | otherwise = do
+            let (# c, d #) = decodeChar arr i
+            j' <- encodeChar marr j (f c)
+            let !i' = i + d
+            siz <- sizeofMutableArr marr
+            if  j' < siz - 3
+            then go i' j' marr
+            else do
+                let !siz' = siz `shiftL` 1
+                !marr' <- resizeMutablePrimArray marr siz'
+                go i' j' marr'
+
 
 imap' :: (Int -> Char -> Char) -> Text -> Text
+{-# INLINE imap' #-}
+imap' f (Text (V.PrimVector arr s l)) | l == 0 = empty
+                                      | otherwise = Text (V.create' (l+3) (go s 0 0))
+  where
+    end = s + l
+    go :: Int -> Int -> Int -> MutablePrimArray s Word8 -> ST s (V.IPair (MutablePrimArray s Word8))
+    go !i !j !k !marr
+        | i >= end = return (V.IPair j marr)
+        | otherwise = do
+            let (# c, d #) = decodeChar arr i
+            j' <- encodeChar marr j (f k c)
+            let !i' = i + d
+                !k' = k + 1
+            siz <- sizeofMutableArr marr
+            if  j' < siz - 3
+            then go i' j' k' marr
+            else do
+                let !siz' = siz `shiftL` 1
+                !marr' <- resizeMutablePrimArray marr siz'
+                go i' j' k' marr'
 
--- | /O(n)/ The 'intercalate' function takes a 'Text' and a list of
--- 'Text's and concatenates the list after interspersing the first
--- argument between each element of the list.
-intercalate :: Text -> [Text] -> Text
-intercalate t = concat . (List.intersperse t)
-{-# INLINE intercalate #-}
+--------------------------------------------------------------------------------
+--
+-- Strict folds
+--
+
+-- | Strict left to right fold.
+foldl' :: (b -> Char -> b) -> b -> Text -> b
+{-# INLINE foldl' #-}
+foldl' f z (Text (V.PrimVector arr s l)) = go z s
+  where
+    !end = s + l
+    -- tail recursive; traverses array left to right
+    go !acc !i | i < end  = case decodeChar arr i of
+                                (# x, d #) -> go (f acc x) (i + d)
+               | otherwise = acc
+
+-- | Strict left to right fold with index.
+ifoldl' :: (b -> Int ->  Char -> b) -> b -> Text -> b
+{-# INLINE ifoldl' #-}
+ifoldl' f z (Text (V.PrimVector arr s l)) = go z s 0
+  where
+    !end = s + l
+    go !acc !i !k | i < end  = case decodeChar arr i of
+                                    (# x, d #) -> go (f acc k x) (i + d) (k + 1)
+                  | otherwise = acc
+
+-- | Strict right to left fold
+foldr' :: (Char -> b -> b) -> b -> Text -> b
+{-# INLINE foldr' #-}
+foldr' f z (Text (V.PrimVector arr s l)) = go z (s+l-1)
+  where
+    -- tail recursive; traverses array right to left
+    go !acc !i | i >= s    = case decodeCharReverse arr i of
+                                (# x, d #) -> go (f x acc) (i - d)
+               | otherwise = acc
+
+-- | Strict right to left fold with index
+--
+-- NOTE: the index is counting from 0, not backwards
+ifoldr' :: (Int -> Char -> b -> b) -> b -> Text -> b
+{-# INLINE ifoldr' #-}
+ifoldr' f z (Text (V.PrimVector arr s l)) = go z (s+l-1) 0
+  where
+    go !acc !i !k | i >= s    = case decodeCharReverse arr i of
+                                    (# x, d #) -> go (f k x acc) (i - d) (k + 1)
+                  | otherwise = acc
+
+--------------------------------------------------------------------------------
+--
+-- Case conversion
+--
+
+toCaseFold :: Text -> Text
+toCaseFold = toCaseFold' defaultLocale
+
+toCaseFold' :: Locale -> Text -> Text
+toCaseFold' locale (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
+    | l == 0 = empty
+    | otherwise = unsafeDupablePerformIO $ do
+        let l'@(I# l'#) = utf8_casefold_length arr# s# l# locale
+        pa@(MutablePrimArray marr#) <- newArr l'
+        utf8_casefold arr# s# l# marr# l'# locale
+        arr' <- unsafeFreezeArr pa
+        let !v = V.fromArr arr' 0 l'
+        return (Text v)
+
+foreign import ccall unsafe utf8_casefold ::
+    ByteArray# -> Int# -> Int# -> MutableByteArray# RealWorld -> Int# -> Locale -> IO ()
+foreign import ccall unsafe utf8_casefold_length ::
+    ByteArray# -> Int# -> Int# -> Locale -> Int
 
 concat :: [Text] -> Text
-concat = Text . V.concat . (List.map getUTF8Bytes) -- (coerce :: [Text] -> [Bytes])
+concat = Text . V.concat . coerce
 {-# INLINE concat #-}
 
+concatMap :: (Char -> Text) -> Text -> Text
+{-# INLINE concatMap #-}
+concatMap f = concat . foldr' ((:) . f) []
+
+count :: Char -> Text -> Int
+{-# INLINE count #-}
+count c (Text v)
+    | encodeCharLength c == 1 = let w = V.c2w c in V.count w v
+    | otherwise = let (Text pat) = singleton c
+                  in List.length $ V.indices pat v False
+
+-- | /O(n)/ Applied to a predicate and a text, 'any' determines
+-- if any chars of the text satisfy the predicate.
+any :: (Char -> Bool) -> Text -> Bool
+{-# INLINE any #-}
+any f (Text (V.PrimVector arr s l))
+    | l <= 0    = False
+    | otherwise = case decodeChar arr s of
+                    (# x0, d #) -> go (f x0) (s+d)
+  where
+    !end = s+l
+    go !acc !i | acc       = True
+               | i >= end  = acc
+               | otherwise = case decodeChar arr i of
+                                (# x, d #) -> go (acc || f x) (i+d)
+
+-- | /O(n)/ Applied to a predicate and text, 'all' determines
+-- if all chars of the text satisfy the predicate.
+all :: (Char -> Bool) -> Text -> Bool
+{-# INLINE all #-}
+all f (Text (V.PrimVector arr s l))
+    | l <= 0    = True
+    | otherwise = case decodeChar arr s of
+                    (# x0, d #) -> go (f x0) (s+d)
+  where
+    !end = s+l
+    go !acc !i | not acc   = False
+               | i >= end  = acc
+               | otherwise = case decodeChar arr i of
+                                (# x, d #) -> go (acc && f x) (i+d)
 
 --------------------------------------------------------------------------------
+--
+-- Building text
 
-errorEmptyText :: String -> a
-{-# NOINLINE errorEmptyText #-}
-errorEmptyText fun = error ("Data.Text." ++ fun ++ ": empty Text")
+replicate :: Int -> Char -> Text
+replicate 0 _ = empty
+replicate n c = Text (V.create siz (go 0))
+  where
+    !csiz = encodeCharLength c
+    !siz = n * csiz
+    go :: Int -> MutablePrimArray s Word8 -> ST s ()
+    go 0 marr = encodeChar marr 0 c >> go csiz marr
+    go i marr | i >= siz = return ()
+              | otherwise = do copyChar' csiz marr i marr (i-csiz)
+                               go (i+csiz) marr
+
+
+cycleN :: Int -> Text -> Text
+cycleN 0 _ = empty
+cycleN n (Text v) = Text (V.cycleN n v)
 
 --------------------------------------------------------------------------------
+-- Convert between codepoint vector and text
+
+fromVector :: V.PrimVector Char -> Text
+{-# INLINE fromVector #-}
+fromVector (V.PrimVector arr s l) = Text (V.createN l (go s 0))
+  where
+    end = s+l
+    go !i !j !marr
+        | i >= l = return j
+        | otherwise = do
+            let c = indexPrimArray arr i
+            j' <- encodeChar marr j c
+            go (i+1) j' marr
+
+toVector :: Text -> V.PrimVector Char
+{-# INLINE toVector #-}
+toVector (Text (V.PrimVector arr s l)) = V.createN (l*4) (go s 0)
+  where
+    end = s+l
+    go !i !j !marr
+        | i >= l = return j
+        | otherwise = do
+            let (# c, n #) = decodeChar arr i
+            writePrimArray marr j c
+            go (i+n) (j+1) marr
 

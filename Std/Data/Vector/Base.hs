@@ -45,7 +45,7 @@ module Std.Data.Vector.Base (
   , pattern Bytes#
   , w2c, c2w
   -- * Basic creating
-  , create, creating, createN, createN2
+  , create, create', creating, creating', createN, createN2
   , empty, singleton, copy
   -- * Conversion between list
   , pack, packN, packR, packRN
@@ -71,7 +71,7 @@ module Std.Data.Vector.Base (
   , mapAccumR
   -- ** Generating and unfolding vector
   , replicate
-  , repeatN
+  , cycleN
   , unfoldr
   , unfoldrN
   -- * Searching by equality
@@ -427,7 +427,25 @@ create n0 fill = runST (do
         ba <- unsafeFreezeArr marr
         return $! fromArr ba 0 n)
 
--- | Create a vector, return both the vector and the monadic result during creating.
+-- | Create a vector with a initial size N array (which may not be the final array).
+--
+create' :: Vec v a
+        => Int                                                      -- ^ length in elements of type @a@
+        -> (forall s. MArray v s a -> ST s (IPair (MArray v s a)))  -- ^ initialization function
+                                                                    --   return a result size and array
+                                                                    --   the result must start from index 0
+        -> v a
+{-# INLINE create' #-}
+create' n0 fill = runST (do
+        let n = max 0 n0
+        marr <- newArr n
+        IPair n' marr' <- fill marr
+        shrinkMutableArr marr' n'
+        ba <- unsafeFreezeArr marr'
+        return $! fromArr ba 0 n')
+
+-- | Create a vector with a initial size N array, return both the vector and
+-- the monadic result during creating.
 --
 -- The result is not demanded strictly while the returned vector will be in normal form.
 -- It this is not desired, use @return $!@ idiom in your initialization function.
@@ -442,6 +460,25 @@ creating n0 fill = runST (do
         b <- fill marr
         ba <- unsafeFreezeArr marr
         let !v = fromArr ba 0 n
+        return (b, v))
+
+-- | Create a vector with a initial size N array (which may not be the final array),
+-- return both the vector and the monadic result during creating.
+--
+-- The result is not demanded strictly while the returned vector will be in normal form.
+-- It this is not desired, use @return $!@ idiom in your initialization function.
+creating' :: Vec v a
+         => Int  -- length in elements of type @a@
+         -> (forall s. MArray v s a -> ST s (b, (IPair (MArray v s a))))  -- ^ initialization function
+         -> (b, v a)
+{-# INLINE creating' #-}
+creating' n0 fill = runST (do
+        let n = max 0 n0
+        marr <- newArr n
+        (b, IPair n' marr') <- fill marr
+        shrinkMutableArr marr' n'
+        ba <- unsafeFreezeArr marr'
+        let !v = fromArr ba 0 n'
         return (b, v))
 
 -- | Create a vector up to a specific length.
@@ -769,13 +806,15 @@ foldr' f z (Vec arr s l) = go z (s+l-1)
                | otherwise = acc
 
 -- | Strict right to left fold with index
+--
+-- NOTE: the index is counting from 0, not backwards
 ifoldr' :: Vec v a => (Int -> a -> b -> b) -> b -> v a -> b
 {-# INLINE ifoldr' #-}
-ifoldr' f z (Vec arr s l) = go z (s+l-1)
+ifoldr' f z (Vec arr s l) = go z (s+l-1) 0
   where
-    go !acc !i | i >= s    = case indexArr' arr i of
-                                (# x #) -> go (f i x acc) (i - 1)
-               | otherwise = acc
+    go !acc !i !k | i >= s    = case indexArr' arr i of
+                                    (# x #) -> go (f k x acc) (i - 1) (k + 1)
+                  | otherwise = acc
 
 -- | Strict right to left fold using last element as the initial value.
 foldr1' :: forall v a. (Vec v a, HasCallStack) => (a -> a -> a) -> v a -> a
@@ -874,8 +913,8 @@ product' (Vec arr s l) = go 1 s
                | otherwise = case indexArr' arr i of
                                 (# x #) -> go (acc*x) (i+1)
 
--- | /O(n)/ Applied to a predicate and a vector, 'all' determines
--- if all elements of the vector satisfy the predicate.
+-- | /O(n)/ Applied to a predicate and a vector, 'any' determines
+-- if any elements of the vector satisfy the predicate.
 any :: Vec v a => (a -> Bool) -> v a -> Bool
 {-# INLINE any #-}
 any f (Vec arr s l)
@@ -889,8 +928,8 @@ any f (Vec arr s l)
                | otherwise = case indexArr' arr i of
                                 (# x #) -> go (acc || f x) (i+1)
 
--- | /O(n)/ Applied to a predicate and a vector, 'any' determines
--- if any elements of the vector satisfy the predicate.
+-- | /O(n)/ Applied to a predicate and a vector, 'all' determines
+-- if all elements of the vector satisfy the predicate.
 all :: Vec v a => (a -> Bool) -> v a -> Bool
 {-# INLINE all #-}
 all f (Vec arr s l)
@@ -976,10 +1015,10 @@ replicate :: (Vec v a) => Int -> a -> v a
 replicate n x | n <= 0    = empty
               | otherwise = create n (\ marr -> setArr marr 0 n x)
 
--- | /O(n*m)/ 'repeatN' a vector n times.
-repeatN :: forall v a. Vec v a => Int -> v a -> v a
-{-# INLINE repeatN #-}
-repeatN n (Vec arr s l) = create end (go 0)
+-- | /O(n*m)/ 'cycleN' a vector n times.
+cycleN :: forall v a. Vec v a => Int -> v a -> v a
+{-# INLINE cycleN #-}
+cycleN n (Vec arr s l) = create end (go 0)
   where
     !end = n*l
     go :: Int -> MArray v s a -> ST s ()

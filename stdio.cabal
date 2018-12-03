@@ -19,7 +19,9 @@ bug-reports:         https://github.com/haskell-stdio/stdio/issues
 extra-source-files:  ChangeLog.md
                      include/bytes.h
                      include/hs_uv.h
+                     include/text.h
                      cbits/bytes.c
+                     cbits/text.c
                      cbits/hs_uv_base.c
                      cbits/hs_uv_stream.c
                      cbits/hs_uv_file.c
@@ -110,6 +112,8 @@ library
                             Std.Data.Parser
                             -- Std.Data.Text
                             Std.Data.Text.Base
+                            Std.Data.Text.Extra
+                            Std.Data.Text.Search
                             Std.Data.Text.UTF8Codec
                             Std.Data.Text.UTF8Rewind
                             Std.Data.Binary
@@ -149,15 +153,18 @@ library
                         third_party/utf8rewind/source
                         third_party/fastvalidate-utf-8/include
     includes:           bytes.h
+                        text.h
                         hs_uv.h
                         utf8rewind.h
                         simdutf8check.h
     install-includes:   bytes.h
+                        text.c
                         hs_uv.h
                         utf8rewind.h
                         simdutf8check.h
     cc-options:         -march=native
     c-sources:          cbits/bytes.c
+                        cbits/text.c
                         cbits/hs_uv_base.c
                         cbits/hs_uv_stream.c
                         cbits/hs_uv_file.c

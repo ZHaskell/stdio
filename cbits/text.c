@@ -15,13 +15,14 @@ HsInt utf8_validate(const char* p, HsInt off, HsInt len){
 #ifdef __SSE2__
     return (HsInt)validate_utf8_fast(q, (size_t)len);
 #else
-    return utf8_validate_slow(q, len)
+    return utf8_validate_slow(q, len);
 #endif
 #endif
+}
 
 HsInt utf8_validate_slow(const char* src, HsInt len){
-    char* end = src + len;
-    char decoded;
+    const char* end = src + len;
+    unicode_t* decoded;
     for (; src < end; ) {
 
         if (*src <= MAX_BASIC_LATIN)
@@ -92,4 +93,10 @@ HsInt utf8_validate_slow(const char* src, HsInt len){
     }
     /* loop over all bytes */
     return 1;
+}
+
+HsInt utf8_casefold(const char* p, HsInt off, HsInt len, const char* q, HsInt len2, size_t locale){
+}
+
+HsInt utf8_casefold_length(const char* p, HsInt off, HsInt len, size_t locale){
 }

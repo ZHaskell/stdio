@@ -207,7 +207,8 @@ instance Exception UTF8DecodeException where
 readLine :: (HasCallStack, Input i) => BufferedInput i -> IO T.Text
 readLine h = do
     bss <- go h (V.c2w '\n')
-    case T.validateMaybe (V.concat bss) of
+    let bs = V.concat bss
+    case T.validateMaybe bs of
         Just t  -> return t
         Nothing -> throwIO (UTF8DecodeException bs
                 (IOEInfo "" "utf8 decode error" callStack))

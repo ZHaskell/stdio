@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE UnboxedTuples #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-|
 Module      : Std.Data.Text.Extra
@@ -13,7 +14,7 @@ Maintainer  : drkoster@qq.com
 Stability   : experimental
 Portability : non-portable
 
-Various combinators works on 'Vec' class instances.
+Various combinators works on 'Text's.
 
 -}
 
@@ -25,16 +26,16 @@ module Std.Data.Text.Extra (
   , lastMaybe, initMayEmpty
   , inits, tails
   , take, drop, takeLast, dropLast
-  , slice, (/../)
+  , slice, (|...|)
   , splitAt
-  , takeWhile, takeWhileEnd, dropWhile, dropWhileEnd, dropAround
+  , takeWhile, takeLastWhile, dropWhile, dropLastWhile, dropAround
   , break, span
   , breakEnd, spanEnd, breakOn
   , group, groupBy
   , stripPrefix, stripSuffix
   , split, splitWith, splitOn
   , isPrefixOf, isSuffixOf, isInfixOf
-  , commonPrefixes
+  , commonPrefix
   , words, lines, unwords, unlines
   , padLeft, padRight
   -- * Transform
@@ -43,14 +44,29 @@ module Std.Data.Text.Extra (
   , intercalate
   , intercalateElem
   , transpose
-  -- * Zipping
-  , zipWith', unzipWith'
-  -- * Scans
-  , scanl', scanl1'
-  , scanr', scanr1'
   ) where
 
-import Std.Data.Vector
+import Data.Primitive.PrimArray
+import qualified Std.Data.Vector.Base as V
+import qualified Std.Data.Vector.Extra as V
+import Data.Coerce
+import qualified Data.List as List
+import Std.Data.Text.Base
+import Std.Data.Text.UTF8Codec
+import Std.Data.Text.Search
+import           Control.Monad.ST
+import           GHC.Stack
+import           Data.Char
+import           Data.Word
+import           Prelude                       hiding (concat, concatMap,
+                                                elem, notElem, null, length, map,
+                                                foldl, foldl1, foldr, foldr1,
+                                                maximum, minimum, product, sum,
+                                                all, any, replicate, traverse,
+                                                take, drop, splitAt,
+                                                takeWhile, dropWhile,
+                                                break, span, reverse,
+                                                words, lines, unwords, unlines)
 
 
 --------------------------------------------------------------------------------
@@ -58,14 +74,14 @@ import Std.Data.Vector
 
 cons :: Char -> Text -> Text
 {-# INLINABLE cons #-}
-cons c (Text (PrimVector ba s l)) = Text (createN (4 + l) (\ mba -> do
+cons c (Text (V.PrimVector ba s l)) = Text (V.createN (4 + l) (\ mba -> do
     i <- encodeChar mba 0 c
     copyPrimArray mba i ba s l
     return $! i + l))
 
 snoc :: Text -> Char -> Text
 {-# INLINABLE snoc #-}
-snoc (Text (PrimVector ba s l)) c = Text (createN (4 + l) (\ mba -> do
+snoc (Text (V.PrimVector ba s l)) c = Text (V.createN (4 + l) (\ mba -> do
     copyPrimArray mba 0 ba s l
     encodeChar mba l c))
 
@@ -85,21 +101,307 @@ unsnoc (Text (V.PrimVector ba s l))
         let (# c, i #) = decodeCharReverse ba (s + l - 1)
         in Just (Text (V.PrimVector ba s (l-i)), c)
 
-head :: Text -> Char
-{-# INLINABLE head #-}
-head t = case uncons t of { Nothing -> errorEmptyText "head"; Just (c, _) -> c }
+headMaybe :: Text -> Maybe Char
+{-# INLINABLE headMaybe #-}
+headMaybe t = case uncons t of { Just (c, _) -> Just c; _ -> Nothing }
 
-tail :: Text -> Text
-{-# INLINABLE tail #-}
-tail t = case uncons t of { Nothing -> empty; Just (_, t) -> t }
+tailMayEmpty :: Text -> Text
+{-# INLINABLE tailMayEmpty #-}
+tailMayEmpty t = case uncons t of { Nothing -> empty; Just (_, t) -> t }
 
-last :: Text -> Char
-{-# INLINABLE last #-}
-last t = case unsnoc t of { Nothing -> errorEmptyText "last"; Just (_, c) -> c }
+lastMaybe :: Text -> Maybe Char
+{-# INLINABLE lastMaybe #-}
+lastMaybe t = case unsnoc t of { Just (_, c) -> Just c; _ -> Nothing }
 
-init :: Text -> Text
-{-# INLINABLE init #-}
-init t = case unsnoc t of { Nothing -> empty; Just (t, _) -> t }
+initMayEmpty :: Text -> Text
+{-# INLINABLE initMayEmpty #-}
+initMayEmpty t = case unsnoc t of { Just (t, _) -> t; _ -> empty }
+
+inits :: Text -> [Text]
+{-# INLINABLE inits #-}
+inits t = go t [t]
+  where go t acc = case unsnoc t of Just (t', _) -> go t' (t':acc)
+                                    Nothing      -> acc
+
+tails :: Text -> [Text]
+{-# INLINABLE tails #-}
+tails t = t : case uncons t of Just (_, t') -> tails t'
+                               Nothing      -> []
+
+take :: Int -> Text -> Text
+{-# INLINABLE take #-}
+take n t@(Text (V.PrimVector ba s l))
+    | n <= 0 = empty
+    | otherwise = case byteAt t n of i -> Text (V.PrimVector ba s (i-s))
+
+drop :: Int -> Text -> Text
+{-# INLINABLE drop #-}
+drop n t@(Text (V.PrimVector ba s l))
+    | n <= 0 = t
+    | otherwise = case byteAt t n of i -> Text (V.PrimVector ba i (l+s-i))
+
+takeLast :: Int -> Text -> Text
+{-# INLINABLE takeLast #-}
+takeLast 0 _ = empty
+takeLast n t@(Text (V.PrimVector ba s l)) =
+    case byteAtLast t n of i -> Text (V.PrimVector ba (i+1) (s+l-1-i))
+
+dropLast :: Int -> Text -> Text
+{-# INLINABLE dropLast #-}
+dropLast 0 t = t
+dropLast n t@(Text (V.PrimVector ba s l)) =
+    case byteAtLast t n of i -> Text (V.PrimVector ba s (s+l-1-i))
+
+-- | /O(1)/ Extract a sub-range text with give start index and length.
+--
+-- This function is a total function just like 'take/drop', index/length
+-- exceeds range will be ingored, e.g.
+--
+-- @
+-- slice 1 3 "hello"   == "ell"
+-- slice -1 -1 "hello" == ""
+-- slice -2 2 "hello"  == ""
+-- slice 2 10 "hello"  == "llo"
+-- @
+--
+-- This holds for all x y: @slice x y vs == drop x . take (x+y) vs@
+slice :: Int -> Int -> Text -> Text
+{-# INLINE slice #-}
+slice x y t | y <= 0 = empty
+            | end <= 0 = empty
+            | x <= 0 = take end t
+            | otherwise = take y (drop x t)
+  where
+    !end = x + y
+
+-- | /O(1)/ Extract a sub-range text with give start and end index
+-- (sliced text will include the end index element), both
+-- start and end index can be negative, which stand for counting from the end
+-- (similar to the slicing operator([..]) in many other language).
+--
+-- This function is a total function just like 'take/drop', e.g.
+--
+-- @
+-- "hello" |...| (1, 2) == "el"
+-- "hello" |...| (1, -2) == "ell"
+-- "hello" |...| (-3, -2) == "ll"
+-- "hello" |...| (-3, -4) == ""
+-- @
+-- This holds for all x y:
+--
+-- @
+-- vs |...| x y == let l = length vs
+--                     x' = if x >= 0 then x else l+x
+--                     y' = if y >= 0 then y else l+y
+--                 in slice x' (y'-x'+1) vs
+-- @
+(|...|) :: Text -> (Int, Int) -> Text
+{-# INLINE (|...|) #-}
+infixl 9 |...|
+t@(Text (V.PrimVector arr s l)) |...| (s1, s2)
+    | s1' >  s2' = empty
+    | otherwise  = Text (V.PrimVector arr (s1'+1) (s2' - s1'+1))
+  where
+    !s1' = if s1>=0 then byteAt t s1 else byteAtLast t (-s1-1)
+    !s2' = if s2>=0 then byteAt t s2 else byteAtLast t (-s2-1)
+
+splitAt :: Int -> Text -> (Text, Text)
+{-# INLINE splitAt #-}
+splitAt n t@(Text (V.PrimVector ba s l))
+    | n <= 0 = (empty, t)
+    | otherwise = case byteAt t n of
+        i -> (Text (V.PrimVector ba s (i-s)), Text (V.PrimVector ba i (s+l-i)))
+
+
+-- | /O(n)/ Applied to a predicate @p@ and a text @t@,
+-- returns the longest prefix (possibly empty) of @t@ of elements that
+-- satisfy @p@.
+takeWhile :: (Char -> Bool) -> Text -> Text
+{-# INLINE takeWhile #-}
+takeWhile f t@(Text (V.PrimVector arr s l)) =
+    case findIndexOrEnd (not . f) t of (_, i, _)  -> Text (V.PrimVector arr s (i-s))
+
+-- | /O(n)/ Applied to a predicate @p@ and a text @t@,
+-- returns the longest suffix (possibly empty) of @t@ of elements that
+-- satisfy @p@.
+takeLastWhile :: (Char -> Bool) -> Text -> Text
+takeLastWhile f t@(Text (V.PrimVector arr s l)) =
+    case findLastIndexOrStart (not . f) t of (_, i, _)  -> Text (V.PrimVector arr i (s+l-1-i))
+
+dropWhile :: (Char -> Bool) -> Text -> Text
+{-# INLINE dropWhile #-}
+dropWhile f t@(Text (V.PrimVector arr s l)) =
+    case findIndexOrEnd (not . f) t of (_, i, _)  -> Text (V.PrimVector arr i (s+l-1-i))
+
+dropLastWhile :: (Char -> Bool) -> Text -> Text
+dropLastWhile f t@(Text (V.PrimVector arr s l)) =
+    case findLastIndexOrStart (not . f) t of (_, i, _)  -> Text (V.PrimVector arr s (s+l-1-i))
+
+dropAround :: (Char -> Bool) -> Text -> Text
+dropAround f = dropLastWhile f . dropWhile f
+
+break :: (Char -> Bool) -> Text -> (Text, Text)
+break f t@(Text (V.PrimVector arr s l)) =
+    case findIndexOrEnd f t of
+        (_, i, _) -> (Text (V.PrimVector arr s (i-s)), Text (V.PrimVector arr i (s+l-i)))
+
+span :: (Char -> Bool) -> Text -> (Text, Text)
+span f t@(Text (V.PrimVector arr s l)) =
+    case findIndexOrEnd (not . f) t of
+        (_, i, _) -> (Text (V.PrimVector arr s (i-s)), Text (V.PrimVector arr i (s+l-i)))
+
+breakEnd :: (Char -> Bool) -> Text -> (Text, Text)
+breakEnd f t@(Text (V.PrimVector arr s l)) =
+    case findLastIndexOrStart f t of
+        (_, i, _) -> (Text (V.PrimVector arr s (i-s)), Text (V.PrimVector arr i (s+l-i)))
+
+spanEnd :: (Char -> Bool) -> Text -> (Text, Text)
+spanEnd f t@(Text (V.PrimVector arr s l)) =
+    case findLastIndexOrStart (not . f) t of
+        (_, i, _) -> (Text (V.PrimVector arr s (i-s)), Text (V.PrimVector arr i (s+l-i)))
+
+breakOn :: Text -> Text -> (Text, Text)
+{-# INLINE breakOn #-}
+breakOn (Text needle) = \ (Text haystack) ->
+    case V.breakOn needle haystack of (v1, v2) -> (Text v1, Text v2)
+
+group :: Text -> [Text]
+{-# INLINE group #-}
+group = groupBy (==)
+
+groupBy :: (Char -> Char -> Bool) -> Text -> [Text]
+{-# INLINE groupBy #-}
+groupBy f (Text (V.PrimVector arr s l))
+    | l == 0    = []
+    | otherwise = Text (V.PrimVector arr s (s'-s)) : groupBy f (Text (V.PrimVector arr s' (l+s-s')))
+  where
+    (# c0, s0 #) = decodeChar arr s
+    end = s + l
+    s' = go arr (s+s0)
+    go arr !i
+        | i >= end = i
+        | otherwise = let (# c1, s1 #) = decodeChar arr i
+                      in if f c0 c1 then go arr (i+s1) else i
+
+-- | /O(n)/ The 'stripPrefix' function takes two texts and returns 'Just'
+-- the remainder of the second iff the first is its prefix, and otherwise
+-- 'Nothing'.
+--
+stripPrefix :: Text -> Text -> Maybe Text
+stripPrefix = coerce (V.stripPrefix @V.PrimVector @Word8)
+
+
+stripSuffix :: Text -> Text -> Maybe Text
+stripSuffix = coerce (V.stripSuffix @V.PrimVector @Word8)
+
+split :: Char -> Text -> [Text]
+{-# INLINE split #-}
+split x = splitWith (==x)
+
+-- | /O(n)/ Splits a text into components delimited by
+-- separators, where the predicate returns True for a separator char.
+-- The resulting components do not contain the separators.  Two adjacent
+-- separators result in an empty component in the output.  eg.
+--
+-- > splitWith (=='a') "aabbaca" == ["","","bb","c",""]
+-- > splitWith (=='a') []        == [""]
+--
+splitWith :: (Char -> Bool) -> Text -> [Text]
+splitWith f (Text (V.PrimVector arr s l)) = go s s
+  where
+    !end = s + l
+    go !p !q | q >= end  = let !v = V.PrimVector arr p (q-p) in [Text v]
+             | f c       = let !v = V.PrimVector arr p (q-p) in Text v:go (q+n) (q+n)
+             | otherwise = go p (q+n)
+        where (# c, n #) = decodeChar arr q
+
+
+splitOn :: Text -> Text -> [Text]
+{-# INLINE splitOn #-}
+splitOn = coerce (V.splitOn @V.PrimVector @Word8)
+
+isPrefixOf :: Text -> Text -> Bool
+isPrefixOf = coerce (V.isPrefixOf @V.PrimVector @Word8)
+
+isSuffixOf :: Text -> Text -> Bool
+isSuffixOf = coerce (V.isSuffixOf @V.PrimVector @Word8)
+
+isInfixOf :: Text -> Text -> Bool
+isInfixOf = coerce (V.isInfixOf @V.PrimVector @Word8)
+
+-- | /O(n)/ Find the longest non-empty common prefix of two strings
+-- and return it, along with the suffixes of each string at which they
+-- no longer match. e.g.
+--
+-- >>> commonPrefix "foobar" "fooquux"
+-- ("foo","bar","quux")
+--
+-- >>> commonPrefix "veeble" "fetzer"
+-- ("","veeble","fetzer")
+commonPrefix :: Text -> Text -> (Text, Text, Text)
+commonPrefix = coerce (V.commonPrefix @V.PrimVector @Word8)
+
+-- | /O(n)/ Breaks a 'Bytes' up into a list of words, delimited by unicode space.
+words ::  Text -> [Text]
+words (Text (V.PrimVector arr s l)) = go s s
+  where
+    !end = s + l
+    go !s' !i | i >= end =
+                    if s' == end
+                    then []
+                    else let !v = V.PrimVector arr s' (end-s') in [Text v]
+              | otherwise =
+                    let (# c, n #) = decodeChar arr i
+                    in if isSpace c
+                        then if s' == i
+                            then go (i+n) (i+n)
+                            else let !v = V.PrimVector arr s' (i-s') in Text v : go (i+n) (i+n)
+                        else go s' (i+n)
+
+lines :: Text -> [Text]
+lines = coerce V.lines
+
+unwords :: [Text] -> Text
+unwords = coerce V.unwords
+
+unlines :: [Text] -> Text
+unlines = coerce V.unlines
+
+padLeft :: Int -> Char -> Text -> Text
+padLeft n c t@(Text (V.PrimVector arr s l))
+    | n <= tsiz = t
+    | otherwise =
+        let psiz = (n-tsiz)*csiz
+            siz = psiz + l
+        in Text (V.create siz (\ marr -> do
+            encodeChar marr 0 c
+            go marr csiz psiz
+            copyPrimArray marr (siz-l) arr s l))
+  where
+    tsiz = length t
+    csiz = encodeCharLength c
+    go marr s psiz
+        | s >= psiz = return ()
+        | otherwise = copyChar' csiz marr s marr (s-csiz) >> go marr (s+csiz) psiz
+
+
+padRight :: Int -> Char -> Text -> Text
+padRight n c t@(Text (V.PrimVector arr s l))
+    | n <= tsiz = t
+    | otherwise =
+        let psiz = (n-tsiz)*csiz
+            siz = psiz + l
+        in Text (V.create siz (\ marr -> do
+            copyPrimArray marr 0 arr s l
+            encodeChar marr l c
+            go marr (l+csiz) siz))
+  where
+    tsiz = length t
+    csiz = encodeCharLength c
+    go marr s siz
+        | s >= siz = return ()
+        | otherwise = copyChar' csiz marr s marr (s-csiz) >> go marr (s+csiz) siz
+
 
 --------------------------------------------------------------------------------
 -- Transform
@@ -138,7 +440,7 @@ intersperse c = \ t@(Text (V.PrimVector ba s l)) ->
             copyChar l mba j ba i
             let i' = i + l
                 j' = j + l
-            let clen = sizeofArr baC
+            let clen = sizeofPrimArray baC
             copyChar clen mba j' baC 0
             go baC ba i' (j'+clen) end mba
 
@@ -156,5 +458,20 @@ reverse = \ (Text (V.PrimVector ba s l)) -> Text $ V.create l (go ba s l (s+l))
             go ba (i+l) j' end mba
 {-# INLINE reverse #-}
 
-(/../) :: Text -> (Int, Int) -> Text
-(/../) = undefined
+-- | /O(n)/ The 'intercalate' function takes a 'Text' and a list of
+-- 'Text's and concatenates the list after interspersing the first
+-- argument between each element of the list.
+intercalate :: Text -> [Text] -> Text
+{-# INLINE intercalate #-}
+intercalate s = concat . List.intersperse s
+
+intercalateElem :: Char -> [Text] -> Text
+intercalateElem c = concat . List.intersperse (singleton c)
+
+-- | The 'transpose' function transposes the rows and columns of its
+-- text argument.
+--
+transpose :: [Text] -> [Text]
+{-# INLINE transpose #-}
+transpose ts = List.map pack . List.transpose . List.map unpack $ ts
+

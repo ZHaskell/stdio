@@ -85,14 +85,8 @@ instance NFData Text where
 
 --------------------------------------------------------------------------------
 
-data ValidateResult
-    = ValidateSuccess !Text
-    | ValidatePartialBytes !Text  !Bytes
-    | ValidateInvalidBytes !Bytes !Bytes
-  deriving (Show, Eq)
-
 -- | /O(n)/ Validate a sequence of bytes is UTF-8 encoded.
-validateUTF8 :: Bytes -> ValidateResult
+validateUTF8 ::  Bytes -> Text
 {-# INLINE validateUTF8 #-}
 validateUTF8 bs@(V.PrimVector ba s l) = go s
   where

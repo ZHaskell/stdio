@@ -198,6 +198,11 @@ decodeCharReverse :: PrimArray Word8 -> Int -> (# Char, Int #)
 decodeCharReverse (PrimArray ba#) (I# idx#) =
     let (# c#, i# #) = decodeCharReverse# ba# idx# in (# C# c#, I# i# #)
 
+decodeCharReverse_ :: PrimArray Word8 -> Int -> Char
+{-# INLINE decodeCharReverse_ #-}
+decodeCharReverse_ (PrimArray ba#) (I# idx#) =
+    let (# c#, i# #) = decodeCharReverse# ba# idx# in C# c#
+
 -- | The unboxed version of 'decodeCharReverse'
 --
 -- This function is marked as @NOINLINE@ to reduce code size.
@@ -322,4 +327,25 @@ copyChar !l !mba !j !ba !i = case l of
             writePrimArray mba (j+1) $ indexPrimArray ba (i+1)
             writePrimArray mba (j+2) $ indexPrimArray ba (i+2)
             writePrimArray mba (j+3) $ indexPrimArray ba (i+3)
+
+-- | Unrolled copy loop for copying a utf8-encoded codepoint from source array to target array.
+--
+copyChar' :: Int                       -- copy length, must be 1, 2, 3 or 4
+          -> MutablePrimArray s Word8  -- target array
+          -> Int                       -- writing offset
+          -> MutablePrimArray s Word8  -- source array
+          -> Int                       -- reading offset
+          -> ST s ()
+{-# INLINE copyChar' #-}
+copyChar' !l !mba !j !ba !i = case l of
+    1 -> do writePrimArray mba j =<< readPrimArray ba i
+    2 -> do writePrimArray mba j =<< readPrimArray ba i
+            writePrimArray mba (j+1) =<< readPrimArray ba (i+1)
+    3 -> do writePrimArray mba j =<< readPrimArray ba i
+            writePrimArray mba (j+1) =<< readPrimArray ba (i+1)
+            writePrimArray mba (j+2) =<< readPrimArray ba (i+2)
+    _ -> do writePrimArray mba j =<< readPrimArray ba i
+            writePrimArray mba (j+1) =<< readPrimArray ba (i+1)
+            writePrimArray mba (j+2) =<< readPrimArray ba (i+2)
+            writePrimArray mba (j+3) =<< readPrimArray ba (i+3)
 

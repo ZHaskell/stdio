@@ -195,7 +195,9 @@ dropLast n v@(Vec arr s l)
 -- @
 --
 -- This holds for all x y: @slice x y vs == drop x . take (x+y) vs@
-slice :: Vec v a => Int -> Int -> v a -> v a
+slice :: Vec v a => Int     -- ^ slice beginning index
+                 -> Int     -- ^ slice length
+                 -> v a -> v a
 {-# INLINE slice #-}
 slice x y = drop x . take (x+y)
 
@@ -220,7 +222,9 @@ slice x y = drop x . take (x+y)
 --                    y' = if y >= 0 then y else l+y
 --                in slice x' (y'-x'+1) vs
 -- @
-(|..|) :: Vec v a => v a -> (Int, Int) -> v a
+(|..|) :: Vec v a => v a
+                  -> (Int, Int)     -- ^ (start index, end index) which can be negative
+                  -> v a
 {-# INLINE (|..|) #-}
 infixl 9 |..|
 (Vec arr s l) |..| (s1, s2) | s1' >  s2' = empty
@@ -357,10 +361,10 @@ isPrefixOf (Vec arrA sA lA) (Vec arrB sB lB)
 -- and return it, along with the suffixes of each string at which they
 -- no longer match. e.g.
 --
--- >>> commonPrefixes "foobar" "fooquux"
+-- >>> commonPrefix "foobar" "fooquux"
 -- ("foo","bar","quux")
 --
--- >>> commonPrefixes "veeble" "fetzer"
+-- >>> commonPrefix "veeble" "fetzer"
 -- ("","veeble","fetzer")
 commonPrefix :: (Vec v a, Eq a) => v a -> v a -> (v a, v a, v a)
 commonPrefix vA@(Vec arrA sA lA) vB@(Vec arrB sB lB) = go sA sB

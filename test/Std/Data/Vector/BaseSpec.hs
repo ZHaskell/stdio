@@ -83,9 +83,12 @@ spec = describe "vector base" $ do
         prop "vector eq === List.eq" $ \ xs ys ->
             (V.unpack $ V.pack @V.PrimVector @Word8 xs `V.append` V.pack ys) === (xs ++ ys)
 
-    describe "vector map' == List.map" $ do
+    describe "vector map/map' == List.map" $ do
         prop "vector map === List.map" $ \ xs (Fun _ f) ->
             (V.map @V.Vector @V.Vector (f :: Integer -> Integer) $ V.pack @V.Vector @Integer xs) ===
+                (V.pack $ List.map f xs)
+        prop "vector map' === List.map" $ \ xs (Fun _ f) ->
+            (V.map' @V.Vector @V.Vector (f :: Integer -> Integer) $ V.pack @V.Vector @Integer xs) ===
                 (V.pack $ List.map f xs)
         prop "vector map === List.map" $ \ xs (Fun _ f)  ->
             (V.map @V.PrimVector @V.PrimVector (f :: Int -> Word8) $ V.pack @V.PrimVector @Int xs) ===
