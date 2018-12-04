@@ -25,6 +25,9 @@ module Std.Data.Text.Search (
   , findIndexOrEnd
   , findLastIndexOrStart
   , filter, partition
+  -- ** sub-vector search
+  , indicesOverlapping
+  , indices
   ) where
 
 
@@ -65,9 +68,11 @@ findIndexOrEnd f (Text (V.PrimVector arr s l)) = go 0 s
   where
     !end = s + l
     go !i !j | j >= end  = (i, j, Nothing)
-             | f x       = (i, j, Just x)
-             | otherwise = go (i+1) (j+off)
-        where (# x, off #) = decodeChar arr j
+             | otherwise =
+                let (# x, off #) = decodeChar arr j
+                in if f x
+                    then (i, j, Just x)
+                    else go (i+1) (j+off)
 
 -- | /O(n)/ find the first char matching the predicate in a text
 -- from right to left, if there isn't one, return the index point to the end of the byte slice.
@@ -77,9 +82,11 @@ findLastIndexOrStart :: (Char -> Bool) -> Text -> (Int, Int, Maybe Char)
 findLastIndexOrStart f (Text (V.PrimVector arr s l)) = go 0 (s+l-1)
   where
     go !i !j | j < s     = (i, j, Nothing)
-             | f x       = (i, j, Just x)
-             | otherwise = go (i+1) (j-off)
-        where (# x, off #) = decodeCharReverse arr j
+             | otherwise =
+                let (# x, off #) = decodeCharReverse arr j
+                in if f x
+                    then (i, j, Just x)
+                    else go (i+1) (j-off)
 
 filter :: (Char -> Bool) -> Text -> Text
 {-# INLINE filter #-}

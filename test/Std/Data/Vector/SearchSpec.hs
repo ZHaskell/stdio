@@ -14,7 +14,7 @@ import           Test.Hspec
 import           Test.Hspec.QuickCheck
 
 spec :: Spec
-spec = describe "vector search" $ do
+spec = describe "vector-search" $ do
     describe "snd . vector find == List.find" $ do
         prop "snd .vector find = List.find" $ \ (Fun _ y) x ->
             (snd . V.find y . V.pack @V.Vector @Integer $ x)  === (List.find y $ x)

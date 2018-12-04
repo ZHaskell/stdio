@@ -117,16 +117,19 @@ module Std.Data.Vector (
   , headMaybe, tailMayEmpty
   , lastMaybe, initMayEmpty
   , inits, tails
-  , take, drop
-  , slice , (|..|)
+  , take, drop, takeLast, dropLast
+  , slice
   , splitAt
-  , takeWhile , dropWhile
+  , takeWhile, takeLastWhile, dropWhile, dropLastWhile, dropBothEnds
   , break, span
-  , breakEnd, spanEnd
+  , breakEnd, spanEnd, breakOn
   , group, groupBy
   , stripPrefix, stripSuffix
-  , split, splitWith
+  , split, splitWith, splitOn
   , isPrefixOf, isSuffixOf, isInfixOf
+  , commonPrefix
+  , words, lines, unwords, unlines
+  , padLeft, padRight
   -- * Transform
   , reverse
   , intersperse

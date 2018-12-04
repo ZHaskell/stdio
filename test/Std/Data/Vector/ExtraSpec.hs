@@ -15,7 +15,7 @@ import           Test.Hspec
 import           Test.Hspec.QuickCheck
 
 spec :: Spec
-spec =  describe "vector extras" $ do
+spec =  describe "vector-extras" $ do
     describe "vector cons == List.(:)" $ do
         prop "vector cons == List.(:)" $ \ xs x ->
             (V.cons x . V.pack @V.Vector @Integer $ xs)  ===
@@ -136,18 +136,6 @@ spec =  describe "vector extras" $ do
         prop "vector slice x y xs === drop x . take (x+y) x" $ \ x y xs ->
             (V.slice x y  . V.pack @V.PrimVector @Word8 $ xs)  ===
                 (V.pack . drop x . take (x+y) $ xs)
-
-    describe "vector (|..|) rules, see the document for (|..|)" $ do
-        let f x y vs = let l = V.length vs
-                           x' = if x >= 0 then x else l+x
-                           y' = if y >= 0 then y else l+y
-                       in V.slice x' (y'-x'+1) vs
-        prop "vector (|..|) rules" $ \ x y xs ->
-            (V.pack @V.Vector @Integer xs V.|..| (x,y))  === (f x y . V.pack $ xs)
-        prop "vector (|..|) rules" $ \ x y xs ->
-            (V.pack @V.PrimVector @Int xs V.|..| (x,y))  === (f x y . V.pack $ xs)
-        prop "vector (|..|) rules" $ \ x y xs ->
-            (V.pack @V.PrimVector @Word8 xs V.|..| (x,y))  === (f x y . V.pack $ xs)
 
     describe "vector splitAt == List.splitAt" $ do
         prop "vector splitAt == List.splitAt" $ \ xs x ->

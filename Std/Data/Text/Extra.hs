@@ -26,7 +26,7 @@ module Std.Data.Text.Extra (
   , lastMaybe, initMayEmpty
   , inits, tails
   , take, drop, takeLast, dropLast
-  , slice, (|...|)
+  , slice
   , splitAt
   , takeWhile, takeLastWhile, dropWhile, dropLastWhile, dropAround
   , break, span
@@ -142,15 +142,15 @@ drop n t@(Text (V.PrimVector ba s l))
 
 takeLast :: Int -> Text -> Text
 {-# INLINABLE takeLast #-}
-takeLast 0 _ = empty
-takeLast n t@(Text (V.PrimVector ba s l)) =
-    case byteAtLast t n of i -> Text (V.PrimVector ba (i+1) (s+l-1-i))
+takeLast n t@(Text (V.PrimVector ba s l))
+    | n <= 0 = empty
+    | otherwise = case byteAtLast t n of i -> Text (V.PrimVector ba (i+1) (s+l-1-i))
 
 dropLast :: Int -> Text -> Text
 {-# INLINABLE dropLast #-}
-dropLast 0 t = t
-dropLast n t@(Text (V.PrimVector ba s l)) =
-    case byteAtLast t n of i -> Text (V.PrimVector ba s (s+l-1-i))
+dropLast n t@(Text (V.PrimVector ba s l))
+    | n <= 0 = t
+    | otherwise = case byteAtLast t n of i -> Text (V.PrimVector ba s (i-s+1))
 
 -- | /O(1)/ Extract a sub-range text with give start index and length.
 --
@@ -174,37 +174,6 @@ slice x y t | y <= 0 = empty
   where
     !end = x + y
 
--- | /O(1)/ Extract a sub-range text with give start and end index
--- (sliced text will include the end index element), both
--- start and end index can be negative, which stand for counting from the end
--- (similar to the slicing operator([..]) in many other language).
---
--- This function is a total function just like 'take/drop', e.g.
---
--- @
--- "hello" |...| (1, 2) == "el"
--- "hello" |...| (1, -2) == "ell"
--- "hello" |...| (-3, -2) == "ll"
--- "hello" |...| (-3, -4) == ""
--- @
--- This holds for all x y:
---
--- @
--- vs |...| x y == let l = length vs
---                     x' = if x >= 0 then x else l+x
---                     y' = if y >= 0 then y else l+y
---                 in slice x' (y'-x'+1) vs
--- @
-(|...|) :: Text -> (Int, Int) -> Text
-{-# INLINE (|...|) #-}
-infixl 9 |...|
-t@(Text (V.PrimVector arr s l)) |...| (s1, s2)
-    | s1' >  s2' = empty
-    | otherwise  = Text (V.PrimVector arr (s1'+1) (s2' - s1'+1))
-  where
-    !s1' = if s1>=0 then byteAt t s1 else byteAtLast t (-s1-1)
-    !s2' = if s2>=0 then byteAt t s2 else byteAtLast t (-s2-1)
-
 splitAt :: Int -> Text -> (Text, Text)
 {-# INLINE splitAt #-}
 splitAt n t@(Text (V.PrimVector ba s l))
@@ -226,16 +195,16 @@ takeWhile f t@(Text (V.PrimVector arr s l)) =
 -- satisfy @p@.
 takeLastWhile :: (Char -> Bool) -> Text -> Text
 takeLastWhile f t@(Text (V.PrimVector arr s l)) =
-    case findLastIndexOrStart (not . f) t of (_, i, _)  -> Text (V.PrimVector arr i (s+l-1-i))
+    case findLastIndexOrStart (not . f) t of (_, i, _)  -> Text (V.PrimVector arr (i+1) (s+l-i-1))
 
 dropWhile :: (Char -> Bool) -> Text -> Text
 {-# INLINE dropWhile #-}
 dropWhile f t@(Text (V.PrimVector arr s l)) =
-    case findIndexOrEnd (not . f) t of (_, i, _)  -> Text (V.PrimVector arr i (s+l-1-i))
+    case findIndexOrEnd (not . f) t of (_, i, _)  -> Text (V.PrimVector arr i (s+l-i))
 
 dropLastWhile :: (Char -> Bool) -> Text -> Text
 dropLastWhile f t@(Text (V.PrimVector arr s l)) =
-    case findLastIndexOrStart (not . f) t of (_, i, _)  -> Text (V.PrimVector arr s (s+l-1-i))
+    case findLastIndexOrStart (not . f) t of (_, i, _)  -> Text (V.PrimVector arr s (i-s+1))
 
 dropAround :: (Char -> Bool) -> Text -> Text
 dropAround f = dropLastWhile f . dropWhile f
@@ -253,12 +222,12 @@ span f t@(Text (V.PrimVector arr s l)) =
 breakEnd :: (Char -> Bool) -> Text -> (Text, Text)
 breakEnd f t@(Text (V.PrimVector arr s l)) =
     case findLastIndexOrStart f t of
-        (_, i, _) -> (Text (V.PrimVector arr s (i-s)), Text (V.PrimVector arr i (s+l-i)))
+        (_, i, _) -> (Text (V.PrimVector arr s (i-s+1)), Text (V.PrimVector arr (i+1) (s+l-i-1)))
 
 spanEnd :: (Char -> Bool) -> Text -> (Text, Text)
 spanEnd f t@(Text (V.PrimVector arr s l)) =
     case findLastIndexOrStart (not . f) t of
-        (_, i, _) -> (Text (V.PrimVector arr s (i-s)), Text (V.PrimVector arr i (s+l-i)))
+        (_, i, _) -> (Text (V.PrimVector arr s (i-s+1)), Text (V.PrimVector arr (i+1) (s+l-i-1)))
 
 breakOn :: Text -> Text -> (Text, Text)
 {-# INLINE breakOn #-}

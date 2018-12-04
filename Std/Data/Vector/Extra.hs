@@ -25,7 +25,7 @@ module Std.Data.Vector.Extra (
   , lastMaybe, initMayEmpty
   , inits, tails
   , take, drop, takeLast, dropLast
-  , slice , (|..|)
+  , slice
   , splitAt
   , takeWhile, takeLastWhile, dropWhile, dropLastWhile, dropBothEnds
   , break, span
@@ -200,38 +200,6 @@ slice :: Vec v a => Int     -- ^ slice beginning index
                  -> v a -> v a
 {-# INLINE slice #-}
 slice x y = drop x . take (x+y)
-
--- | /O(1)/ Extract a sub-range vector with give start and end index
--- (sliced vector will include the end index element), both
--- start and end index can be negative, which stand for counting from the end
--- (similar to the slicing operator([..]) in many other language).
---
--- This function is a total function just like 'take/drop', e.g.
---
--- @
--- "hello" |..| (1, 2) == "el"
--- "hello" |..| (1, -2) == "ell"
--- "hello" |..| (-3, -2) == "ll"
--- "hello" |..| (-3, -4) == ""
--- @
--- This holds for all x y:
---
--- @
--- vs |..| x y == let l = length vs
---                    x' = if x >= 0 then x else l+x
---                    y' = if y >= 0 then y else l+y
---                in slice x' (y'-x'+1) vs
--- @
-(|..|) :: Vec v a => v a
-                  -> (Int, Int)     -- ^ (start index, end index) which can be negative
-                  -> v a
-{-# INLINE (|..|) #-}
-infixl 9 |..|
-(Vec arr s l) |..| (s1, s2) | s1' >  s2' = empty
-                            | otherwise  = fromArr arr s1' (s2' - s1')
-  where
-    !s1' = rangeCut (if s1>=0 then s+s1 else s+l+s1) s (s+l)
-    !s2' = rangeCut (if s2>=0 then s+s2+1 else s+l+s2+1) s (s+l)
 
 -- | /O(1)/ 'splitAt' @n xs@ is equivalent to @('take' n xs, 'drop' n xs)@.
 splitAt :: Vec v a => Int -> v a -> (v a, v a)

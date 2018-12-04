@@ -116,7 +116,7 @@ charAt (Text (V.PrimVector ba s l)) n
         | otherwise =
             let l = decodeCharLen ba i in go (i+l) (j+1)
 
--- | /O(n)/ Find the nth codepoint's byte index (pointing to the next char's begining byte).
+-- | /O(n)/ Find the nth codepoint's byte index (pointing to the nth char's begining byte).
 --
 -- The index is only meaningful to the whole byte slice, if there's less than n codepoints,
 -- the index will point to next byte after the end.

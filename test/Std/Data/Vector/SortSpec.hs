@@ -27,7 +27,7 @@ instance V.Radix StableTest where
     radixMSB = radixMSB . key
 
 spec :: Spec
-spec = describe "vector sort" $ do
+spec = describe "vector-sort" $ do
     describe "vector insertSort == List.sort" . modifyMaxSuccess (*10) . modifyMaxSize (*10) $ do
         prop "vector insertSort == List.sort" $ \ xs ->
             (V.insertSort . V.pack @V.Vector @Integer $ xs)  ===
