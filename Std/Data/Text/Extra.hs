@@ -31,6 +31,7 @@ module Std.Data.Text.Extra (
   , takeWhile, takeLastWhile, dropWhile, dropLastWhile, dropAround
   , break, span
   , breakEnd, spanEnd, breakOn
+  , breakOnAll, breakOnAllOverlapping
   , group, groupBy
   , stripPrefix, stripSuffix
   , split, splitWith, splitOn
@@ -49,6 +50,7 @@ module Std.Data.Text.Extra (
 import Data.Primitive.PrimArray
 import qualified Std.Data.Vector.Base as V
 import qualified Std.Data.Vector.Extra as V
+import qualified Std.Data.Vector.Search as V
 import Data.Coerce
 import qualified Data.List as List
 import Std.Data.Text.Base
@@ -188,51 +190,63 @@ splitAt n t@(Text (V.PrimVector ba s l))
 takeWhile :: (Char -> Bool) -> Text -> Text
 {-# INLINE takeWhile #-}
 takeWhile f t@(Text (V.PrimVector arr s l)) =
-    case findIndexOrEnd (not . f) t of (_, i, _)  -> Text (V.PrimVector arr s (i-s))
+    let !i = findIndexOrEnd (not . f) t in Text (V.PrimVector arr s (i-s))
 
 -- | /O(n)/ Applied to a predicate @p@ and a text @t@,
 -- returns the longest suffix (possibly empty) of @t@ of elements that
 -- satisfy @p@.
 takeLastWhile :: (Char -> Bool) -> Text -> Text
 takeLastWhile f t@(Text (V.PrimVector arr s l)) =
-    case findLastIndexOrStart (not . f) t of (_, i, _)  -> Text (V.PrimVector arr (i+1) (s+l-i-1))
+    let !i = findLastIndexOrStart (not . f) t in Text (V.PrimVector arr (i+1) (s+l-i-1))
 
 dropWhile :: (Char -> Bool) -> Text -> Text
 {-# INLINE dropWhile #-}
 dropWhile f t@(Text (V.PrimVector arr s l)) =
-    case findIndexOrEnd (not . f) t of (_, i, _)  -> Text (V.PrimVector arr i (s+l-i))
+    let !i = findIndexOrEnd (not . f) t in Text (V.PrimVector arr i (s+l-i))
 
 dropLastWhile :: (Char -> Bool) -> Text -> Text
 dropLastWhile f t@(Text (V.PrimVector arr s l)) =
-    case findLastIndexOrStart (not . f) t of (_, i, _)  -> Text (V.PrimVector arr s (i-s+1))
+    let !i = findLastIndexOrStart (not . f) t in Text (V.PrimVector arr s (i-s+1))
 
 dropAround :: (Char -> Bool) -> Text -> Text
 dropAround f = dropLastWhile f . dropWhile f
 
 break :: (Char -> Bool) -> Text -> (Text, Text)
 break f t@(Text (V.PrimVector arr s l)) =
-    case findIndexOrEnd f t of
-        (_, i, _) -> (Text (V.PrimVector arr s (i-s)), Text (V.PrimVector arr i (s+l-i)))
+    let !i = findIndexOrEnd f t
+    in (Text (V.PrimVector arr s (i-s)), Text (V.PrimVector arr i (s+l-i)))
 
 span :: (Char -> Bool) -> Text -> (Text, Text)
 span f t@(Text (V.PrimVector arr s l)) =
-    case findIndexOrEnd (not . f) t of
-        (_, i, _) -> (Text (V.PrimVector arr s (i-s)), Text (V.PrimVector arr i (s+l-i)))
+    let !i = findIndexOrEnd (not . f) t
+    in (Text (V.PrimVector arr s (i-s)), Text (V.PrimVector arr i (s+l-i)))
 
 breakEnd :: (Char -> Bool) -> Text -> (Text, Text)
 breakEnd f t@(Text (V.PrimVector arr s l)) =
-    case findLastIndexOrStart f t of
-        (_, i, _) -> (Text (V.PrimVector arr s (i-s+1)), Text (V.PrimVector arr (i+1) (s+l-i-1)))
+    let !i = findLastIndexOrStart f t
+    in (Text (V.PrimVector arr s (i-s+1)), Text (V.PrimVector arr (i+1) (s+l-i-1)))
 
 spanEnd :: (Char -> Bool) -> Text -> (Text, Text)
 spanEnd f t@(Text (V.PrimVector arr s l)) =
-    case findLastIndexOrStart (not . f) t of
-        (_, i, _) -> (Text (V.PrimVector arr s (i-s+1)), Text (V.PrimVector arr (i+1) (s+l-i-1)))
+    let !i = findLastIndexOrStart (not . f) t
+    in (Text (V.PrimVector arr s (i-s+1)), Text (V.PrimVector arr (i+1) (s+l-i-1)))
 
 breakOn :: Text -> Text -> (Text, Text)
 {-# INLINE breakOn #-}
-breakOn (Text needle) = \ (Text haystack) ->
+breakOn (Text needle) (Text haystack) =
     case V.breakOn needle haystack of (v1, v2) -> (Text v1, Text v2)
+
+breakOnAll :: Text -> Text -> [(Text, Text)]
+breakOnAll (Text needle) (Text haystack@(V.PrimVector arr s l)) =
+    List.map breaker (V.indices needle haystack False)
+  where
+    breaker i = (Text (V.PrimVector arr s (i-s)), Text (V.PrimVector arr i (s+l-i)))
+
+breakOnAllOverlapping :: Text -> Text -> [(Text, Text)]
+breakOnAllOverlapping (Text needle) (Text haystack@(V.PrimVector arr s l)) =
+    List.map breaker (V.indicesOverlapping needle haystack False)
+  where
+    breaker i = (Text (V.PrimVector arr s (i-s)), Text (V.PrimVector arr i (s+l-i)))
 
 group :: Text -> [Text]
 {-# INLINE group #-}

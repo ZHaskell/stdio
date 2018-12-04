@@ -125,8 +125,8 @@ findByte w (PrimVector (PrimArray ba#) s l) =
 
 
 -- | /O(n)/ find the first index and element matching the predicate
--- in a vector from right to left (last if viewed as left to right),
--- if there isn't one, return '(-1, Nothing)'.
+-- in a vector from right to left, if there isn't one, return '(-1, Nothing)'.
+--
 findLast :: Vec v a => (a -> Bool) -> v a -> (Int, Maybe a)
 {-# INLINE [1] findLast #-}
 {-# RULES "findLast/Bytes" forall w. findLast (w `eqWord8`) = findByteLast w #-}
