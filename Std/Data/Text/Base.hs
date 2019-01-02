@@ -41,12 +41,15 @@ module Std.Data.Text.Base (
   , map', imap'
   , foldl', ifoldl'
   , foldr', ifoldr'
-    -- ** Case conversion
-  , toCaseFold, toCaseFold', toLower, toUpper, toTitle
-    -- ** Special folds
   , concat, concatMap
-  , count
-  , all, any
+    -- ** normalization
+  , NormalizationResult(..), NormalizeMode(..)
+  , isNormalized, normalize, normalize'
+    -- ** Case conversion
+    -- $case
+  , toCaseFold, toCaseFold', toLower, toLower', toUpper, toUpper', toTitle, toTitle'
+    -- ** Special folds
+  , count, all, any
   -- * Building text
   , replicate
   , cycleN
@@ -56,7 +59,7 @@ import           Control.DeepSeq
 import           Control.Monad.ST
 import           Control.Monad
 import           Data.Bits
-import           Data.Char
+import           Data.Char          hiding (toLower, toUpper, toTitle)
 import           Data.Foldable            (foldlM)
 import qualified Data.List                as List
 import           Data.Primitive.PrimArray
@@ -424,29 +427,6 @@ ifoldr' f z (Text (V.PrimVector arr s l)) = go z (s+l-1) 0
                                     (# x, d #) -> go (f k x acc) (i - d) (k + 1)
                   | otherwise = acc
 
---------------------------------------------------------------------------------
---
--- Case conversion
---
-
-toCaseFold :: Text -> Text
-toCaseFold = toCaseFold' defaultLocale
-
-toCaseFold' :: Locale -> Text -> Text
-toCaseFold' locale (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
-    | l == 0 = empty
-    | otherwise = unsafeDupablePerformIO $ do
-        let l'@(I# l'#) = utf8_casefold_length arr# s# l# locale
-        pa@(MutablePrimArray marr#) <- newArr l'
-        utf8_casefold arr# s# l# marr# l'# locale
-        arr' <- unsafeFreezeArr pa
-        let !v = V.fromArr arr' 0 l'
-        return (Text v)
-
-foreign import ccall unsafe utf8_casefold ::
-    ByteArray# -> Int# -> Int# -> MutableByteArray# RealWorld -> Int# -> Locale -> IO ()
-foreign import ccall unsafe utf8_casefold_length ::
-    ByteArray# -> Int# -> Int# -> Locale -> Int
 
 concat :: [Text] -> Text
 concat = Text . V.concat . coerce
@@ -541,3 +521,180 @@ toVector (Text (V.PrimVector arr s l)) = V.createN (l*4) (go s 0)
             writePrimArray marr j c
             go (i+n) (j+1) marr
 
+-- ----------------------------------------------------------------------------
+-- ** Normalization
+--
+-- $normalization
+
+-- Check if a string is stable in the NFC (Normalization Form C).
+isNormalized :: Text -> NormalizationResult
+{-# INLINE isNormalized #-}
+isNormalized = isNormalized' NFC
+
+{-
+Check if a string is stable in the specified Unicode Normalization
+Form.
+
+This function can be used as a preprocessing step, before attempting to
+normalize a string. Normalization is a very expensive process, it is often
+cheaper to first determine if the string is unstable in the requested
+normalization form.
+
+The result of the check will be YES if the string is stable and MAYBE or NO
+if it is unstable. If the result is MAYBE, the string does not necessarily
+have to be normalized.
+
+If the result is unstable, the offset parameter is set to the offset for the
+first unstable code point. If the string is stable, the offset is equivalent
+to the length of the string in bytes.
+
+For more information, please review [Unicode Standard Annex #15 - Unicode
+Normalization Forms](http://www.unicode.org/reports/tr15/).
+-}
+isNormalized' :: NormalizeMode -> Text -> NormalizationResult
+isNormalized' nmode (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
+    | l == 0 = NormalizedYes
+    | otherwise =
+        let nflag = normalizeModeToFlag nmode
+        in toNormalizationResult (utf8_isnormalized arr# s# l# nflag)
+
+-- Normalize a string to NFC (Normalization Form C).
+normalize :: Text -> Text
+{-# INLINE normalize #-}
+normalize = normalize' NFC
+
+{-
+Normalize a string to the specified Unicode Normalization Form.
+
+The Unicode standard defines two standards for equivalence between
+characters: canonical and compatibility equivalence. Canonically equivalent
+characters and sequence represent the same abstract character and must be
+rendered with the same appearance and behavior. Compatibility equivalent
+characters have a weaker equivalence and may be rendered differently.
+
+Unicode Normalization Forms are formally defined standards that can be used
+to test whether any two strings of characters are equivalent to each other.
+This equivalence may be canonical or compatibility.
+
+The algorithm puts all combining marks into a specified order and uses the
+rules for decomposition and composition to transform the string into one of
+four Unicode Normalization Forms. A binary comparison can then be used to
+determine equivalence.
+-}
+normalize' :: NormalizeMode -> Text -> Text
+normalize' nmode (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
+    | l == 0 = empty
+    | otherwise = unsafeDupablePerformIO $ do
+        let nflag = normalizeModeToFlag nmode
+            l'@(I# l'#) = utf8_normalize_length arr# s# l# nflag
+        when (l' < 0) (error "impossible happened!")
+        pa@(MutablePrimArray marr#) <- newArr l'
+        utf8_normalize arr# s# l# marr# l'# nflag
+        arr' <- unsafeFreezeArr pa
+        let !v = V.fromArr arr' 0 l'
+        return (Text v)
+
+-- functions below will return error if the source ByteArray# is empty
+--
+foreign import ccall unsafe utf8_isnormalized ::
+    ByteArray# -> Int# -> Int# -> CSize -> Int
+foreign import ccall unsafe utf8_normalize ::
+    ByteArray# -> Int# -> Int# -> MutableByteArray# RealWorld -> Int# -> CSize -> IO ()
+foreign import ccall unsafe utf8_normalize_length ::
+    ByteArray# -> Int# -> Int# -> CSize -> Int
+
+-- ----------------------------------------------------------------------------
+-- ** Case conversions
+
+-- $case
+--
+-- When case converting 'Text' values, do not use combinators like
+-- @map toUpper@ to case convert each character of a string
+-- individually, as this gives incorrect results according to the
+-- rules of some writing systems.  The whole-string case conversion
+-- functions from this module, such as @toUpper@, obey the correct
+-- case conversion rules.  As a result, these functions may map one
+-- input character to two or three output characters. For examples,
+-- see the documentation of each function.
+
+toCaseFold :: Text -> Text
+toCaseFold = toCaseFold' localeDefault
+
+toCaseFold' :: CaseLocal -> Text -> Text
+toCaseFold' locale (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
+    | l == 0 = empty
+    | otherwise = unsafeDupablePerformIO $ do
+        let l'@(I# l'#) = utf8_casefold_length arr# s# l# locale
+        when (l' < 0) (error "impossible happened!")
+        pa@(MutablePrimArray marr#) <- newArr l'
+        utf8_casefold arr# s# l# marr# l'# locale
+        arr' <- unsafeFreezeArr pa
+        let !v = V.fromArr arr' 0 l'
+        return (Text v)
+
+toLower :: Text -> Text
+toLower = toLower' localeDefault
+
+toLower' :: CaseLocal -> Text -> Text
+toLower' locale (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
+    | l == 0 = empty
+    | otherwise = unsafeDupablePerformIO $ do
+        let l'@(I# l'#) = utf8_tolower_length arr# s# l# locale
+        when (l' < 0) (error "impossible happened!")
+        pa@(MutablePrimArray marr#) <- newArr l'
+        utf8_tolower arr# s# l# marr# l'# locale
+        arr' <- unsafeFreezeArr pa
+        let !v = V.fromArr arr' 0 l'
+        return (Text v)
+
+toUpper :: Text -> Text
+toUpper = toUpper' localeDefault
+
+toUpper' :: CaseLocal -> Text -> Text
+toUpper' locale (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
+    | l == 0 = empty
+    | otherwise = unsafeDupablePerformIO $ do
+        let l'@(I# l'#) = utf8_toupper_length arr# s# l# locale
+        when (l' < 0) (error "impossible happened!")
+        pa@(MutablePrimArray marr#) <- newArr l'
+        utf8_toupper arr# s# l# marr# l'# locale
+        arr' <- unsafeFreezeArr pa
+        let !v = V.fromArr arr' 0 l'
+        return (Text v)
+
+toTitle :: Text -> Text
+toTitle = toTitle' localeDefault
+
+toTitle' :: CaseLocal -> Text -> Text
+toTitle' locale (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
+    | l == 0 = empty
+    | otherwise = unsafeDupablePerformIO $ do
+        let l'@(I# l'#) = utf8_totitle_length arr# s# l# locale
+        when (l' < 0) (error "impossible happened!")
+        pa@(MutablePrimArray marr#) <- newArr l'
+        utf8_totitle arr# s# l# marr# l'# locale
+        arr' <- unsafeFreezeArr pa
+        let !v = V.fromArr arr' 0 l'
+        return (Text v)
+
+-- functions below will return error if the source ByteArray# is empty
+--
+foreign import ccall unsafe utf8_casefold ::
+    ByteArray# -> Int# -> Int# -> MutableByteArray# RealWorld -> Int# -> CaseLocal -> IO ()
+foreign import ccall unsafe utf8_casefold_length ::
+    ByteArray# -> Int# -> Int# -> CaseLocal -> Int
+
+foreign import ccall unsafe utf8_tolower ::
+    ByteArray# -> Int# -> Int# -> MutableByteArray# RealWorld -> Int# -> CaseLocal -> IO ()
+foreign import ccall unsafe utf8_tolower_length ::
+    ByteArray# -> Int# -> Int# -> CaseLocal -> Int
+
+foreign import ccall unsafe utf8_toupper ::
+    ByteArray# -> Int# -> Int# -> MutableByteArray# RealWorld -> Int# -> CaseLocal -> IO ()
+foreign import ccall unsafe utf8_toupper_length ::
+    ByteArray# -> Int# -> Int# -> CaseLocal -> Int
+
+foreign import ccall unsafe utf8_totitle ::
+    ByteArray# -> Int# -> Int# -> MutableByteArray# RealWorld -> Int# -> CaseLocal -> IO ()
+foreign import ccall unsafe utf8_totitle_length ::
+    ByteArray# -> Int# -> Int# -> CaseLocal -> Int

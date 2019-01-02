@@ -30,6 +30,22 @@
 
 #include <Rts.h>
 
-HsInt hs_utf8_length(const char* p, HsInt off, HsInt len);
-HsChar utf8_char_at(const char* p, HsInt off, HsInt len, HsInt index);
+
 HsInt utf8_validate(const char* p, HsInt off, HsInt len);
+
+HsInt utf8_isnormalized(const char* p, HsInt off, HsInt len, size_t flag);
+HsInt utf8_normalize(const char* p, HsInt off, HsInt len, const char* q, HsInt len2, size_t flag);
+HsInt utf8_normalize_length(const char* p, HsInt off, HsInt len, size_t flag);
+
+
+HsInt utf8_casefold(const char* p, HsInt off, HsInt len, const char* q, HsInt len2, size_t locale);
+HsInt utf8_casefold_length(const char* p, HsInt off, HsInt len, size_t locale);
+
+HsInt utf8_tolower(const char* p, HsInt off, HsInt len, const char* q, HsInt len2, size_t locale);
+HsInt utf8_tolower_length(const char* p, HsInt off, HsInt len, size_t locale);
+
+HsInt utf8_toupper(const char* p, HsInt off, HsInt len, const char* q, HsInt len2, size_t locale);
+HsInt utf8_toupper_length(const char* p, HsInt off, HsInt len, size_t locale);
+
+HsInt utf8_totitle(const char* p, HsInt off, HsInt len, const char* q, HsInt len2, size_t locale);
+HsInt utf8_totitle_length(const char* p, HsInt off, HsInt len, size_t locale);

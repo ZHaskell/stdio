@@ -158,7 +158,7 @@ library
                         utf8rewind.h
                         simdutf8check.h
     install-includes:   bytes.h
-                        text.c
+                        text.h
                         hs_uv.h
                         utf8rewind.h
                         simdutf8check.h

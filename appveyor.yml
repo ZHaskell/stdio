@@ -24,12 +24,11 @@ install:
 build_script:
     - git submodule update --init
     - cabal install Cabal
-    # re-enable test after ghc 8.6.1 official released
     # - cabal install --only-dependencies --enable-tests
     # - cabal configure --enable-tests -v3
     - cabal install --only-dependencies
     - cabal configure -v3
     - cabal build   # this builds all libraries and executables (including tests/benchmarks)
-    # - cabal test
+    - cabal test
     # - cabal check
     - cabal sdist   # tests that a source-distribution can be generated

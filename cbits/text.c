@@ -95,8 +95,128 @@ HsInt utf8_validate_slow(const char* src, HsInt len){
     return 1;
 }
 
+
+HsInt utf8_isnormalized(const char* p, HsInt off, HsInt len, size_t flag){
+    size_t offset;
+    return (HsInt)utf8isnormalized(p+off, len, flag, &offset);
+}
+
+HsInt utf8_normalize(const char* p, HsInt off, HsInt len, const char* q, HsInt len2, size_t flag){
+    size_t converted_size;
+    int32_t errors;
+    if ((converted_size = utf8normalize(p+off, len, q, len2, flag, &errors)) == 0 ||
+        errors != UTF8_ERR_NONE)
+    {
+        return -1;
+    } else {
+        return converted_size;
+    }
+}
+
+HsInt utf8_normalize_length(const char* p, HsInt off, HsInt len, size_t flag){
+    size_t converted_size;
+    int32_t errors;
+    if ((converted_size = utf8normalize(p+off, len, NULL, 0, flag, &errors)) == 0 ||
+        errors != UTF8_ERR_NONE)
+    {
+        return -1;
+    } else {
+        return converted_size;
+    }
+}
+
 HsInt utf8_casefold(const char* p, HsInt off, HsInt len, const char* q, HsInt len2, size_t locale){
+    size_t converted_size;
+    int32_t errors;
+    if ((converted_size = utf8casefold(p+off, len, q, len2, locale, &errors)) == 0 ||
+        errors != UTF8_ERR_NONE)
+    {
+        return -1;
+    } else {
+        return converted_size;
+    }
 }
 
 HsInt utf8_casefold_length(const char* p, HsInt off, HsInt len, size_t locale){
+    size_t converted_size;
+    int32_t errors;
+    if ((converted_size = utf8casefold(p+off, len, NULL, 0, locale, &errors)) == 0 ||
+        errors != UTF8_ERR_NONE)
+    {
+        return -1;
+    } else {
+        return converted_size;
+    }
+}
+
+HsInt utf8_tolower(const char* p, HsInt off, HsInt len, const char* q, HsInt len2, size_t locale){
+    size_t converted_size;
+    int32_t errors;
+    if ((converted_size = utf8tolower(p+off, len, q, len2, locale, &errors)) == 0 ||
+        errors != UTF8_ERR_NONE)
+    {
+        return -1;
+    } else {
+        return converted_size;
+    }
+}
+
+HsInt utf8_tolower_length(const char* p, HsInt off, HsInt len, size_t locale){
+    size_t converted_size;
+    int32_t errors;
+    if ((converted_size = utf8tolower(p+off, len, NULL, 0, locale, &errors)) == 0 ||
+        errors != UTF8_ERR_NONE)
+    {
+        return -1;
+    } else {
+        return converted_size;
+    }
+}
+
+HsInt utf8_toupper(const char* p, HsInt off, HsInt len, const char* q, HsInt len2, size_t locale){
+    size_t converted_size;
+    int32_t errors;
+    if ((converted_size = utf8toupper(p+off, len, q, len2, locale, &errors)) == 0 ||
+        errors != UTF8_ERR_NONE)
+    {
+        return -1;
+    } else {
+        return converted_size;
+    }
+}
+
+HsInt utf8_toupper_length(const char* p, HsInt off, HsInt len, size_t locale){
+    size_t converted_size;
+    int32_t errors;
+    if ((converted_size = utf8toupper(p+off, len, NULL, 0, locale, &errors)) == 0 ||
+        errors != UTF8_ERR_NONE)
+    {
+        return -1;
+    } else {
+        return converted_size;
+    }
+}
+
+HsInt utf8_totitle(const char* p, HsInt off, HsInt len, const char* q, HsInt len2, size_t locale){
+    size_t converted_size;
+    int32_t errors;
+    if ((converted_size = utf8totitle(p+off, len, q, len2, locale, &errors)) == 0 ||
+        errors != UTF8_ERR_NONE)
+    {
+        return -1;
+    } else {
+        return converted_size;
+    }
+}
+
+HsInt utf8_totitle_length(const char* p, HsInt off, HsInt len, size_t locale){
+    size_t converted_size;
+    int32_t errors;
+    if ((converted_size = utf8totitle(p+off, len, NULL, 0, locale, &errors)) == 0 ||
+        errors != UTF8_ERR_NONE)
+    {
+        return -1;
+    } else {
+        return converted_size;
+    }
 }
