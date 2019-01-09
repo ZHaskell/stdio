@@ -27,7 +27,7 @@ module Std.Data.Vector.Extra (
   , take, drop, takeLast, dropLast
   , slice
   , splitAt
-  , takeWhile, takeLastWhile, dropWhile, dropLastWhile, dropBothEnds
+  , takeWhile, takeLastWhile, dropWhile, dropLastWhile, dropAround
   , break, span
   , breakEnd, spanEnd, breakOn
   , group, groupBy
@@ -247,10 +247,10 @@ dropLastWhile f v@(Vec arr s l) =
         -1 -> empty
         i  -> Vec arr s (i+1)
 
--- | /O(n)/ @dropBothEnds f = dropWhile f . dropLastWhile f@
-dropBothEnds :: Vec v a => (a -> Bool) -> v a -> v a
-{-# INLINE dropBothEnds #-}
-dropBothEnds f = dropWhile f . dropLastWhile f
+-- | /O(n)/ @dropAround f = dropWhile f . dropLastWhile f@
+dropAround :: Vec v a => (a -> Bool) -> v a -> v a
+{-# INLINE dropAround #-}
+dropAround f = dropWhile f . dropLastWhile f
 
 break :: Vec v a => (a -> Bool) -> v a -> (v a, v a)
 {-# INLINE break #-}

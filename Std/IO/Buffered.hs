@@ -33,7 +33,7 @@ import           Foreign.C.Types          (CSize (..))
 import           Foreign.Ptr
 import           GHC.Prim
 import           Std.Data.Array
-import qualified Std.Data.Builder         as B
+import qualified Std.Data.Builder.Base    as B
 import qualified Std.Data.Text.Base       as T
 import qualified Std.Data.Vector.Base     as V
 import qualified Std.Data.Vector          as V

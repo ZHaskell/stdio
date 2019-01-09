@@ -1,4 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
 {-|
 Module      : Std.Data.Text.UTF8Rewind
 Description : Errno provided by libuv
@@ -14,31 +16,35 @@ INTERNAL MODULE, provides utf8rewind constants
 
 module Std.Data.Text.UTF8Rewind where
 
+import Data.Bits
 import Foreign.C.Types
 import GHC.Generics
 
 #include "utf8rewind.h"
 
-newtype CaseLocal = CaseLocal CSize deriving (Show, Eq, Ord, Generic)
+-- | Locale for case mapping.
+newtype Locale = Locale CSize deriving (Show, Eq, Ord, Generic)
 
-#{enum CaseLocal, CaseLocal, localeDefault    = UTF8_LOCALE_DEFAULT }
-#{enum CaseLocal, CaseLocal, localeLithuanian = UTF8_LOCALE_LITHUANIAN }
-#{enum CaseLocal, CaseLocal, localeTurkishAndAzeriLatin = UTF8_LOCALE_TURKISH_AND_AZERI_LATIN }
+#{enum Locale, Locale, localeDefault    = UTF8_LOCALE_DEFAULT }
+#{enum Locale, Locale, localeLithuanian = UTF8_LOCALE_LITHUANIAN }
+#{enum Locale, Locale, localeTurkishAndAzeriLatin = UTF8_LOCALE_TURKISH_AND_AZERI_LATIN }
 
--- see 'NormalizeMode' in Std.Data.Text.Base
+-- | see 'NormalizeMode' in Std.Data.Text.Base
 #{enum CSize, CSize, normalizeCompose       = UTF8_NORMALIZE_COMPOSE }
 #{enum CSize, CSize, normalizeDecompose     = UTF8_NORMALIZE_DECOMPOSE }
 #{enum CSize, CSize, normalizeCompatibility = UTF8_NORMALIZE_COMPATIBILITY }
 
-{-
-	These are the Unicode Normalization Forms:
+{-|
+These are the Unicode Normalization Forms:
 
-	Form                         | Description
-	---------------------------- | ---------------------------------------------
-	Normalization Form D (NFD)   | Canonical decomposition
-	Normalization Form C (NFC)   | Canonical decomposition, followed by canonical composition
-	Normalization Form KD (NFKD) | Compatibility decomposition
-	Normalization Form KC (NFKC) | Compatibility decomposition, followed by canonical composition
+@
+Form                         | Description
+---------------------------- | ---------------------------------------------
+Normalization Form D (NFD)   | Canonical decomposition
+Normalization Form C (NFC)   | Canonical decomposition, followed by canonical composition
+Normalization Form KD (NFKD) | Compatibility decomposition
+Normalization Form KC (NFKC) | Compatibility decomposition, followed by canonical composition
+@ 
 -}
 data NormalizeMode = NFC | NFKC | NFD | NFKD deriving (Show, Eq, Ord, Generic)
 
@@ -55,7 +61,10 @@ toNormalizationResult #{const UTF8_NORMALIZATION_RESULT_YES} = NormalizedYes
 toNormalizationResult #{const UTF8_NORMALIZATION_RESULT_MAYBE} = NormalizedMaybe
 toNormalizationResult #{const UTF8_NORMALIZATION_RESULT_NO} = NormalizedNo
 
-newtype Category = Category CSize deriving (Show, Eq, Ord, Generic)
+
+-- | Unicode categories.
+-- See 'Std.Data.Text.Base.isCategory', you can combine categories with bitwise or.
+newtype Category = Category CSize deriving (Show, Eq, Ord, Bits, FiniteBits, Generic)
 
 #{enum Category, Category, categoryLetterUppercase        = UTF8_CATEGORY_LETTER_UPPERCASE }
 #{enum Category, Category, categoryLetterLowercase        = UTF8_CATEGORY_LETTER_LOWERCASE }

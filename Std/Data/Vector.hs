@@ -120,7 +120,7 @@ module Std.Data.Vector (
   , take, drop, takeLast, dropLast
   , slice
   , splitAt
-  , takeWhile, takeLastWhile, dropWhile, dropLastWhile, dropBothEnds
+  , takeWhile, takeLastWhile, dropWhile, dropLastWhile, dropAround
   , break, span
   , breakEnd, spanEnd, breakOn
   , group, groupBy

@@ -110,14 +110,16 @@ library
                             Std.Data.Array.Checked
                             Std.Data.CBytes
                             Std.Data.Parser
-                            -- Std.Data.Text
+
+                            Std.Data.Text
                             Std.Data.Text.Base
                             Std.Data.Text.Extra
                             Std.Data.Text.Search
                             Std.Data.Text.UTF8Codec
                             Std.Data.Text.UTF8Rewind
-                            Std.Data.Binary
-                            Std.Data.Builder
+
+                            Std.Data.Builder.Base
+                            Std.Data.Builder.Textual
 
                             Std.Foreign.PrimArray
 

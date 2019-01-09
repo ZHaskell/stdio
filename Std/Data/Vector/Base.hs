@@ -1017,7 +1017,9 @@ replicate n x | n <= 0    = empty
 -- | /O(n*m)/ 'cycleN' a vector n times.
 cycleN :: forall v a. Vec v a => Int -> v a -> v a
 {-# INLINE cycleN #-}
-cycleN n (Vec arr s l) = create end (go 0)
+cycleN n (Vec arr s l)
+    | l == 0    = empty
+    | otherwise = create end (go 0)
   where
     !end = n*l
     go :: Int -> MArray v s a -> ST s ()

@@ -23,11 +23,14 @@ encoded codepoints will cause undefined behaviours.
 module Std.Data.Text.Base (
   -- * Text type
     Text(..)
+  -- * Building text
   , validate
   , validateMaybe
+  , replicate
+  , cycleN
   , charAt, byteAt, charAtLast, byteAtLast
   -- * Basic creating
-  , empty, singleton
+  , empty, singleton, copy
   -- * Conversion between list
   , pack, packN, packR, packRN
   , unpack, unpackR
@@ -42,17 +45,74 @@ module Std.Data.Text.Base (
   , foldl', ifoldl'
   , foldr', ifoldr'
   , concat, concatMap
-    -- ** normalization
-  , NormalizationResult(..), NormalizeMode(..)
-  , isNormalized, normalize, normalize'
-    -- ** Case conversion
-    -- $case
-  , toCaseFold, toCaseFold', toLower, toLower', toUpper, toUpper', toTitle, toTitle'
     -- ** Special folds
   , count, all, any
-  -- * Building text
-  , replicate
-  , cycleN
+    -- ** normalization
+  , NormalizationResult(..), NormalizeMode(..)
+  , isNormalized, isNormalizedTo, normalize, normalizeTo
+    -- ** Case conversion
+    -- $case
+  , Locale, localeDefault, localeLithuanian, localeTurkishAndAzeriLatin
+  , caseFold, caseFoldWith, toLower, toLowerWith, toUpper, toUpperWith, toTitle, toTitleWith
+    -- ** Unicode category
+  , isCategory, spanCategory
+  , Category
+  , categoryLetterUppercase
+  , categoryLetterLowercase
+  , categoryLetterTitlecase
+  , categoryLetterOther
+  , categoryLetter
+  , categoryCaseMapped
+
+  , categoryMarkNonSpacing
+  , categoryMarkSpacing
+  , categoryMarkEnclosing
+  , categoryMark
+
+  , categoryNumberDecimal
+  , categoryNumberLetter
+  , categoryNumberOther
+  , categoryNumber
+
+  , categoryPunctuationConnector
+  , categoryPunctuationDash
+  , categoryPunctuationOpen
+  , categoryPunctuationClose
+  , categoryPunctuationInitial
+  , categoryPunctuationFinal
+  , categoryPunctuationOther
+  , categoryPunctuation
+
+  , categorySymbolMath
+  , categorySymbolCurrency
+  , categorySymbolModifier
+  , categorySymbolOther
+  , categorySymbol
+
+  , categorySeparatorSpace
+  , categorySeparatorLine
+  , categorySeparatorParagraph
+  , categorySeparator
+  , categoryControl
+  , categoryFormat
+  , categorySurrogate
+  , categoryPrivateUse
+  , categoryUnassigned
+  , categoryCompatibility
+  , categoryIgnoreGraphemeCluste
+  , categoryIscntrl
+
+  , categoryIsprint
+  , categoryIsspace
+  , categoryIsblank
+  , categoryIsgraph
+  , categoryIspunct
+  , categoryIsalnum
+  , categoryIsalpha
+  , categoryIsupper
+  , categoryIslower
+  , categoryIsdigit
+  , categoryIsxdigit
  ) where
 
 import           Control.DeepSeq
@@ -64,12 +124,14 @@ import           Data.Foldable            (foldlM)
 import qualified Data.List                as List
 import           Data.Primitive.PrimArray
 import           Data.Typeable
+import           Data.String              (IsString(..))
 import           Data.Word
 import           Foreign.C.Types          (CSize(..))
 import           GHC.Exts                 (build)
 import           GHC.Prim
 import           GHC.Types
 import           GHC.Stack
+import           GHC.CString              (unpackCString#)
 import           Std.Data.Array
 import           Std.Data.Text.UTF8Codec
 import           Std.Data.Text.UTF8Rewind
@@ -104,6 +166,20 @@ instance Read Text where
     readsPrec p str = [ (pack x, y) | (x, y) <- readsPrec p str ]
 instance NFData Text where
     rnf (Text bs) = rnf bs
+
+instance IsString Text where
+    {-# INLINE fromString #-}
+    fromString = packStringLiteral
+
+packStringLiteral :: String -> Text
+packStringLiteral = undefined
+{-# NOINLINE CONLIKE packStringLiteral #-}
+{-# RULES
+    "packStringLiteral" [~1] forall addr . packStringLiteral (unpackCString# addr) = packStringAddr addr
+  #-}
+packStringAddr :: Addr# -> Text
+packStringAddr = undefined
+
 
 -- | /O(n)/ Get the nth codepoint from 'Text'.
 charAt :: Text -> Int -> Maybe Char
@@ -308,6 +384,12 @@ empty :: Text
 {-# INLINABLE empty #-}
 empty = Text V.empty
 
+-- | /O(n)/. Copy a text from slice.
+--
+copy :: Text -> Text
+{-# INLINE copy #-}
+copy (Text bs) = Text (V.copy bs)
+
 --------------------------------------------------------------------------------
 -- * Basic interface
 
@@ -478,6 +560,7 @@ all f (Text (V.PrimVector arr s l))
 -- Building text
 
 replicate :: Int -> Char -> Text
+{-# INLINE replicate #-}
 replicate 0 _ = empty
 replicate n c = Text (V.create siz (go 0))
   where
@@ -491,6 +574,7 @@ replicate n c = Text (V.create siz (go 0))
 
 
 cycleN :: Int -> Text -> Text
+{-# INLINE cycleN #-}
 cycleN 0 _ = empty
 cycleN n (Text v) = Text (V.cycleN n v)
 
@@ -526,12 +610,12 @@ toVector (Text (V.PrimVector arr s l)) = V.createN (l*4) (go s 0)
 --
 -- $normalization
 
--- Check if a string is stable in the NFC (Normalization Form C).
+-- | Check if a string is stable in the NFC (Normalization Form C).
 isNormalized :: Text -> NormalizationResult
 {-# INLINE isNormalized #-}
-isNormalized = isNormalized' NFC
+isNormalized = isNormalizedTo NFC
 
-{-
+{-|
 Check if a string is stable in the specified Unicode Normalization
 Form.
 
@@ -551,19 +635,19 @@ to the length of the string in bytes.
 For more information, please review [Unicode Standard Annex #15 - Unicode
 Normalization Forms](http://www.unicode.org/reports/tr15/).
 -}
-isNormalized' :: NormalizeMode -> Text -> NormalizationResult
-isNormalized' nmode (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
+isNormalizedTo :: NormalizeMode -> Text -> NormalizationResult
+isNormalizedTo nmode (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
     | l == 0 = NormalizedYes
     | otherwise =
         let nflag = normalizeModeToFlag nmode
         in toNormalizationResult (utf8_isnormalized arr# s# l# nflag)
 
--- Normalize a string to NFC (Normalization Form C).
+-- | Normalize a string to NFC (Normalization Form C).
 normalize :: Text -> Text
 {-# INLINE normalize #-}
-normalize = normalize' NFC
+normalize = normalizeTo NFC
 
-{-
+{-|
 Normalize a string to the specified Unicode Normalization Form.
 
 The Unicode standard defines two standards for equivalence between
@@ -581,8 +665,8 @@ rules for decomposition and composition to transform the string into one of
 four Unicode Normalization Forms. A binary comparison can then be used to
 determine equivalence.
 -}
-normalize' :: NormalizeMode -> Text -> Text
-normalize' nmode (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
+normalizeTo :: NormalizeMode -> Text -> Text
+normalizeTo nmode (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
     | l == 0 = empty
     | otherwise = unsafeDupablePerformIO $ do
         let nflag = normalizeModeToFlag nmode
@@ -607,21 +691,42 @@ foreign import ccall unsafe utf8_normalize_length ::
 -- ** Case conversions
 
 -- $case
---
--- When case converting 'Text' values, do not use combinators like
--- @map toUpper@ to case convert each character of a string
--- individually, as this gives incorrect results according to the
--- rules of some writing systems.  The whole-string case conversion
--- functions from this module, such as @toUpper@, obey the correct
--- case conversion rules.  As a result, these functions may map one
--- input character to two or three output characters. For examples,
--- see the documentation of each function.
 
-toCaseFold :: Text -> Text
-toCaseFold = toCaseFold' localeDefault
+-- | Remove case distinction from UTF-8 encoded text with default locale.
+caseFold :: Text -> Text
+caseFold = caseFoldWith localeDefault
 
-toCaseFold' :: CaseLocal -> Text -> Text
-toCaseFold' locale (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
+{-|
+Remove case distinction from UTF-8 encoded text.
+
+Case folding is the process of eliminating differences between code points
+concerning case mapping. It is most commonly used for comparing strings in a
+case-insensitive manner. Conversion is fully compliant with the Unicode 7.0
+standard.
+
+Although similar to lowercasing text, there are significant differences.
+For one, case folding does _not_ take locale into account when converting.
+In some cases, case folding can be up to 20% faster than lowercasing the
+same text, but the result cannot be treated as correct lowercased text.
+
+Only two locale-specific exception are made when case folding text.
+In Turkish, U+0049 LATIN CAPITAL LETTER I maps to U+0131 LATIN SMALL LETTER
+DOTLESS I and U+0130 LATIN CAPITAL LETTER I WITH DOT ABOVE maps to U+0069
+LATIN SMALL LETTER I.
+
+Although most code points can be case folded without changing length, there are notable
+exceptions. For example, U+0130 (LATIN CAPITAL LETTER I WITH DOT ABOVE) maps
+to "U+0069 U+0307" (LATIN SMALL LETTER I and COMBINING DOT ABOVE) when
+converted to lowercase.
+
+Only a handful of scripts make a distinction between upper- and lowercase.
+In addition to modern scripts, such as Latin, Greek, Armenian and Cyrillic,
+a few historic or archaic scripts have case. The vast majority of scripts
+do not have case distinctions.
+-}
+
+caseFoldWith :: Locale -> Text -> Text
+caseFoldWith locale (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
     | l == 0 = empty
     | otherwise = unsafeDupablePerformIO $ do
         let l'@(I# l'#) = utf8_casefold_length arr# s# l# locale
@@ -632,11 +737,36 @@ toCaseFold' locale (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
         let !v = V.fromArr arr' 0 l'
         return (Text v)
 
+-- | Convert UTF-8 encoded text to lowercase with default locale.
 toLower :: Text -> Text
-toLower = toLower' localeDefault
+toLower = toLowerWith localeDefault
 
-toLower' :: CaseLocal -> Text -> Text
-toLower' locale (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
+{-|
+Convert UTF-8 encoded text to lowercase.
+
+This function allows conversion of UTF-8 encoded strings to lowercase
+without first changing the encoding to UTF-32. Conversion is fully compliant
+with the Unicode 7.0 standard.
+
+Although most code points can be converted to lowercase with changing length,
+there are notable exceptions. For example, U+0130 (LATIN CAPITAL LETTER I WITH DOT
+ABOVE) maps to "U+0069 U+0307" (LATIN SMALL LETTER I and COMBINING DOT
+ABOVE) when converted to lowercase.
+
+Only a handful of scripts make a distinction between upper- and lowercase.
+In addition to modern scripts, such as Latin, Greek, Armenian and Cyrillic,
+a few historic or archaic scripts have case. The vast majority of scripts do
+not have case distinctions.
+
+Case mapping is not reversible. That is, @toUpper(toLower(x)) != toLower(toUpper(x))@.
+
+Certain code points (or combinations of code points) apply rules
+based on the locale. For more information about these exceptional
+code points, please refer to the Unicode standard:
+ftp://ftp.unicode.org/Public/UNIDATA/SpecialCasing.txt
+-}
+toLowerWith :: Locale -> Text -> Text
+toLowerWith locale (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
     | l == 0 = empty
     | otherwise = unsafeDupablePerformIO $ do
         let l'@(I# l'#) = utf8_tolower_length arr# s# l# locale
@@ -647,11 +777,34 @@ toLower' locale (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
         let !v = V.fromArr arr' 0 l'
         return (Text v)
 
+-- | Convert UTF-8 encoded text to uppercase with default locale.
 toUpper :: Text -> Text
-toUpper = toUpper' localeDefault
+toUpper = toUpperWith localeDefault
 
-toUpper' :: CaseLocal -> Text -> Text
-toUpper' locale (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
+{-|
+Convert UTF-8 encoded text to uppercase.
+
+Conversion is fully compliant with the Unicode 7.0 standard.
+
+Although most code points can be converted without changing length, there are notable
+exceptions. For example, U+00DF (LATIN SMALL LETTER SHARP S) maps to
+"U+0053 U+0053" (LATIN CAPITAL LETTER S and LATIN CAPITAL LETTER S) when
+converted to uppercase.
+
+Only a handful of scripts make a distinction between upper and lowercase.
+In addition to modern scripts, such as Latin, Greek, Armenian and Cyrillic,
+a few historic or archaic scripts have case. The vast majority of scripts
+do not have case distinctions.
+
+Case mapping is not reversible. That is, @toUpper(toLower(x)) != toLower(toUpper(x))@.
+
+Certain code points (or combinations of code points) apply rules
+based on the locale. For more information about these exceptional
+code points, please refer to the Unicode standard:
+ftp://ftp.unicode.org/Public/UNIDATA/SpecialCasing.txt
+-}
+toUpperWith :: Locale -> Text -> Text
+toUpperWith locale (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
     | l == 0 = empty
     | otherwise = unsafeDupablePerformIO $ do
         let l'@(I# l'#) = utf8_toupper_length arr# s# l# locale
@@ -662,11 +815,47 @@ toUpper' locale (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
         let !v = V.fromArr arr' 0 l'
         return (Text v)
 
+-- | Convert UTF-8 encoded text to titlecase with default locale.
 toTitle :: Text -> Text
-toTitle = toTitle' localeDefault
+toTitle = toTitleWith localeDefault
 
-toTitle' :: CaseLocal -> Text -> Text
-toTitle' locale (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
+{-|
+Convert UTF-8 encoded text to titlecase.
+
+This function allows conversion of UTF-8 encoded strings to titlecase.
+Conversion is fully compliant with the Unicode 7.0 standard.
+
+Titlecase requires a bit more explanation than uppercase and lowercase,
+because it is not a common text transformation. Titlecase uses uppercase
+for the first letter of each word and lowercase for the rest. Words are
+defined as "collections of code points with general category Lu, Ll, Lt, Lm
+or Lo according to the Unicode database".
+
+Effectively, any type of punctuation can break up a word, even if this is
+not grammatically valid. This happens because the titlecasing algorithm
+does not and cannot take grammar rules into account.
+
+@
+Text                                 | Titlecase
+-------------------------------------|-------------------------------------
+The running man                      | The Running Man
+NATO Alliance                        | Nato Alliance
+You're amazing at building libraries | You'Re Amazing At Building Libraries
+@
+
+Although most code points can be converted to titlecase without changing length,
+there are notable exceptions. For example, U+00DF (LATIN SMALL LETTER SHARP S) maps to
+"U+0053 U+0073" (LATIN CAPITAL LETTER S and LATIN SMALL LETTER S) when
+converted to titlecase.
+
+Certain code points (or combinations of code points) apply rules
+based on the locale. For more information about these exceptional
+code points, please refer to the Unicode standard:
+ftp://ftp.unicode.org/Public/UNIDATA/SpecialCasing.txt
+-}
+
+toTitleWith :: Locale -> Text -> Text
+toTitleWith locale (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
     | l == 0 = empty
     | otherwise = unsafeDupablePerformIO $ do
         let l'@(I# l'#) = utf8_totitle_length arr# s# l# locale
@@ -678,23 +867,75 @@ toTitle' locale (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
         return (Text v)
 
 -- functions below will return error if the source ByteArray# is empty
---
 foreign import ccall unsafe utf8_casefold ::
-    ByteArray# -> Int# -> Int# -> MutableByteArray# RealWorld -> Int# -> CaseLocal -> IO ()
+    ByteArray# -> Int# -> Int# -> MutableByteArray# RealWorld -> Int# -> Locale -> IO ()
 foreign import ccall unsafe utf8_casefold_length ::
-    ByteArray# -> Int# -> Int# -> CaseLocal -> Int
+    ByteArray# -> Int# -> Int# -> Locale -> Int
 
 foreign import ccall unsafe utf8_tolower ::
-    ByteArray# -> Int# -> Int# -> MutableByteArray# RealWorld -> Int# -> CaseLocal -> IO ()
+    ByteArray# -> Int# -> Int# -> MutableByteArray# RealWorld -> Int# -> Locale -> IO ()
 foreign import ccall unsafe utf8_tolower_length ::
-    ByteArray# -> Int# -> Int# -> CaseLocal -> Int
+    ByteArray# -> Int# -> Int# -> Locale -> Int
 
 foreign import ccall unsafe utf8_toupper ::
-    ByteArray# -> Int# -> Int# -> MutableByteArray# RealWorld -> Int# -> CaseLocal -> IO ()
+    ByteArray# -> Int# -> Int# -> MutableByteArray# RealWorld -> Int# -> Locale -> IO ()
 foreign import ccall unsafe utf8_toupper_length ::
-    ByteArray# -> Int# -> Int# -> CaseLocal -> Int
+    ByteArray# -> Int# -> Int# -> Locale -> Int
 
 foreign import ccall unsafe utf8_totitle ::
-    ByteArray# -> Int# -> Int# -> MutableByteArray# RealWorld -> Int# -> CaseLocal -> IO ()
+    ByteArray# -> Int# -> Int# -> MutableByteArray# RealWorld -> Int# -> Locale -> IO ()
 foreign import ccall unsafe utf8_totitle_length ::
-    ByteArray# -> Int# -> Int# -> CaseLocal -> Int
+    ByteArray# -> Int# -> Int# -> Locale -> Int
+
+{-|
+Check if the input string conforms to the category specified by the
+flags.
+
+This function can be used to check if the code points in a string are part
+of a category. Valid flags are members of the "list of categories".
+The category for a code point is defined as part of the entry in UnicodeData.txt,
+the data file for the Unicode code point database.
+
+By default, the function will treat grapheme clusters as a single code
+point. This means that the following string:
+
+@
+Code point | Canonical combining class | General category      | Name
+---------- | ------------------------- | --------------------- | ----------------------
+U+0045     | 0                         | Lu (Uppercase letter) | LATIN CAPITAL LETTER E
+U+0300     | 230                       | Mn (Non-spacing mark) | COMBINING GRAVE ACCENT
+@
+
+Will match with 'categoryLetterUppercase' in its entirety, because
+the COMBINING GRAVE ACCENT is treated as part of the grapheme cluster. This
+is useful when e.g. creating a text parser, because you do not have to
+normalize the text first.
+
+If this is undesired behavior, specify the 'UTF8_CATEGORY_IGNORE_GRAPHEME_CLUSTER' flag.
+
+In order to maintain backwards compatibility with POSIX functions
+like `isdigit` and `isspace`, compatibility flags have been provided. Note,
+however, that the result is only guaranteed to be correct for code points
+in the Basic Latin range, between U+0000 and 0+007F. Combining a
+compatibility flag with a regular category flag will result in undefined
+behavior.
+-}
+
+isCategory :: Category -> Text -> Bool
+isCategory c (Text (V.PrimVector arr@(PrimArray arr#) s@(I# s#) l@(I# l#)))
+    | l == 0 = True
+    | otherwise = utf8_iscategory arr# s# l# c == l
+
+{-|
+Try to match as many code points with the matching category flags as possible
+and return the prefix and suffix.
+-}
+spanCategory :: Category -> Text -> (Text, Text)
+spanCategory c (Text (V.PrimVector arr@(PrimArray arr#) s@(I# s#) l@(I# l#)))
+    | l == 0 = (empty, empty)
+    | otherwise =
+        let i = utf8_iscategory arr# s# l# c
+        in (Text (V.PrimVector arr s i), Text (V.PrimVector arr (s+i) (l-i)))
+
+-- functions below will return error if the source ByteArray# is empty
+foreign import ccall utf8_iscategory :: ByteArray# -> Int# -> Int# -> Category -> Int

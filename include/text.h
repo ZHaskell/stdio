@@ -49,3 +49,5 @@ HsInt utf8_toupper_length(const char* p, HsInt off, HsInt len, size_t locale);
 
 HsInt utf8_totitle(const char* p, HsInt off, HsInt len, const char* q, HsInt len2, size_t locale);
 HsInt utf8_totitle_length(const char* p, HsInt off, HsInt len, size_t locale);
+
+HsInt utf8_iscategory(const char* p, HsInt off, HsInt len, size_t flags);
