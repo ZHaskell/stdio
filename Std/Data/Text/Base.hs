@@ -15,8 +15,7 @@ Maintainer  : drkoster@qq.com
 Stability   : experimental
 Portability : non-portable
 
-A 'Text' wrap a 'Bytes' which will be interpreted using UTF-8 encoding. User should always use 'validate' to construt a 'Text' (instead of using construtor directly or coercing), otherwise illegal UTF-8
-encoded codepoints will cause undefined behaviours.
+A 'Text' wrap a 'Bytes' which will be interpreted using UTF-8 encoding. User should always use 'validate' to construt a 'Text' (instead of using construtor directly or coercing), otherwise illegal UTF-8 encoded codepoints will cause undefined behaviours.
 
 -}
 
