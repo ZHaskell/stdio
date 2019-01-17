@@ -7,25 +7,28 @@
 
 module Std.Data.Builder.Textual
   (
+  -- * Textual Builder
     TextualBuilder(..)
   , buildText
+  -- * Integral type formatting
   , IFormat(..)
+  , Base(..)
   , defaultIFormat
   , Padding(..)
-  , dec
-  , decWith
-  , hex
-  , hexWith
-  , integerDec
-  , integerHex, integerHEX
-  , w8Hex, w8HEX, w16Hex, w16HEX, w32Hex, w32HEX, w64Hex, w64HEX, wordHex, wordHEX
-  {-
+  , int
+  , intWith
+  , integer
+  , integerWith
+  -- * Fixded size hexidecimal formatting
+  , hex, heX
+  -- * IEEE float formating
   , FFFormat(..)
   , float
   , double
   , floatWith
   , doubleWith
 
+  {-
   , char7
   , string7
 
@@ -74,42 +77,46 @@ data IFormat = IFormat
     { width :: Int              -- ^ total width, only effective with padding options
     , padding :: Padding        -- ^ padding options
     , postiveSign :: Bool       -- ^ show @+@ when the number is positive
-    , upperCase :: Bool         -- ^ Hex digits' casing, only effective with hex formatting.
+    , base :: Base              -- ^ choose between bases
     } deriving (Show, Eq, Ord)
 
+-- | @defaultIFormat = IFormat 0 NoPadding False Decimal@
 defaultIFormat :: IFormat
-defaultIFormat = IFormat 0 NoPadding False False
+defaultIFormat = IFormat 0 NoPadding False Decimal
 
 data Padding = NoPadding | ZeroPadding | LeftSpacePadding | RightSpacePadding deriving (Show, Eq, Ord)
+data Base = Decimal | HexadecimalLower | HexadecimalUpper deriving (Show, Eq, Ord)
 
--- | @dec = decWith defaultIFormat@
-dec :: (Integral a, Bounded a) => a -> TextualBuilder ()
-dec = decWith defaultIFormat
+-- | @int = intWith defaultIFormat@
+int :: (Integral a, Bounded a) => a -> TextualBuilder ()
+int = intWith defaultIFormat
 
-decWith :: (Integral a, Bounded a)
+-- | Format a 'Bounded' 'Integral' type like @Int@ or @Word16@ into ascii digits.
+--
+intWith :: (Integral a, Bounded a)
         => IFormat
         -> a
         -> TextualBuilder ()
-{-# INLINE[1] decWith #-}
-{-# RULES "decWith'/Int8"    decWith = decWith' :: IFormat -> Int8    -> TextualBuilder () #-}
-{-# RULES "decWith'/Int"     decWith = decWith' :: IFormat -> Int     -> TextualBuilder () #-}
-{-# RULES "decWith'/Int16"   decWith = decWith' :: IFormat -> Int16   -> TextualBuilder () #-}
-{-# RULES "decWith'/Int32"   decWith = decWith' :: IFormat -> Int32   -> TextualBuilder () #-}
-{-# RULES "decWith'/Int64"   decWith = decWith' :: IFormat -> Int64   -> TextualBuilder () #-}
-{-# RULES "decWith'/Word"    decWith = positiveDec  :: IFormat -> Word    -> TextualBuilder () #-}
-{-# RULES "decWith'/Word8"   decWith = positiveDec  :: IFormat -> Word8   -> TextualBuilder () #-}
-{-# RULES "decWith'/Word16"  decWith = positiveDec  :: IFormat -> Word16  -> TextualBuilder () #-}
-{-# RULES "decWith'/Word32"  decWith = positiveDec  :: IFormat -> Word32  -> TextualBuilder () #-}
-{-# RULES "decWith'/Word64"  decWith = positiveDec  :: IFormat -> Word64  -> TextualBuilder () #-}
-decWith = decWith'
+{-# INLINE[1] intWith #-}
+{-# RULES "intWith'/Int8"    intWith = intWith' :: IFormat -> Int8    -> TextualBuilder () #-}
+{-# RULES "intWith'/Int"     intWith = intWith' :: IFormat -> Int     -> TextualBuilder () #-}
+{-# RULES "intWith'/Int16"   intWith = intWith' :: IFormat -> Int16   -> TextualBuilder () #-}
+{-# RULES "intWith'/Int32"   intWith = intWith' :: IFormat -> Int32   -> TextualBuilder () #-}
+{-# RULES "intWith'/Int64"   intWith = intWith' :: IFormat -> Int64   -> TextualBuilder () #-}
+{-# RULES "intWith'/Word"    intWith = positiveInt  :: IFormat -> Word    -> TextualBuilder () #-}
+{-# RULES "intWith'/Word8"   intWith = positiveInt  :: IFormat -> Word8   -> TextualBuilder () #-}
+{-# RULES "intWith'/Word16"  intWith = positiveInt  :: IFormat -> Word16  -> TextualBuilder () #-}
+{-# RULES "intWith'/Word32"  intWith = positiveInt  :: IFormat -> Word32  -> TextualBuilder () #-}
+{-# RULES "intWith'/Word64"  intWith = positiveInt  :: IFormat -> Word64  -> TextualBuilder () #-}
+intWith = intWith'
 
-decWith' :: (Integral a, Bounded a) => IFormat -> a -> TextualBuilder ()
-{-# SPECIALIZE INLINE decWith' :: IFormat -> Int   -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE decWith' :: IFormat -> Int8  -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE decWith' :: IFormat -> Int16 -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE decWith' :: IFormat -> Int32 -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE decWith' :: IFormat -> Int64 -> TextualBuilder () #-}
-decWith' format@(IFormat width padding _ _) i
+intWith' :: (Integral a, Bounded a) => IFormat -> a -> TextualBuilder ()
+{-# SPECIALIZE INLINE intWith' :: IFormat -> Int   -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE intWith' :: IFormat -> Int8  -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE intWith' :: IFormat -> Int16 -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE intWith' :: IFormat -> Int32 -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE intWith' :: IFormat -> Int64 -> TextualBuilder () #-}
+intWith' format@(IFormat width padding _ Decimal) i
     | i < 0 = TextualBuilder $
         if i == minBound            -- can't directly negate in this case
         then do
@@ -204,20 +211,116 @@ decWith' format@(IFormat width padding _ _) i
                     writePrimArray marr off minus                       -- leading minus
                     let off' = off + 1
                     writePositiveDec marr off' n qq                      -- digits
-    | otherwise = positiveDec format i
+    | otherwise = positiveInt format i
+intWith' format@(IFormat width padding _ b) i
+    | i < 0 = TextualBuilder $
+        if i == minBound            -- can't directly negate in this case
+        then do
+            let (q, r) = i `quotRem` 0x10
+                !qq = -q            -- all digits except last one
+                !rr = i2wHex b (-r)  -- last digits
+                !n = countHexDigits qq
+                !n' = n + 2         -- extra two bytes: minus and last digit
+            if width > n'
+            then case padding of
+                NoPadding ->
+                    writeN n' $ \marr off -> do
+                        writePrimArray marr off minus                       -- leading minus
+                        let off' = off + 1
+                        writePositiveHex b marr off' n qq                      -- digits
+                        let off'' = off' + n
+                        writePrimArray marr off'' rr                        -- last digit
+                ZeroPadding ->
+                    writeN width $ \marr off -> do
+                        let !leadingN = width-n'
+                        writePrimArray marr off minus                   -- leading minus
+                        let off' = off + 1
+                        setPrimArray marr off' leadingN zero            -- leading zeros
+                        let off'' = off' + leadingN
+                        writePositiveHex b marr off'' n qq                 -- digits
+                        let off''' = off'' + n
+                        writePrimArray marr off''' rr                   -- last digit
+                LeftSpacePadding ->
+                    writeN width $ \marr off -> do
+                        let !leadingN = width-n'
+                        setPrimArray marr off leadingN space            -- leading spaces
+                        let off' = off + leadingN
+                        writePrimArray marr off' minus                  -- leading minus
+                        let off'' = off' + 1
+                        writePositiveHex b marr off'' n qq                 -- digits
+                        let off''' = off'' + n
+                        writePrimArray marr off''' rr                   -- last digit
+                RightSpacePadding ->
+                    writeN width $ \marr off -> do
+                        let !trailingN = width-n'
+                        writePrimArray marr off minus                   -- leading minus
+                        let off' = off + 1
+                        writePositiveHex b marr off' n qq                  -- digits
+                        let off'' = off' + n
+                        writePrimArray marr off'' rr                    -- last digit
+                        let off''' = off'' + 1
+                        setPrimArray marr off''' trailingN space        -- trailing spaces
+            else
+                writeN n' $ \marr off -> do
+                    writePrimArray marr off minus                       -- leading minus
+                    let off' = off + 1
+                    writePositiveHex b marr off' n qq                      -- digits
+                    let off'' = off' + n
+                    writePrimArray marr off'' rr                        -- last digit
+        else do
+            let !qq = -i
+                !n = countHexDigits qq
+                !n' = n + 1  -- extra byte: minus
+            if width > n'
+            then case padding of
+                NoPadding ->
+                    writeN n' $ \marr off -> do
+                        writePrimArray marr off minus                       -- leading minus
+                        let off' = off + 1
+                        writePositiveHex b marr off' n qq                      -- digits
+                ZeroPadding ->
+                    writeN width $ \marr off -> do
+                        let !leadingN = width-n'
+                        writePrimArray marr off minus                   -- leading minus
+                        let off' = off + 1
+                        setPrimArray marr off' leadingN zero            -- leading zeros
+                        let off'' = off' + leadingN
+                        writePositiveHex b marr off'' n qq                 -- digits
+                LeftSpacePadding ->
+                    writeN width $ \marr off -> do
+                        let !leadingN = width-n'
+                        setPrimArray marr off leadingN space            -- leading spaces
+                        let off' = off + leadingN
+                        writePrimArray marr off' minus                  -- leading minus
+                        let off'' = off' + 1
+                        writePositiveHex b marr off'' n qq                 -- digits
+                RightSpacePadding ->
+                    writeN width $ \marr off -> do
+                        let !trailingN = width-n'
+                        writePrimArray marr off minus                   -- leading minus
+                        let off' = off + 1
+                        writePositiveHex b marr off' n qq                  -- digits
+                        let off'' = off' + n
+                        setPrimArray marr off'' trailingN space         -- trailing spaces
+            else
+                writeN n' $ \marr off -> do
+                    writePrimArray marr off minus                       -- leading minus
+                    let off' = off + 1
+                    writePositiveHex b marr off' n qq                      -- digits
+    | otherwise = positiveInt format i
 
-positiveDec :: (Integral a) => IFormat -> a -> TextualBuilder ()
-{-# SPECIALIZE INLINE positiveDec :: IFormat -> Int    -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE positiveDec :: IFormat -> Int8   -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE positiveDec :: IFormat -> Int16  -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE positiveDec :: IFormat -> Int32  -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE positiveDec :: IFormat -> Int64  -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE positiveDec :: IFormat -> Word   -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE positiveDec :: IFormat -> Word8  -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE positiveDec :: IFormat -> Word16 -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE positiveDec :: IFormat -> Word32 -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE positiveDec :: IFormat -> Word64 -> TextualBuilder () #-}
-positiveDec (IFormat width padding ps _) i =
+positiveInt :: (Integral a) => IFormat -> a -> TextualBuilder ()
+{-# SPECIALIZE INLINE positiveInt :: IFormat -> Int    -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE positiveInt :: IFormat -> Int8   -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE positiveInt :: IFormat -> Int16  -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE positiveInt :: IFormat -> Int32  -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE positiveInt :: IFormat -> Int64  -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE positiveInt :: IFormat -> Word   -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE positiveInt :: IFormat -> Word8  -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE positiveInt :: IFormat -> Word16 -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE positiveInt :: IFormat -> Word32 -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE positiveInt :: IFormat -> Word64 -> TextualBuilder () #-}
+positiveInt (IFormat width padding ps Decimal) i =
     let !n = countDigits i
     in TextualBuilder $
         if ps
@@ -287,7 +390,76 @@ positiveDec (IFormat width padding ps _) i =
             else
                 writeN n $ \marr off -> do
                     writePositiveDec marr off n i                        -- digits
+positiveInt (IFormat width padding ps b) i =
+    let !n = countHexDigits i
+    in TextualBuilder $
+        if ps
+        then
+            let n' = n+1
+            in if width > n'
+            then case padding of
+                NoPadding ->
+                    writeN n' $ \marr off -> do
+                        writePrimArray marr off plus                    -- leading plus
+                        let off' = off + 1
+                        writePositiveHex b marr off' n i                   -- digits
+                ZeroPadding ->
+                    writeN width $ \marr off -> do
+                        let !leadingN = width-n'
+                        writePrimArray marr off plus                    -- leading plus
+                        let off' = off + 1
+                        setPrimArray marr off' leadingN zero            -- leading zeros
+                        let off'' = off' + leadingN
+                        writePositiveHex b marr off'' n i                  -- digits
+                LeftSpacePadding ->
+                    writeN width $ \marr off -> do
+                        let !leadingN = width-n'
+                        setPrimArray marr off leadingN space            -- leading spaces
+                        let off' = off + leadingN
+                        writePrimArray marr off' plus                   -- leading plus
+                        let off'' = off' + 1
+                        writePositiveHex b marr off'' n i                  -- digits
+                RightSpacePadding ->
+                    writeN width $ \marr off -> do
+                        let !trailingN = width-n'
+                        writePrimArray marr off plus                    -- leading plus
+                        let off' = off + 1
+                        writePositiveHex b marr off' n i                   -- digits
+                        let off'' = off' + n
+                        setPrimArray marr off'' trailingN space         -- trailing spaces
+            else
+                writeN n' $ \marr off -> do
+                    writePrimArray marr off plus                        -- leading plus
+                    let off' = off + 1
+                    writePositiveHex b marr off' n i                       -- digits
 
+        else
+            if width > n
+            then case padding of
+                NoPadding ->
+                    writeN n $ \marr off -> do
+                        writePositiveHex b marr off n i                    -- digits
+                ZeroPadding ->
+                    writeN width $ \marr off -> do
+                        let !leadingN = width-n
+                        setPrimArray marr off leadingN zero             -- leading zeros
+                        let off' = off + leadingN
+                        writePositiveHex b marr off' n i                   -- digits
+                LeftSpacePadding ->
+                    writeN width $ \marr off -> do
+                        let !leadingN = width-n
+                        setPrimArray marr off leadingN space            -- leading spaces
+                        let off' = off + leadingN
+                        writePositiveHex b marr off' n i                   -- digits
+                RightSpacePadding ->
+                    writeN width $ \marr off -> do
+                        let !trailingN = width-n
+                        writePositiveHex b marr off n i                    -- digits
+                        let off' = off + n
+                        setPrimArray marr off' trailingN space          -- trailing spaces
+            else
+                writeN n $ \marr off -> do
+                    writePositiveHex b marr off n i                        -- digits
 
 writePositiveDec :: (Integral a)
                 => forall s. MutablePrimArray s Word8       -- ^ The buffer
@@ -310,230 +482,22 @@ writePositiveDec marr off0 ds = go (off0 + ds - 1)
         writePrimArray marr off $ indexOffAddr decDigitTable (j + 1)
         writePrimArray marr (off - 1) $ indexOffAddr decDigitTable j
 
---------------------------------------------------------------------------------
-
--- | @dec = decWith defaultIFormat@
-hex :: (Integral a, Bounded a) => a -> TextualBuilder ()
-hex = hexWith defaultIFormat
-
-hexWith :: (Integral a, Bounded a)
-        => IFormat
-        -> a
-        -> TextualBuilder ()
-{-# INLINE[1] hexWith #-}
-{-# RULES "hexWith'/Int8"    hexWith = hexWith' :: IFormat -> Int8    -> TextualBuilder () #-}
-{-# RULES "hexWith'/Int"     hexWith = hexWith' :: IFormat -> Int     -> TextualBuilder () #-}
-{-# RULES "hexWith'/Int16"   hexWith = hexWith' :: IFormat -> Int16   -> TextualBuilder () #-}
-{-# RULES "hexWith'/Int32"   hexWith = hexWith' :: IFormat -> Int32   -> TextualBuilder () #-}
-{-# RULES "hexWith'/Int64"   hexWith = hexWith' :: IFormat -> Int64   -> TextualBuilder () #-}
-{-# RULES "hexWith'/Word"    hexWith = positiveHex  :: IFormat -> Word    -> TextualBuilder () #-}
-{-# RULES "hexWith'/Word8"   hexWith = positiveHex  :: IFormat -> Word8   -> TextualBuilder () #-}
-{-# RULES "hexWith'/Word16"  hexWith = positiveHex  :: IFormat -> Word16  -> TextualBuilder () #-}
-{-# RULES "hexWith'/Word32"  hexWith = positiveHex  :: IFormat -> Word32  -> TextualBuilder () #-}
-{-# RULES "hexWith'/Word64"  hexWith = positiveHex  :: IFormat -> Word64  -> TextualBuilder () #-}
-hexWith = hexWith'
-
-hexWith' :: (Integral a, Bounded a) => IFormat -> a -> TextualBuilder ()
-{-# SPECIALIZE INLINE hexWith' :: IFormat -> Int   -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE hexWith' :: IFormat -> Int8  -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE hexWith' :: IFormat -> Int16 -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE hexWith' :: IFormat -> Int32 -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE hexWith' :: IFormat -> Int64 -> TextualBuilder () #-}
-hexWith' format@(IFormat width padding _ upper) i
-    | i < 0 = TextualBuilder $
-        if i == minBound            -- can't directly negate in this case
-        then do
-            let (q, r) = i `quotRem` 0x10
-                !qq = -q            -- all digits except last one
-                !rr = i2wHex upper (-r)  -- last digits
-                !n = countHexDigits qq
-                !n' = n + 2         -- extra two bytes: minus and last digit
-            if width > n'
-            then case padding of
-                NoPadding ->
-                    writeN n' $ \marr off -> do
-                        writePrimArray marr off minus                       -- leading minus
-                        let off' = off + 1
-                        writePositiveHex upper marr off' n qq                      -- digits
-                        let off'' = off' + n
-                        writePrimArray marr off'' rr                        -- last digit
-                ZeroPadding ->
-                    writeN width $ \marr off -> do
-                        let !leadingN = width-n'
-                        writePrimArray marr off minus                   -- leading minus
-                        let off' = off + 1
-                        setPrimArray marr off' leadingN zero            -- leading zeros
-                        let off'' = off' + leadingN
-                        writePositiveHex upper marr off'' n qq                 -- digits
-                        let off''' = off'' + n
-                        writePrimArray marr off''' rr                   -- last digit
-                LeftSpacePadding ->
-                    writeN width $ \marr off -> do
-                        let !leadingN = width-n'
-                        setPrimArray marr off leadingN space            -- leading spaces
-                        let off' = off + leadingN
-                        writePrimArray marr off' minus                  -- leading minus
-                        let off'' = off' + 1
-                        writePositiveHex upper marr off'' n qq                 -- digits
-                        let off''' = off'' + n
-                        writePrimArray marr off''' rr                   -- last digit
-                RightSpacePadding ->
-                    writeN width $ \marr off -> do
-                        let !trailingN = width-n'
-                        writePrimArray marr off minus                   -- leading minus
-                        let off' = off + 1
-                        writePositiveHex upper marr off' n qq                  -- digits
-                        let off'' = off' + n
-                        writePrimArray marr off'' rr                    -- last digit
-                        let off''' = off'' + 1
-                        setPrimArray marr off''' trailingN space        -- trailing spaces
-            else
-                writeN n' $ \marr off -> do
-                    writePrimArray marr off minus                       -- leading minus
-                    let off' = off + 1
-                    writePositiveHex upper marr off' n qq                      -- digits
-                    let off'' = off' + n
-                    writePrimArray marr off'' rr                        -- last digit
-        else do
-            let !qq = -i
-                !n = countHexDigits qq
-                !n' = n + 1  -- extra byte: minus
-            if width > n'
-            then case padding of
-                NoPadding ->
-                    writeN n' $ \marr off -> do
-                        writePrimArray marr off minus                       -- leading minus
-                        let off' = off + 1
-                        writePositiveHex upper marr off' n qq                      -- digits
-                ZeroPadding ->
-                    writeN width $ \marr off -> do
-                        let !leadingN = width-n'
-                        writePrimArray marr off minus                   -- leading minus
-                        let off' = off + 1
-                        setPrimArray marr off' leadingN zero            -- leading zeros
-                        let off'' = off' + leadingN
-                        writePositiveHex upper marr off'' n qq                 -- digits
-                LeftSpacePadding ->
-                    writeN width $ \marr off -> do
-                        let !leadingN = width-n'
-                        setPrimArray marr off leadingN space            -- leading spaces
-                        let off' = off + leadingN
-                        writePrimArray marr off' minus                  -- leading minus
-                        let off'' = off' + 1
-                        writePositiveHex upper marr off'' n qq                 -- digits
-                RightSpacePadding ->
-                    writeN width $ \marr off -> do
-                        let !trailingN = width-n'
-                        writePrimArray marr off minus                   -- leading minus
-                        let off' = off + 1
-                        writePositiveHex upper marr off' n qq                  -- digits
-                        let off'' = off' + n
-                        setPrimArray marr off'' trailingN space         -- trailing spaces
-            else
-                writeN n' $ \marr off -> do
-                    writePrimArray marr off minus                       -- leading minus
-                    let off' = off + 1
-                    writePositiveHex upper marr off' n qq                      -- digits
-    | otherwise = positiveHex format i
-
-positiveHex :: (Integral a) => IFormat -> a -> TextualBuilder ()
-{-# SPECIALIZE INLINE positiveHex :: IFormat -> Int    -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE positiveHex :: IFormat -> Int8   -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE positiveHex :: IFormat -> Int16  -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE positiveHex :: IFormat -> Int32  -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE positiveHex :: IFormat -> Int64  -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE positiveHex :: IFormat -> Word   -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE positiveHex :: IFormat -> Word8  -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE positiveHex :: IFormat -> Word16 -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE positiveHex :: IFormat -> Word32 -> TextualBuilder () #-}
-{-# SPECIALIZE INLINE positiveHex :: IFormat -> Word64 -> TextualBuilder () #-}
-positiveHex (IFormat width padding ps upper) i =
-    let !n = countHexDigits i
-    in TextualBuilder $
-        if ps
-        then
-            let n' = n+1
-            in if width > n'
-            then case padding of
-                NoPadding ->
-                    writeN n' $ \marr off -> do
-                        writePrimArray marr off plus                    -- leading plus
-                        let off' = off + 1
-                        writePositiveHex upper marr off' n i                   -- digits
-                ZeroPadding ->
-                    writeN width $ \marr off -> do
-                        let !leadingN = width-n'
-                        writePrimArray marr off plus                    -- leading plus
-                        let off' = off + 1
-                        setPrimArray marr off' leadingN zero            -- leading zeros
-                        let off'' = off' + leadingN
-                        writePositiveHex upper marr off'' n i                  -- digits
-                LeftSpacePadding ->
-                    writeN width $ \marr off -> do
-                        let !leadingN = width-n'
-                        setPrimArray marr off leadingN space            -- leading spaces
-                        let off' = off + leadingN
-                        writePrimArray marr off' plus                   -- leading plus
-                        let off'' = off' + 1
-                        writePositiveHex upper marr off'' n i                  -- digits
-                RightSpacePadding ->
-                    writeN width $ \marr off -> do
-                        let !trailingN = width-n'
-                        writePrimArray marr off plus                    -- leading plus
-                        let off' = off + 1
-                        writePositiveHex upper marr off' n i                   -- digits
-                        let off'' = off' + n
-                        setPrimArray marr off'' trailingN space         -- trailing spaces
-            else
-                writeN n' $ \marr off -> do
-                    writePrimArray marr off plus                        -- leading plus
-                    let off' = off + 1
-                    writePositiveHex upper marr off' n i                       -- digits
-
-        else
-            if width > n
-            then case padding of
-                NoPadding ->
-                    writeN n $ \marr off -> do
-                        writePositiveHex upper marr off n i                    -- digits
-                ZeroPadding ->
-                    writeN width $ \marr off -> do
-                        let !leadingN = width-n
-                        setPrimArray marr off leadingN zero             -- leading zeros
-                        let off' = off + leadingN
-                        writePositiveHex upper marr off' n i                   -- digits
-                LeftSpacePadding ->
-                    writeN width $ \marr off -> do
-                        let !leadingN = width-n
-                        setPrimArray marr off leadingN space            -- leading spaces
-                        let off' = off + leadingN
-                        writePositiveHex upper marr off' n i                   -- digits
-                RightSpacePadding ->
-                    writeN width $ \marr off -> do
-                        let !trailingN = width-n
-                        writePositiveHex upper marr off n i                    -- digits
-                        let off' = off + n
-                        setPrimArray marr off' trailingN space          -- trailing spaces
-            else
-                writeN n $ \marr off -> do
-                    writePositiveHex upper marr off n i                        -- digits
-
-
 writePositiveHex :: (Integral a)
-                => forall s. Bool -> MutablePrimArray s Word8 -> Int -> Int -> a -> ST s ()
+                => forall s. Base -> MutablePrimArray s Word8 -> Int -> Int -> a -> ST s ()
 {-# INLINE writePositiveHex #-}
-writePositiveHex upper marr off0 ds = go (off0 + ds - 1)
+writePositiveHex b marr off0 ds = go (off0 + ds - 1)
   where
     go off v
         | v >= 0x100 = do
             let (q, r) = v `quotRem` 0x100
             write2 off r
             go (off - 2) q
-        | v < 0x10    = writePrimArray marr off (i2wHex upper v)
+        | v < 0x10    = writePrimArray marr off (i2wHex b v)
         | otherwise = write2 off v
     write2 off i0 = do
         let i = fromIntegral i0; j = i + i
-            table = if upper then hexDigitTableUpper else hexDigitTable
+            table = case b of HexadecimalLower -> hexDigitTable
+                              _                -> hexDigitTableUpper
         writePrimArray marr off $ indexOffAddr table (j + 1)
         writePrimArray marr (off - 1) $ indexOffAddr table j
 
@@ -562,43 +526,22 @@ writePositiveHex upper marr off0 ds = go (off0 + ds - 1)
 -- HEX_BASE should be 16^DIGITS.
 #endif
 
-integerDec :: Integer -> TextualBuilder ()
+integer :: Integer -> TextualBuilder ()
+integer = integerWith Decimal
+
+integerWith :: Base -> Integer -> TextualBuilder ()
 #ifdef INTEGER_GMP
-integerDec (S# i#) = dec (I# i#)
+integerWith b (S# i#) = intWith defaultIFormat{base = b} (I# i#)
 #endif
 -- Divide and conquer implementation of string conversion
-integerDec n0
-    | n0 < 0    = TextualBuilder $ encodePrim minus >> integerDec' (-n0)
-    | otherwise = TextualBuilder $ integerDec' n0
-    where
-    integerDec' :: Integer -> Builder ()
-    integerDec' n
+integerWith Decimal n0
+    | n0 < 0    = TextualBuilder $ encodePrim minus >> integerWith' (-n0)
+    | otherwise = TextualBuilder $ integerWith' n0
+  where
+    integerWith' :: Integer -> Builder ()
+    integerWith' n
         | n < BASE  = jhead (fromInteger n)
         | otherwise = jprinth (jsplitf (BASE*BASE) n)
-
-    -- Split n into digits in base p. We first split n into digits
-    -- in base p*p and then split each of these digits into two.
-    -- Note that the first 'digit' modulo p*p may have a leading zero
-    -- in base p that we need to drop - this is what jsplith takes care of.
-    -- jsplitb the handles the remaining digits.
-    jsplitf :: Integer -> Integer -> [Integer]
-    jsplitf p n
-        | p > n     = [n]
-        | otherwise = jsplith p (jsplitf (p*p) n)
-
-    jsplith :: Integer -> [Integer] -> [Integer]
-    jsplith p (n:ns) =
-        case n `quotRemInteger` p of
-        (# q, r #) ->
-            if q > 0 then q : r : jsplitb p ns
-                     else     r : jsplitb p ns
-    jsplith _ [] = errorWithoutStackTrace "jsplith: []"
-
-    jsplitb :: Integer -> [Integer] -> [Integer]
-    jsplitb _ []     = []
-    jsplitb p (n:ns) = case n `quotRemInteger` p of
-                       (# q, r #) ->
-                           q : r : jsplitb p ns
 
     -- Convert a number that has been split into digits in base BASE^2
     -- this includes a last splitting step and then conversion of digits
@@ -625,62 +568,20 @@ integerDec n0
     -- functions, one that drops leading zeros (jhead) and one that doesn't
     -- (jblock)
     jhead :: Int -> Builder ()
-    jhead = toBuilder . dec
+    jhead = toBuilder . int
     jblock :: Int -> Builder ()
     jblock d = writeN DIGITS $ \ marr off -> writePositiveDec marr off DIGITS d
 
-integerHex :: Integer -> TextualBuilder ()
-#ifdef INTEGER_GMP
-integerHex (S# i#) = hex (I# i#)
-#endif
--- Divide and conquer implementation of string conversion
-integerHex n0
-    | n0 < 0    = TextualBuilder $ encodePrim minus >> positiveIntegerHex False (-n0)
-    | otherwise = TextualBuilder $ positiveIntegerHex False n0
-
-integerHEX :: Integer -> TextualBuilder ()
-#ifdef INTEGER_GMP
-integerHEX (S# i#) = hexWith defaultIFormat{upperCase = True} (I# i#)
-#endif
--- Divide and conquer implementation of string conversion
-integerHEX n0
-    | n0 < 0    = TextualBuilder $ encodePrim minus >> positiveIntegerHex True (-n0)
-    | otherwise = TextualBuilder $ positiveIntegerHex True n0
-
-positiveIntegerHex :: Bool -> Integer -> Builder ()
-positiveIntegerHex upper = \ n ->
-    if n < HEX_BASE
-    then jhead (fromInteger n)
-    else jprinth (jsplitf (HEX_BASE*HEX_BASE) n)
+integerWith b n0
+    | n0 < 0    = TextualBuilder $ encodePrim minus >> integerWith' b (-n0)
+    | otherwise = TextualBuilder $ integerWith' b n0
   where
+    integerWith' :: Base -> Integer -> Builder ()
+    integerWith' b = \ n ->
+        if n < HEX_BASE
+        then jhead (fromInteger n)
+        else jprinth (jsplitf (HEX_BASE*HEX_BASE) n)
 
-    -- Split n into digits in base p. We first split n into digits
-    -- in base p*p and then split each of these digits into two.
-    -- Note that the first 'digit' modulo p*p may have a leading zero
-    -- in base p that we need to drop - this is what jsplith takes care of.
-    -- jsplitb the handles the remaining digits.
-    jsplitf :: Integer -> Integer -> [Integer]
-    jsplitf p n
-        | p > n     = [n]
-        | otherwise = jsplith p (jsplitf (p*p) n)
-
-    jsplith :: Integer -> [Integer] -> [Integer]
-    jsplith p (n:ns) =
-        case n `quotRemInteger` p of
-        (# q, r #) ->
-            if q > 0 then q : r : jsplitb p ns
-                     else     r : jsplitb p ns
-    jsplith _ [] = errorWithoutStackTrace "jsplith: []"
-
-    jsplitb :: Integer -> [Integer] -> [Integer]
-    jsplitb _ []     = []
-    jsplitb p (n:ns) = case n `quotRemInteger` p of
-                       (# q, r #) ->
-                           q : r : jsplitb p ns
-
-    -- Convert a number that has been split into digits in base HEX_BASE^2
-    -- this includes a last splitting step and then conversion of digits
-    -- that all fit into a machine word.
     jprinth :: [Integer] -> Builder ()
     jprinth (n:ns) =
         case n `quotRemInteger` HEX_BASE of
@@ -698,16 +599,37 @@ positiveIntegerHex upper = \ n ->
                             let q = fromInteger q'
                                 r = fromInteger r'
                             in jblock q >> jblock r >> jprintb ns
-
-    -- Convert an integer that fits into a machine word. Again, we have two
-    -- functions, one that drops leading zeros (jhead) and one that doesn't
-    -- (jblock)
     jhead :: Int -> Builder ()
-    jhead = toBuilder . hexWith defaultIFormat{ upperCase = upper }
+    jhead = toBuilder . intWith defaultIFormat{ base = b }
     jblock :: Int -> Builder ()
-    jblock d = writeN HEX_DIGITS $ \ marr off -> writePositiveHex upper marr off HEX_DIGITS d
+    jblock d = writeN HEX_DIGITS $ \ marr off -> writePositiveHex b marr off HEX_DIGITS d
 
 --------------------------------------------------------------------------------
+
+-- Split n into digits in base p. We first split n into digits
+-- in base p*p and then split each of these digits into two.
+-- Note that the first 'digit' modulo p*p may have a leading zero
+-- in base p that we need to drop - this is what jsplith takes care of.
+-- jsplitb the handles the remaining digits.
+jsplitf :: Integer -> Integer -> [Integer]
+jsplitf p n
+    | p > n     = [n]
+    | otherwise = jsplith p (jsplitf (p*p) n)
+
+jsplith :: Integer -> [Integer] -> [Integer]
+jsplith p (n:ns) =
+    case n `quotRemInteger` p of
+    (# q, r #) ->
+        if q > 0 then q : r : jsplitb p ns
+                 else     r : jsplitb p ns
+jsplith _ [] = errorWithoutStackTrace "jsplith: []"
+
+jsplitb :: Integer -> [Integer] -> [Integer]
+jsplitb _ []     = []
+jsplitb p (n:ns) = case n `quotRemInteger` p of
+                   (# q, r #) ->
+                       q : r : jsplitb p ns
+
 
 countDigits :: (Integral a) => a -> Int
 {-# INLINE countDigits #-}
@@ -777,95 +699,72 @@ i2wDec :: (Integral a) => a -> Word8
 {-# INLINE i2wDec #-}
 i2wDec v = zero + fromIntegral v
 
-i2wHex :: (Integral a) => Bool -> a -> Word8
+i2wHex :: (Integral a) => Base -> a -> Word8
 {-# INLINE i2wHex #-}
-i2wHex upper v
+i2wHex HexadecimalLower v
     | v <= 9    = zero + fromIntegral v
-    | upper     = 55 + fromIntegral v       -- fromEnum 'A' - 10
     | otherwise = 87 + fromIntegral v       -- fromEnum 'a' - 10
+i2wHex HexadecimalUpper v
+    | v <= 9    = zero + fromIntegral v
+    | otherwise = 55 + fromIntegral v       -- fromEnum 'A' - 10
 
-w8Hex :: Word8 -> TextualBuilder ()
-w8Hex w = TextualBuilder $ writeN 2 $ \ marr off -> do
-    let i = fromIntegral w; j = i + i
-    writePrimArray marr off $ indexOffAddr hexDigitTable j
-    writePrimArray marr (off + 1) $ indexOffAddr hexDigitTable (j+1)
+--------------------------------------------------------------------------------
 
-w8HEX :: Word8 -> TextualBuilder ()
-w8HEX w = TextualBuilder $ writeN 2 $ \ marr off -> do
-    let i = fromIntegral w; j = i + i
-    writePrimArray marr off $ indexOffAddr hexDigitTableUpper j
-    writePrimArray marr (off + 1) $ indexOffAddr hexDigitTableUpper (j+1)
+-- | Format a 'FiniteBits' 'Integral' type into hex nibbles.
+--
+hex :: forall a. (FiniteBits a, Integral a) => a -> TextualBuilder ()
+{-# SPECIALIZE INLINE hex :: Int    -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE hex :: Int8   -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE hex :: Int16  -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE hex :: Int32  -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE hex :: Int64  -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE hex :: Word   -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE hex :: Word8  -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE hex :: Word16 -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE hex :: Word32 -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE hex :: Word64 -> TextualBuilder () #-}
+hex w = TextualBuilder $ writeN hexSize (go (bitSize-8))
+  where
+    bitSize = finiteBitSize (undefined :: a)
+    hexSize = bitSize `unsafeShiftR` 2
+    go !b marr off
+        | b > 0 = do
+            let !i = fromIntegral (w `unsafeShiftR` b) .&. 0xFF; !j = i + i
+            writePrimArray marr off $ indexOffAddr hexDigitTable j
+            writePrimArray marr (off + 1) $ indexOffAddr hexDigitTable (j+1)
+            go (b-8) marr (off+2)
+        | otherwise = do
+            let !i = fromIntegral w .&. 0xFF; !j = i + i
+            writePrimArray marr off $ indexOffAddr hexDigitTable j
+            writePrimArray marr (off + 1) $ indexOffAddr hexDigitTable (j+1)
 
-w16Hex :: Word16 -> TextualBuilder ()
-w16Hex = w16Hex' hexDigitTable
-
-w16HEX :: Word16 -> TextualBuilder ()
-w16HEX = w16Hex' hexDigitTableUpper
-
-w16Hex' :: Addr -> Word16 -> TextualBuilder ()
-w16Hex' table = \ w ->  TextualBuilder $ writeN 4 $ \ marr off -> do
-    let i = fromIntegral (w `unsafeShiftR` 8); j = i + i
-    writePrimArray marr off $ indexOffAddr table j
-    writePrimArray marr (off + 1) $ indexOffAddr table (j+1)
-    let i = fromIntegral (w .&. 0xFF); j = i + i
-    writePrimArray marr (off + 2) $ indexOffAddr table j
-    writePrimArray marr (off + 3) $ indexOffAddr table (j+1)
-
-w32Hex = w32Hex' hexDigitTable
-w32HEX = w32Hex' hexDigitTableUpper
-
-w32Hex' :: Addr -> Word32 -> TextualBuilder ()
-w32Hex' table = \ w -> TextualBuilder $ writeN 8 $ \ marr off -> do
-    let i = fromIntegral (w `unsafeShiftR` 24); j = i + i
-    writePrimArray marr off $ indexOffAddr table j
-    writePrimArray marr (off + 1) $ indexOffAddr table (j+1)
-    let i = fromIntegral (w `unsafeShiftR` 16 .&. 0xFF); j = i + i
-    writePrimArray marr (off + 2) $ indexOffAddr table j
-    writePrimArray marr (off + 3) $ indexOffAddr table (j+1)
-    let i = fromIntegral (w `unsafeShiftR` 8 .&. 0xFF); j = i + i
-    writePrimArray marr (off + 4) $ indexOffAddr table j
-    writePrimArray marr (off + 5) $ indexOffAddr table (j+1)
-    let i = fromIntegral (w .&. 0xFF); j = i + i
-    writePrimArray marr (off + 6) $ indexOffAddr table j
-    writePrimArray marr (off + 7) $ indexOffAddr table (j+1)
-
-w64Hex = w64Hex' hexDigitTable
-w64HEX = w64Hex' hexDigitTableUpper
-
-w64Hex' :: Addr -> Word64 -> TextualBuilder ()
-w64Hex' table = \ w -> TextualBuilder $ writeN 16 $ \ marr off -> do
-    let i = fromIntegral (w `unsafeShiftR` 56); j = i + i
-    writePrimArray marr off $ indexOffAddr table j
-    writePrimArray marr (off + 1) $ indexOffAddr table (j+1)
-    let i = fromIntegral (w `unsafeShiftR` 48 .&. 0xFF); j = i + i
-    writePrimArray marr (off + 2) $ indexOffAddr table j
-    writePrimArray marr (off + 3) $ indexOffAddr table (j+1)
-    let i = fromIntegral (w `unsafeShiftR` 40 .&. 0xFF); j = i + i
-    writePrimArray marr (off + 4) $ indexOffAddr table j
-    writePrimArray marr (off + 5) $ indexOffAddr table (j+1)
-    let i = fromIntegral (w `unsafeShiftR` 32 .&. 0xFF); j = i + i
-    writePrimArray marr (off + 6) $ indexOffAddr table j
-    writePrimArray marr (off + 7) $ indexOffAddr table (j+1)
-    let i = fromIntegral (w `unsafeShiftR` 24 .&. 0xFF); j = i + i
-    writePrimArray marr (off + 8) $ indexOffAddr table j
-    writePrimArray marr (off + 9) $ indexOffAddr table (j+1)
-    let i = fromIntegral (w `unsafeShiftR` 16 .&. 0xFF); j = i + i
-    writePrimArray marr (off + 10) $ indexOffAddr table j
-    writePrimArray marr (off + 11) $ indexOffAddr table (j+1)
-    let i = fromIntegral (w `unsafeShiftR` 8 .&. 0xFF); j = i + i
-    writePrimArray marr (off + 12) $ indexOffAddr table j
-    writePrimArray marr (off + 13) $ indexOffAddr table (j+1)
-    let i = fromIntegral (w .&. 0xFF); j = i + i
-    writePrimArray marr (off + 14) $ indexOffAddr table j
-    writePrimArray marr (off + 15) $ indexOffAddr table (j+1)
-
-#if SIZEOF_HSWORD == 4
-wordHex = w32Hex
-wordHEX = w32HEX
-#else
-wordHex = w64Hex
-wordHEX = w64HEX
-#endif
+-- | The uppercase version of 'hex'.
+--
+heX :: forall a. (FiniteBits a, Integral a) => a -> TextualBuilder ()
+{-# SPECIALIZE INLINE heX :: Int    -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE heX :: Int8   -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE heX :: Int16  -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE heX :: Int32  -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE heX :: Int64  -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE heX :: Word   -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE heX :: Word8  -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE heX :: Word16 -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE heX :: Word32 -> TextualBuilder () #-}
+{-# SPECIALIZE INLINE heX :: Word64 -> TextualBuilder () #-}
+heX w = TextualBuilder $ writeN hexSize (go (bitSize-8))
+  where
+    bitSize = finiteBitSize (undefined :: a)
+    hexSize = bitSize `unsafeShiftR` 2
+    go !b marr off
+        | b > 0 = do
+            let !i = fromIntegral (w `unsafeShiftR` b) .&. 0xFF; !j = i + i
+            writePrimArray marr off $ indexOffAddr hexDigitTableUpper j
+            writePrimArray marr (off + 1) $ indexOffAddr hexDigitTableUpper (j+1)
+            go (b-8) marr (off+2)
+        | otherwise = do
+            let !i = fromIntegral w .&. 0xFF; !j = i + i
+            writePrimArray marr off $ indexOffAddr hexDigitTableUpper j
+            writePrimArray marr (off + 1) $ indexOffAddr hexDigitTableUpper (j+1)
 
 --------------------------------------------------------------------------------
 
