@@ -16,6 +16,9 @@ module Std.Data.Builder.Textual
   , decWith
   , hex
   , hexWith
+  , integerDec
+  , integerHex, integerHEX
+  , w8Hex, w8HEX, w16Hex, w16HEX, w32Hex, w32HEX, w64Hex, w64HEX, wordHex, wordHEX
   {-
   , FFFormat(..)
   , float
@@ -43,13 +46,19 @@ import Data.Primitive.PrimArray
 import Data.Primitive.Addr
 import Data.Int
 import Data.Word
+import Data.Bits
 import Control.Monad.ST
+import GHC.Integer
+import GHC.Types
+#ifdef INTEGER_GMP
+import GHC.Integer.GMP.Internals
+#endif
 import GHC.Float (FFFormat(..))
 
 -- | Buidlers which are safely UTF-8 encoded, thus can be used to build
 -- text directly.
 --
--- Use 'textualBuilder' to use a 'TextualBuilder' as bytes 'Builder'.
+-- Use 'toBuilder' to convert a 'TextualBuilder' to bytes 'Builder'.
 newtype TextualBuilder a = TextualBuilder { toBuilder :: Builder a }
     deriving (Functor, Applicative, Monad)
 
@@ -281,7 +290,11 @@ positiveDec (IFormat width padding ps _) i =
 
 
 writePositiveDec :: (Integral a)
-                => forall s. MutablePrimArray s Word8 -> Int -> Int -> a -> ST s ()
+                => forall s. MutablePrimArray s Word8       -- ^ The buffer
+                -> Int                                      -- ^ writing offset
+                -> Int                                      -- ^ total digits
+                -> a                                        -- ^ the value
+                -> ST s ()
 {-# INLINE writePositiveDec #-}
 writePositiveDec marr off0 ds = go (off0 + ds - 1)
   where
@@ -525,10 +538,6 @@ writePositiveHex upper marr off0 ds = go (off0 + ds - 1)
         writePrimArray marr (off - 1) $ indexOffAddr table j
 
 --------------------------------------------------------------------------------
-
-
---------------------------------------------------------------------------------
-{-
 -- Below is an implementation of formatting integer, the main
 -- idea is borrowed from base (GHC.Show).
 
@@ -553,71 +562,150 @@ writePositiveHex upper marr off0 ds = go (off0 + ds - 1)
 -- HEX_BASE should be 16^DIGITS.
 #endif
 
-integer :: Integer -> TextualBuilder ()
+integerDec :: Integer -> TextualBuilder ()
 #ifdef INTEGER_GMP
-integer 10 f (S# i#) = hex (I# i#)
-integer 16 f (S# i#) = hex (I# i#)
+integerDec (S# i#) = dec (I# i#)
 #endif
-integer base i
-    | i < 0     = TextualBuilder $ encodePrim minus >> go (-i)
-    | otherwise = TextualBuilder $ go i
+-- Divide and conquer implementation of string conversion
+integerDec n0
+    | n0 < 0    = TextualBuilder $ encodePrim minus >> integerDec' (-n0)
+    | otherwise = TextualBuilder $ integerDec' n0
+    where
+    integerDec' :: Integer -> Builder ()
+    integerDec' n
+        | n < BASE  = jhead (fromInteger n)
+        | otherwise = jprinth (jsplitf (BASE*BASE) n)
+
+    -- Split n into digits in base p. We first split n into digits
+    -- in base p*p and then split each of these digits into two.
+    -- Note that the first 'digit' modulo p*p may have a leading zero
+    -- in base p that we need to drop - this is what jsplith takes care of.
+    -- jsplitb the handles the remaining digits.
+    jsplitf :: Integer -> Integer -> [Integer]
+    jsplitf p n
+        | p > n     = [n]
+        | otherwise = jsplith p (jsplitf (p*p) n)
+
+    jsplith :: Integer -> [Integer] -> [Integer]
+    jsplith p (n:ns) =
+        case n `quotRemInteger` p of
+        (# q, r #) ->
+            if q > 0 then q : r : jsplitb p ns
+                     else     r : jsplitb p ns
+    jsplith _ [] = errorWithoutStackTrace "jsplith: []"
+
+    jsplitb :: Integer -> [Integer] -> [Integer]
+    jsplitb _ []     = []
+    jsplitb p (n:ns) = case n `quotRemInteger` p of
+                       (# q, r #) ->
+                           q : r : jsplitb p ns
+
+    -- Convert a number that has been split into digits in base BASE^2
+    -- this includes a last splitting step and then conversion of digits
+    -- that all fit into a machine word.
+    jprinth :: [Integer] -> Builder ()
+    jprinth (n:ns) =
+        case n `quotRemInteger` BASE of
+        (# q', r' #) ->
+            let q = fromInteger q'
+                r = fromInteger r'
+            in if q > 0 then jhead q >> jblock r >> jprintb ns
+                        else jhead r >> jprintb ns
+    jprinth [] = errorWithoutStackTrace "jprinth []"
+
+    jprintb :: [Integer] -> Builder ()
+    jprintb []     = return ()
+    jprintb (n:ns) = case n `quotRemInteger` BASE of
+                        (# q', r' #) ->
+                            let q = fromInteger q'
+                                r = fromInteger r'
+                            in jblock q >> jblock r >> jprintb ns
+
+    -- Convert an integer that fits into a machine word. Again, we have two
+    -- functions, one that drops leading zeros (jhead) and one that doesn't
+    -- (jblock)
+    jhead :: Int -> Builder ()
+    jhead = toBuilder . dec
+    jblock :: Int -> Builder ()
+    jblock d = writeN DIGITS $ \ marr off -> writePositiveDec marr off DIGITS d
+
+integerHex :: Integer -> TextualBuilder ()
+#ifdef INTEGER_GMP
+integerHex (S# i#) = hex (I# i#)
+#endif
+-- Divide and conquer implementation of string conversion
+integerHex n0
+    | n0 < 0    = TextualBuilder $ encodePrim minus >> positiveIntegerHex False (-n0)
+    | otherwise = TextualBuilder $ positiveIntegerHex False n0
+
+integerHEX :: Integer -> TextualBuilder ()
+#ifdef INTEGER_GMP
+integerHEX (S# i#) = hexWith defaultIFormat{upperCase = True} (I# i#)
+#endif
+-- Divide and conquer implementation of string conversion
+integerHEX n0
+    | n0 < 0    = TextualBuilder $ encodePrim minus >> positiveIntegerHex True (-n0)
+    | otherwise = TextualBuilder $ positiveIntegerHex True n0
+
+positiveIntegerHex :: Bool -> Integer -> Builder ()
+positiveIntegerHex upper = \ n ->
+    if n < HEX_BASE
+    then jhead (fromInteger n)
+    else jprinth (jsplitf (HEX_BASE*HEX_BASE) n)
   where
-    go n | n < maxInt = int (fromInteger n)
-         | otherwise  = putH (splitf (maxInt * maxInt) n)
 
-    splitf p n
-      | p > n       = [n]
-      | otherwise   = splith p (splitf (p*p) n)
+    -- Split n into digits in base p. We first split n into digits
+    -- in base p*p and then split each of these digits into two.
+    -- Note that the first 'digit' modulo p*p may have a leading zero
+    -- in base p that we need to drop - this is what jsplith takes care of.
+    -- jsplitb the handles the remaining digits.
+    jsplitf :: Integer -> Integer -> [Integer]
+    jsplitf p n
+        | p > n     = [n]
+        | otherwise = jsplith p (jsplitf (p*p) n)
 
-    splith p (n:ns) = case n `quotRemInteger` p of
-                        PAIR(q,r) | q > 0     -> q : r : splitb p ns
-                                  | otherwise -> r : splitb p ns
-    splith _ _      = error "splith: the impossible happened."
+    jsplith :: Integer -> [Integer] -> [Integer]
+    jsplith p (n:ns) =
+        case n `quotRemInteger` p of
+        (# q, r #) ->
+            if q > 0 then q : r : jsplitb p ns
+                     else     r : jsplitb p ns
+    jsplith _ [] = errorWithoutStackTrace "jsplith: []"
 
-    splitb p (n:ns) = case n `quotRemInteger` p of
-                        PAIR(q,r) -> q : r : splitb p ns
-    splitb _ _      = []
+    jsplitb :: Integer -> [Integer] -> [Integer]
+    jsplitb _ []     = []
+    jsplitb p (n:ns) = case n `quotRemInteger` p of
+                       (# q, r #) ->
+                           q : r : jsplitb p ns
 
-    T maxInt10 maxDigits10 =
-        until ((>mi) . (*10) . fstT) (\(T n d) -> T (n*10) (d+1)) (T 10 1)
-      where mi = fromIntegral (maxBound :: Int)
-    T maxInt16 maxDigits16 =
-        until ((>mi) . (*16) . fstT) (\(T n d) -> T (n*16) (d+1)) (T 16 1)
-      where mi = fromIntegral (maxBound :: Int)
+    -- Convert a number that has been split into digits in base HEX_BASE^2
+    -- this includes a last splitting step and then conversion of digits
+    -- that all fit into a machine word.
+    jprinth :: [Integer] -> Builder ()
+    jprinth (n:ns) =
+        case n `quotRemInteger` HEX_BASE of
+        (# q', r' #) ->
+            let q = fromInteger q'
+                r = fromInteger r'
+            in if q > 0 then jhead q >> jblock r >> jprintb ns
+                        else jhead r >> jprintb ns
+    jprinth [] = errorWithoutStackTrace "jprinth []"
 
-    fstT (T a _) = a
+    jprintb :: [Integer] -> Builder ()
+    jprintb []     = return ()
+    jprintb (n:ns) = case n `quotRemInteger` HEX_BASE of
+                        (# q', r' #) ->
+                            let q = fromInteger q'
+                                r = fromInteger r'
+                            in jblock q >> jblock r >> jprintb ns
 
-    maxInt | base == 10 = maxInt10
-           | otherwise  = maxInt16
-    maxDigits | base == 10 = maxDigits10
-              | otherwise  = maxDigits16
-
-    putH (n:ns) = case n `quotRemInteger` maxInt of
-                    PAIR(x,y)
-                        | q > 0     -> int q <> pblock r <> putB ns
-                        | otherwise -> int r <> putB ns
-                        where q = fromInteger x
-                              r = fromInteger y
-    putH _ = error "putH: the impossible happened"
-
-    putB (n:ns) = case n `quotRemInteger` maxInt of
-                    PAIR(x,y) -> pblock q <> pblock r <> putB ns
-                        where q = fromInteger x
-                              r = fromInteger y
-    putB _ = return ()
-
-    int :: Int -> Builder ()
-    int x | base == 10 = dec x
-          | otherwise  = hex x
-
-    pblock = loop maxDigits
-      where
-        loop !d !n
-            | d == 1    = hexDigit n
-            | otherwise = loop (d-1) q <> hexDigit r
-            where q = n `quotInt` base
-                  r = n `remInt` base
--}
+    -- Convert an integer that fits into a machine word. Again, we have two
+    -- functions, one that drops leading zeros (jhead) and one that doesn't
+    -- (jblock)
+    jhead :: Int -> Builder ()
+    jhead = toBuilder . hexWith defaultIFormat{ upperCase = upper }
+    jblock :: Int -> Builder ()
+    jblock d = writeN HEX_DIGITS $ \ marr off -> writePositiveHex upper marr off HEX_DIGITS d
 
 --------------------------------------------------------------------------------
 
@@ -695,6 +783,89 @@ i2wHex upper v
     | v <= 9    = zero + fromIntegral v
     | upper     = 55 + fromIntegral v       -- fromEnum 'A' - 10
     | otherwise = 87 + fromIntegral v       -- fromEnum 'a' - 10
+
+w8Hex :: Word8 -> TextualBuilder ()
+w8Hex w = TextualBuilder $ writeN 2 $ \ marr off -> do
+    let i = fromIntegral w; j = i + i
+    writePrimArray marr off $ indexOffAddr hexDigitTable j
+    writePrimArray marr (off + 1) $ indexOffAddr hexDigitTable (j+1)
+
+w8HEX :: Word8 -> TextualBuilder ()
+w8HEX w = TextualBuilder $ writeN 2 $ \ marr off -> do
+    let i = fromIntegral w; j = i + i
+    writePrimArray marr off $ indexOffAddr hexDigitTableUpper j
+    writePrimArray marr (off + 1) $ indexOffAddr hexDigitTableUpper (j+1)
+
+w16Hex :: Word16 -> TextualBuilder ()
+w16Hex = w16Hex' hexDigitTable
+
+w16HEX :: Word16 -> TextualBuilder ()
+w16HEX = w16Hex' hexDigitTableUpper
+
+w16Hex' :: Addr -> Word16 -> TextualBuilder ()
+w16Hex' table = \ w ->  TextualBuilder $ writeN 4 $ \ marr off -> do
+    let i = fromIntegral (w `unsafeShiftR` 8); j = i + i
+    writePrimArray marr off $ indexOffAddr table j
+    writePrimArray marr (off + 1) $ indexOffAddr table (j+1)
+    let i = fromIntegral (w .&. 0xFF); j = i + i
+    writePrimArray marr (off + 2) $ indexOffAddr table j
+    writePrimArray marr (off + 3) $ indexOffAddr table (j+1)
+
+w32Hex = w32Hex' hexDigitTable
+w32HEX = w32Hex' hexDigitTableUpper
+
+w32Hex' :: Addr -> Word32 -> TextualBuilder ()
+w32Hex' table = \ w -> TextualBuilder $ writeN 8 $ \ marr off -> do
+    let i = fromIntegral (w `unsafeShiftR` 24); j = i + i
+    writePrimArray marr off $ indexOffAddr table j
+    writePrimArray marr (off + 1) $ indexOffAddr table (j+1)
+    let i = fromIntegral (w `unsafeShiftR` 16 .&. 0xFF); j = i + i
+    writePrimArray marr (off + 2) $ indexOffAddr table j
+    writePrimArray marr (off + 3) $ indexOffAddr table (j+1)
+    let i = fromIntegral (w `unsafeShiftR` 8 .&. 0xFF); j = i + i
+    writePrimArray marr (off + 4) $ indexOffAddr table j
+    writePrimArray marr (off + 5) $ indexOffAddr table (j+1)
+    let i = fromIntegral (w .&. 0xFF); j = i + i
+    writePrimArray marr (off + 6) $ indexOffAddr table j
+    writePrimArray marr (off + 7) $ indexOffAddr table (j+1)
+
+w64Hex = w64Hex' hexDigitTable
+w64HEX = w64Hex' hexDigitTableUpper
+
+w64Hex' :: Addr -> Word64 -> TextualBuilder ()
+w64Hex' table = \ w -> TextualBuilder $ writeN 16 $ \ marr off -> do
+    let i = fromIntegral (w `unsafeShiftR` 56); j = i + i
+    writePrimArray marr off $ indexOffAddr table j
+    writePrimArray marr (off + 1) $ indexOffAddr table (j+1)
+    let i = fromIntegral (w `unsafeShiftR` 48 .&. 0xFF); j = i + i
+    writePrimArray marr (off + 2) $ indexOffAddr table j
+    writePrimArray marr (off + 3) $ indexOffAddr table (j+1)
+    let i = fromIntegral (w `unsafeShiftR` 40 .&. 0xFF); j = i + i
+    writePrimArray marr (off + 4) $ indexOffAddr table j
+    writePrimArray marr (off + 5) $ indexOffAddr table (j+1)
+    let i = fromIntegral (w `unsafeShiftR` 32 .&. 0xFF); j = i + i
+    writePrimArray marr (off + 6) $ indexOffAddr table j
+    writePrimArray marr (off + 7) $ indexOffAddr table (j+1)
+    let i = fromIntegral (w `unsafeShiftR` 24 .&. 0xFF); j = i + i
+    writePrimArray marr (off + 8) $ indexOffAddr table j
+    writePrimArray marr (off + 9) $ indexOffAddr table (j+1)
+    let i = fromIntegral (w `unsafeShiftR` 16 .&. 0xFF); j = i + i
+    writePrimArray marr (off + 10) $ indexOffAddr table j
+    writePrimArray marr (off + 11) $ indexOffAddr table (j+1)
+    let i = fromIntegral (w `unsafeShiftR` 8 .&. 0xFF); j = i + i
+    writePrimArray marr (off + 12) $ indexOffAddr table j
+    writePrimArray marr (off + 13) $ indexOffAddr table (j+1)
+    let i = fromIntegral (w .&. 0xFF); j = i + i
+    writePrimArray marr (off + 14) $ indexOffAddr table j
+    writePrimArray marr (off + 15) $ indexOffAddr table (j+1)
+
+#if SIZEOF_HSWORD == 4
+wordHex = w32Hex
+wordHEX = w32HEX
+#else
+wordHex = w64Hex
+wordHEX = w64HEX
+#endif
 
 --------------------------------------------------------------------------------
 

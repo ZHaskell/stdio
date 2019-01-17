@@ -95,6 +95,13 @@ source-repository head
   location: git://github.com/haskell-stdio/stdio.git
 
 
+flag integer-simple
+  description:
+    Use the [simple integer library](http://hackage.haskell.org/package/integer-simple)
+    instead of [integer-gmp](http://hackage.haskell.org/package/integer-gmp)
+  default: False
+  manual: False
+
 library
     exposed-modules:        Std.Data.Vector
                             Std.Data.Vector.Base
@@ -148,6 +155,13 @@ library
                         ,   exceptions >= 0.10
                         ,   transformers
                         ,   stm
+
+  if flag(integer-simple)
+    cpp-options: -DINTEGER_SIMPLE
+    build-depends: integer-simple >= 0.1 && < 0.5
+  else
+    cpp-options: -DINTEGER_GMP
+    build-depends: integer-gmp >= 0.2 && < 1.1
 
     include-dirs:       include
                         third_party/utf8rewind/include/utf8rewind
@@ -240,6 +254,13 @@ test-suite test
                   , HUnit
                   , QuickCheck >= 2.10
                   , unboxed-ref
+
+  if flag(integer-simple)
+    cpp-options: -DINTEGER_SIMPLE
+    build-depends: integer-simple >= 0.1 && < 0.5
+  else
+    cpp-options: -DINTEGER_GMP
+    build-depends: integer-gmp >= 0.2 && < 1.1
 
     ghc-options:         -threaded
     default-language:    Haskell2010 
