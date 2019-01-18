@@ -28,6 +28,7 @@
  *     http://www.cs.tufts.edu/~nr/cs257/archive/florian-loitsch/printf.pdf
  */
 
+#include <dtoa.h>
 #include <stdint.h> // uint64_t etc.
 #include <assert.h> // assert
 #include <math.h> // ceil
@@ -261,7 +262,7 @@ static int round_weed(char *buffer, int len, uint64_t wp_W, uint64_t delta, uint
     return 2*ulp <= rest && rest <= delta - 4*ulp;
 }
 
-static int digit_gen(diy_fp low, diy_fp w, diy_fp high, char *buffer, int *length, int *kappa)
+static int digit_gen(diy_fp low, diy_fp w, diy_fp high, char *buffer, HsInt *length, int *kappa)
 {
     uint64_t unit = 1;
     diy_fp too_low = { low.f - unit, low.e };
@@ -303,7 +304,7 @@ static int digit_gen(diy_fp low, diy_fp w, diy_fp high, char *buffer, int *lengt
     }
 }
 
-int grisu3(double v, char *buffer, int *length, int *d_exp)
+HsInt grisu3(double v, char *buffer, HsInt *length, HsInt *d_exp)
 {
     int mk, kappa, success;
     diy_fp dfp = double2diy_fp(v);
@@ -331,10 +332,10 @@ int grisu3(double v, char *buffer, int *length, int *d_exp)
 
     success = digit_gen(b_minus, w, b_plus, buffer, length, &kappa);
     *d_exp = kappa - mk;
-    return success;
+    return (HsInt)success;
 }
 
-int grisu3_sp(float v, char *buffer, int *length, int *d_exp)
+HsInt grisu3_sp(float v, char *buffer, HsInt *length, HsInt *d_exp)
 {
     int mk, kappa, success;
     diy_fp dfp = float2diy_fp(v);
@@ -362,5 +363,5 @@ int grisu3_sp(float v, char *buffer, int *length, int *d_exp)
 
     success = digit_gen(b_minus, w, b_plus, buffer, length, &kappa);
     *d_exp = kappa - mk;
-    return success;
+    return (HsInt)success;
 }

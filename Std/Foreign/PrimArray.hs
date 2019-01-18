@@ -63,13 +63,17 @@ module Std.Foreign.PrimArray
   ( -- ** Unsafe FFI
     withPrimArrayUnsafe
   , withMutablePrimArrayUnsafe
+  , withMutableByteArrayUnsafe
   , withPrimVectorUnsafe
   , withPrimUnsafe
+  , withPrimUnsafe'
     -- ** Safe FFI
   , withPrimArraySafe
   , withMutablePrimArraySafe
+  , withMutableByteArraySafe
   , withPrimVectorSafe
   , withPrimSafe
+  , withPrimSafe'
     -- ** Pointer helpers
   , clearPtr
   , addrToPtr
@@ -126,6 +130,13 @@ withMutablePrimArrayUnsafe :: forall m a b. (PrimMonad m, Prim a)
 withMutablePrimArrayUnsafe mpa@(MutablePrimArray mba#) f =
     getSizeofMutablePrimArray mpa >>= f mba#
 
+withMutableByteArrayUnsafe :: PrimMonad m
+                           => Int      -- ^ In bytes
+                           -> (MutableByteArray# (PrimState m) -> m b) -> m b
+withMutableByteArrayUnsafe len f = do
+    (MutableByteArray mba#) <- newByteArray len
+    f mba#
+
 -- | Pass 'PrimVector' to unsafe FFI as pointer
 --
 -- The 'PrimVector' version of 'withPrimArrayUnsafe'.
@@ -147,8 +158,17 @@ withPrimVectorUnsafe (PrimVector arr s l) f = withPrimArrayUnsafe arr $ \ ba# _ 
 -- USE THIS FUNCTION WITH UNSAFE FFI CALL ONLY.
 --
 withPrimUnsafe :: forall m a b. (PrimMonad m, Prim a)
+               => a -> (MutableByteArray# (PrimState m) -> m b) -> m (a, b)
+withPrimUnsafe v f = do
+    mpa@(MutablePrimArray mba#) <- newPrimArray 1    -- All heap objects are WORD aligned
+    writePrimArray mpa 0 v
+    !b <- f mba#                                      -- so no need to do extra alignment
+    !a <- readPrimArray mpa 0
+    return (a, b)
+
+withPrimUnsafe' :: forall m a b. (PrimMonad m, Prim a)
                => (MutableByteArray# (PrimState m) -> m b) -> m (a, b)
-withPrimUnsafe f = do
+withPrimUnsafe' f = do
     mpa@(MutablePrimArray mba#) <- newPrimArray 1    -- All heap objects are WORD aligned
     !b <- f mba#                                      -- so no need to do extra alignment
     !a <- readPrimArray mpa 0
@@ -192,6 +212,11 @@ withMutablePrimArraySafe marr f
         copyMutablePrimArray buf 0 marr 0 siz
         withMutablePrimArrayContents buf $ \ ptr -> f ptr siz
 
+withMutableByteArraySafe :: Int -> (Ptr Word8 -> IO b) -> IO b
+withMutableByteArraySafe siz f = do
+    buf <- newPinnedPrimArray siz
+    withMutablePrimArrayContents buf f
+
 -- | Pass 'PrimVector' to unsafe FFI as pointer
 --
 -- The 'PrimVector' version of 'withPrimArraySafe'. The 'Ptr' is already pointed
@@ -213,8 +238,16 @@ withPrimVectorSafe v@(PrimVector arr s l) f
 -- | Create an one element primitive array and use it as a pointer to the primitive element.
 --
 -- Don't pass a forever loop to this function, see <https://ghc.haskell.org/trac/ghc/ticket/14346 #14346>.
-withPrimSafe :: forall a b. Prim a => (Ptr a -> IO b) -> IO (a, b)
-withPrimSafe f = do
+withPrimSafe :: forall a b. Prim a => a -> (Ptr a -> IO b) -> IO (a, b)
+withPrimSafe v f = do
+    buf <- newAlignedPinnedPrimArray 1
+    writePrimArray buf 0 v
+    !b <- withMutablePrimArrayContents buf $ \ ptr -> f ptr
+    !a <- readPrimArray buf 0
+    return (a, b)
+
+withPrimSafe' :: forall a b. Prim a => (Ptr a -> IO b) -> IO (a, b)
+withPrimSafe' f = do
     buf <- newAlignedPinnedPrimArray 1
     !b <- withMutablePrimArrayContents buf $ \ ptr -> f ptr
     !a <- readPrimArray buf 0

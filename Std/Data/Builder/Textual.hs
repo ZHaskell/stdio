@@ -4,6 +4,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE UnliftedFFITypes #-}
 {-# LANGUAGE CPP #-}
 
 module Std.Data.Builder.Textual
@@ -24,12 +25,12 @@ module Std.Data.Builder.Textual
   , hex, heX
   -- * IEEE float formating
   , FFFormat(..)
-  , float
+  {-
   , double
-  , floatWith
   , doubleWith
 
-  {-
+  , float
+  , floatWith
   , char7
   , string7
 
@@ -41,19 +42,29 @@ module Std.Data.Builder.Textual
   , text
   , show
   -}
+  -- * Misc
+  , grisu3
+  , grisu3_sp
+  , minus, plus, zero, space
+  , i2wDec, i2wHex
+  , countDigits, countHexDigits
   ) where
 
 import Std.Data.Builder.Base
 import Std.Data.Builder.DigitTable
 import Std.Data.Text.Base
 import Data.Primitive.PrimArray
+import Data.Primitive.ByteArray
 import Data.Primitive.Addr
 import Data.Int
 import Data.Word
 import Data.Bits
+import Control.Monad
 import Control.Monad.ST
 import GHC.Integer
 import GHC.Types
+import Std.Foreign.PrimArray
+import System.IO.Unsafe
 #ifdef INTEGER_GMP
 import GHC.Integer.GMP.Internals
 #endif
@@ -776,15 +787,165 @@ heX w = TextualBuilder $ writeN hexSize (go w (hexSize-2))
 
 --------------------------------------------------------------------------------
 
-float :: Float -> TextualBuilder ()
-float = floatWith FFGeneric
-double :: Double -> TextualBuilder ()
-double = doubleWith FFGeneric
+-- Floating point numbers
+-------------------------
 
-floatWith :: FFFormat -> Float -> TextualBuilder ()
-floatWith = undefined
-doubleWith :: FFFormat -> Double -> TextualBuilder ()
-doubleWith = undefined
+ -- | Decimal encoding of an IEEE 'Float'.
+-- Using standard decimal notation for arguments whose absolute value lies
+-- between @0.1@ and @9,999,999@, and scientific notation otherwise.
+--
+{-
+{-# INLINE floatDec #-}
+float :: Float -> Builder
+float = floatWith FFGeneric Nothing
+
+ -- | Decimal encoding of an IEEE 'Double'.
+-- Using standard decimal notation for arguments whose absolute value lies
+-- between @0.1@ and @9,999,999@, and scientific notation otherwise.
+--
+double :: Double -> Builder
+{-# INLINE double #-}
+double = doubleWith FFGeneric Nothing
+
+ -- | Format single-precision float using drisu3 with dragon4 fallback.
+--
+{-# INLINE floatWith #-}
+floatWith :: FFFormat
+          -> Maybe Int  -- ^ Number of decimal places to render.
+          -> Float
+          -> Builder
+floatWith fmt decs x
+    | isNaN x                   = string7 "NaN"
+    | isInfinite x              = if x < 0 then string7 "-Infinity" else string7 "Infinity"
+    | x < 0                     = char7 '-' `append` doFmt fmt decs (digits (-x))
+    | isNegativeZero x          = string7 "-0.0"
+    | x == 0                    = string7 "0.0"
+    | otherwise                 = doFmt fmt decs (digits x) -- Grisu only handles strictly positive finite numbers.
+  where
+    digits y = case grisu3_sp y of Just r  -> r
+                                   Nothing -> floatToDigits 10 y
+
+ -- | Format double-precision float using drisu3 with dragon4 fallback.
+--
+{-# INLINE doubleWith #-}
+doubleWith :: FFFormat
+           -> Maybe Int  -- ^ Number of decimal places to render.
+           -> Double
+           -> TextualBuilder ()
+doubleWith fmt decs x
+    | isNaN x                   = string7 "NaN"
+    | isInfinite x              = if x < 0 then string7 "-Infinity" else string7 "Infinity"
+    | x < 0                     = char7 '-' >> doFmt fmt decs (digits (-x))
+    | isNegativeZero x          = string7 "-0.0"
+    | x == 0                    = string7 "0.0"
+    | otherwise                 = doFmt fmt decs (digits x) -- Grisu only handles strictly positive finite numbers.
+  where
+    digits y = case grisu3 y of Just r  -> r
+                                Nothing -> floatToDigits 10 y
+
+doFmt :: FFFormat -> Maybe Int -> ([Int], Int) -> TextualBuilder ()
+{-# INLINE doFmt #-}
+doFmt format decs (is, e) =
+    let ds = map intToDigit is
+    in case format of
+        FFGeneric ->
+            doFmt (if e < 0 || e > 7 then FFExponent else FFFixed) decs (is,e)
+        FFExponent ->
+            case decs of
+                Nothing ->
+                    let show_e' = intDec (e-1)
+                    in case ds of
+                        "0"     -> string7 "0.0e0"
+                        [d]     -> char7 d >> string7 ".0e" >> show_e'
+                        (d:ds') -> char7 d >> char7 '.' >>
+                                    string7 ds' >> char7 'e' >> show_e'
+                        []      -> error "doFmt/Exponent: []"
+                Just dec ->
+                    let dec' = max dec 1 in
+                    case is of
+                        [0] -> char7 '0' >> char7 '.' >>
+                                string7 (replicate dec' '0') >> char7 'e' >> char7 '0'
+                        _ ->
+                            let (ei,is') = roundTo 10 (dec'+1) is
+                                (d:ds') = map intToDigit (if ei > 0 then init is' else is')
+                            in char7 d >> char7 '.' >>
+                                string7 ds' >> char7 'e' >> intDec (e-1+ei)
+        FFFixed ->
+            let mk0 ls = case ls of { "" -> char7 '0' ; _ -> string7 ls}
+            in case decs of
+                Nothing
+                    | e <= 0    -> char7 '0' >> char7 '.' >>
+                                    string7 (replicate (-e) '0') >> string7 ds
+                    | otherwise ->
+                        let f 0 s    rs  = mk0 (reverse s) >> char7 '.' >> mk0 rs
+                            f n s    ""  = f (n-1) ('0':s) ""
+                            f n s (r:rs) = f (n-1) (r:s) rs
+                        in f e "" ds
+                Just dec ->
+                    let dec' = max dec 0
+                    in if e >= 0
+                        then
+                            let (ei,is') = roundTo 10 (dec' + e) is
+                                (ls,rs)  = splitAt (e+ei) (map intToDigit is')
+                            in mk0 ls >>
+                                (if null rs then empty else char7 '.' >> string7 rs)
+                        else
+                            let (ei,is') = roundTo 10 dec' (replicate (-e) 0 ++ is)
+                                d:ds' = map intToDigit (if ei > 0 then is' else 0:is')
+                            in char7 d >>
+                                (if null ds' then empty else char7 '.' >> string7 ds')
+
+-}
+ ------------------------------------------------------------------------------
+-- Conversion of 'Float's and 'Double's to ASCII in decimal using Grisu3
+------------------------------------------------------------------------
+
+#define GRISU3_SINGLE_BUF_LEN 10
+#define GRISU3_DOUBLE_BUF_LEN 18
+
+foreign import ccall unsafe "static grisu3" c_grisu3
+    :: Double
+    -> MutableByteArray# RealWorld  -- ^ char*
+    -> MutableByteArray# RealWorld  -- ^ Int
+    -> MutableByteArray# RealWorld  -- ^ Int
+    -> IO Int
+
+ -- | Decimal encoding of a 'Double'.
+grisu3 :: Double -> Maybe ([Word8], Int)
+{-# INLINE grisu3 #-}
+grisu3 d = unsafePerformIO $
+    withMutableByteArrayUnsafe GRISU3_DOUBLE_BUF_LEN $ \ pBuf -> do
+        (len, (e, success)) <- withPrimUnsafe' $ \ pLen ->
+            withPrimUnsafe' $ \ pE ->
+                c_grisu3 (realToFrac d) pBuf pLen pE
+        if success == 0 -- grisu3 fail
+        then return Nothing
+        else do
+            buf <- forM [0..len-1] (readByteArray (MutableByteArray pBuf))
+            let !e' = e + len
+            return $ Just (buf, e')
+
+foreign import ccall unsafe "static grisu3_sp" c_grisu3_sp
+    :: Float
+    -> MutableByteArray# RealWorld  -- ^ char*
+    -> MutableByteArray# RealWorld  -- ^ Int
+    -> MutableByteArray# RealWorld  -- ^ Int
+    -> IO Int
+
+ -- | Decimal encoding of a 'Float'.
+grisu3_sp :: Float -> Maybe ([Word8], Int)
+{-# INLINE grisu3_sp #-}
+grisu3_sp d = unsafePerformIO $
+    withMutableByteArrayUnsafe GRISU3_SINGLE_BUF_LEN $ \ pBuf -> do
+        (len, (e, success)) <- withPrimUnsafe' $ \ pLen ->
+            withPrimUnsafe' $ \ pE ->
+                c_grisu3_sp (realToFrac d) pBuf pLen pE
+        if success == 0 -- grisu3 fail
+        then return Nothing
+        else do
+            buf <- forM [0..len-1] (readByteArray (MutableByteArray pBuf))
+            let !e' = e + len
+            return $ Just (buf, e')
 
 char7 :: Char -> TextualBuilder ()
 char7 = undefined

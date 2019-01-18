@@ -20,11 +20,13 @@ extra-source-files:  ChangeLog.md
                      include/bytes.h
                      include/hs_uv.h
                      include/text.h
+                     include/dtoa.h
                      cbits/bytes.c
-                     cbits/text.c
+                     cbits/dtoa.c
                      cbits/hs_uv_base.c
                      cbits/hs_uv_stream.c
                      cbits/hs_uv_file.c
+                     cbits/text.c
                      -- libuv C sources (for Windows)
                      third_party/libuv/include/uv.h
                      third_party/libuv/include/uv/win.h
@@ -170,17 +172,20 @@ library
                         third_party/utf8rewind/source
                         third_party/fastvalidate-utf-8/include
     includes:           bytes.h
-                        text.h
+                        dtoa.h
                         hs_uv.h
+                        text.h
                         utf8rewind.h
                         simdutf8check.h
     install-includes:   bytes.h
-                        text.h
+                        dtoa.h
                         hs_uv.h
+                        text.h
                         utf8rewind.h
                         simdutf8check.h
     cc-options:         -march=native
     c-sources:          cbits/bytes.c
+                        cbits/dtoa.c
                         cbits/text.c
                         cbits/hs_uv_base.c
                         cbits/hs_uv_stream.c
