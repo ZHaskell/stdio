@@ -1,5 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
@@ -723,20 +724,24 @@ hex :: forall a. (FiniteBits a, Integral a) => a -> TextualBuilder ()
 {-# SPECIALIZE INLINE hex :: Word16 -> TextualBuilder () #-}
 {-# SPECIALIZE INLINE hex :: Word32 -> TextualBuilder () #-}
 {-# SPECIALIZE INLINE hex :: Word64 -> TextualBuilder () #-}
-hex w = TextualBuilder $ writeN hexSize (go (bitSize-8))
+hex w = TextualBuilder $ writeN hexSize (go w (hexSize-2))
   where
     bitSize = finiteBitSize (undefined :: a)
-    hexSize = bitSize `unsafeShiftR` 2
-    go !b marr off
-        | b > 0 = do
-            let !i = fromIntegral (w `unsafeShiftR` b) .&. 0xFF; !j = i + i
+    hexSize = (bitSize+3) `unsafeShiftR` 2
+    go !v !d marr off
+        | d > 0 = do
+            let !i = fromIntegral v .&. 0xFF; !j = i + i
+            writePrimArray marr (off + d) $ indexOffAddr hexDigitTable j
+            writePrimArray marr (off + d + 1) $ indexOffAddr hexDigitTable (j+1)
+            go (v `unsafeShiftR` 8) (d-2) marr off
+        | d == 0 = do
+            let !i = fromIntegral v .&. 0xFF; !j = i + i
             writePrimArray marr off $ indexOffAddr hexDigitTable j
             writePrimArray marr (off + 1) $ indexOffAddr hexDigitTable (j+1)
-            go (b-8) marr (off+2)
-        | otherwise = do
-            let !i = fromIntegral w .&. 0xFF; !j = i + i
-            writePrimArray marr off $ indexOffAddr hexDigitTable j
-            writePrimArray marr (off + 1) $ indexOffAddr hexDigitTable (j+1)
+        | d < 0  = do         -- ^ for FiniteBits instances which has extra bits
+            let !i = fromIntegral v .&. 0x0F :: Int
+            writePrimArray marr off $ i2wHex HexadecimalLower i
+
 
 -- | The uppercase version of 'hex'.
 --
@@ -751,20 +756,23 @@ heX :: forall a. (FiniteBits a, Integral a) => a -> TextualBuilder ()
 {-# SPECIALIZE INLINE heX :: Word16 -> TextualBuilder () #-}
 {-# SPECIALIZE INLINE heX :: Word32 -> TextualBuilder () #-}
 {-# SPECIALIZE INLINE heX :: Word64 -> TextualBuilder () #-}
-heX w = TextualBuilder $ writeN hexSize (go (bitSize-8))
+heX w = TextualBuilder $ writeN hexSize (go w (hexSize-2))
   where
     bitSize = finiteBitSize (undefined :: a)
-    hexSize = bitSize `unsafeShiftR` 2
-    go !b marr off
-        | b > 0 = do
-            let !i = fromIntegral (w `unsafeShiftR` b) .&. 0xFF; !j = i + i
+    hexSize = (bitSize+3) `unsafeShiftR` 2
+    go !v !d marr off
+        | d > 0 = do
+            let !i = fromIntegral v .&. 0xFF; !j = i + i
+            writePrimArray marr (off + d) $ indexOffAddr hexDigitTableUpper j
+            writePrimArray marr (off + d + 1) $ indexOffAddr hexDigitTableUpper (j+1)
+            go (v `unsafeShiftR` 8) (d-2) marr off
+        | d == 0 = do
+            let !i = fromIntegral v .&. 0xFF; !j = i + i
             writePrimArray marr off $ indexOffAddr hexDigitTableUpper j
             writePrimArray marr (off + 1) $ indexOffAddr hexDigitTableUpper (j+1)
-            go (b-8) marr (off+2)
-        | otherwise = do
-            let !i = fromIntegral w .&. 0xFF; !j = i + i
-            writePrimArray marr off $ indexOffAddr hexDigitTableUpper j
-            writePrimArray marr (off + 1) $ indexOffAddr hexDigitTableUpper (j+1)
+        | d < 0  = do         -- ^ for FiniteBits instances which has extra bits
+            let !i = fromIntegral v .&. 0x0F :: Int
+            writePrimArray marr off $ i2wHex HexadecimalUpper i
 
 --------------------------------------------------------------------------------
 

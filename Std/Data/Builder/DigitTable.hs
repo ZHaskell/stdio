@@ -1,4 +1,5 @@
 {-# LANGUAGE NoCPP #-}
+{-# LANGUAGE MagicHash #-}
 
 module Std.Data.Builder.DigitTable where
 

@@ -127,6 +127,7 @@ library
 
                             Std.Data.Builder.Base
                             Std.Data.Builder.Textual
+                            Std.Data.Builder.DigitTable
 
                             Std.Foreign.PrimArray
 
