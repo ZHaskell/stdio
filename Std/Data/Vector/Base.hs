@@ -89,6 +89,7 @@ module Std.Data.Vector.Base (
   -- * C FFI
   , c_strcmp
   , c_strlen
+  , c_validate_utf8_fast
  ) where
 
 import           Control.DeepSeq
@@ -414,13 +415,20 @@ packStringLiteral :: String -> Bytes
 packStringLiteral = pack . fmap (fromIntegral . ord)
 
 packStringAddr :: Addr# -> Bytes
-packStringAddr addr# = unsafePerformIO $ do
-    let cstr = Ptr addr#
-    len <- fromIntegral <$> c_strlen (castPtr cstr)
-    marr <- newPinnedPrimArray len
-    copyPtrToMutablePrimArray marr 0 cstr len
-    arr <- unsafeFreezePrimArray marr
-    return $ PrimVector arr 0 len
+packStringAddr addr# = case validateAndCopy addr# of
+                            Just vec -> vec
+                            Nothing  -> pack . fmap (fromIntegral . ord) $ unpackCString# addr#
+  where
+    validateAndCopy addr# = unsafePerformIO $ do
+        let cstr = Ptr addr#
+        len <- fromIntegral <$> c_strlen cstr
+        valid <- c_validate_utf8_fast cstr (fromIntegral len)
+        if valid == 0
+           then return Nothing
+           else do marr <- newPinnedPrimArray len
+                   copyPtrToMutablePrimArray marr 0 (castPtr cstr) len
+                   arr <- unsafeFreezePrimArray marr
+                   return $ Just $ PrimVector arr 0 len
 
 {-# NOINLINE CONLIKE packStringLiteral #-}
 
@@ -1193,3 +1201,6 @@ foreign import ccall unsafe "string.h strcmp"
 
 foreign import ccall unsafe "string.h strlen"
     c_strlen :: CString -> IO CSize
+
+foreign import ccall unsafe "simdutf8check.h validate_utf8_fast"
+    c_validate_utf8_fast :: CString -> CSize -> IO CBool

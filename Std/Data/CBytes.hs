@@ -47,9 +47,6 @@ module Std.Data.CBytes
   , toBytes, fromBytes
   , fromCStringMaybe, fromCString
   , withCBytes
-  -- * Misc
-  , c_strlen
-  , c_strcmp
   ) where
 
 import           Control.Monad

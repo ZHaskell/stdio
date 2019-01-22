@@ -135,7 +135,7 @@ import           GHC.CString              (unpackCString#)
 import           Std.Data.Array
 import           Std.Data.Text.UTF8Codec
 import           Std.Data.Text.UTF8Rewind
-import           Std.Data.Vector.Base     (Bytes, PrimVector(..), c_strlen)
+import           Std.Data.Vector.Base     (Bytes, PrimVector(..), c_strlen, c_validate_utf8_fast)
 import qualified Std.Data.Vector.Base     as V
 import qualified Std.Data.Vector.Extra    as V
 import qualified Std.Data.Vector.Search   as V
@@ -179,13 +179,20 @@ packStringLiteral = pack
 {-# NOINLINE CONLIKE packStringLiteral #-}
 
 packStringAddr :: Addr# -> Text
-packStringAddr addr# = unsafeDupablePerformIO $ do
-    let cstr = Ptr addr#
-    len <- fromIntegral <$> c_strlen (castPtr cstr)
-    marr <- newPinnedPrimArray len
-    copyPtrToMutablePrimArray marr 0 cstr len
-    arr <- unsafeFreezePrimArray marr
-    return $ Text $ PrimVector arr 0 len
+packStringAddr addr# = case validateAndCopy addr# of
+                            Just txt -> txt
+                            Nothing  -> pack (unpackCString# addr#)
+  where
+    validateAndCopy addr# = unsafeDupablePerformIO $ do
+        let cstr = Ptr addr#
+        len <- fromIntegral <$> c_strlen cstr
+        valid <- c_validate_utf8_fast cstr (fromIntegral len)
+        if valid == 0
+           then return Nothing
+           else do marr <- newPinnedPrimArray len
+                   copyPtrToMutablePrimArray marr 0 (castPtr cstr) len
+                   arr <- unsafeFreezePrimArray marr
+                   return $ Just $ Text $ PrimVector arr 0 len
 
 {-# RULES
     "packStringLiteral/packStringAddr" forall addr . packStringLiteral (unpackCString# addr) = packStringAddr addr
