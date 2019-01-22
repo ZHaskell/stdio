@@ -1,7 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP          #-}
 -- |
--- Module      :  Data.Binary.Parser.Word8
+-- Module      :  Std.Data.Parser.Binary
 -- Copyright   :  Bryan O'Sullivan 2007-2015, Winterland 2016
 -- License     :  BSD3
 --
@@ -11,12 +11,15 @@
 --
 -- Simple, efficient combinator parsing for 'V.Bytes'.
 --
-module Data.Binary.Parser.Word8 where
+module Std.Data.Parser.Binary where
 
 import           Control.Applicative
 import           Control.Monad
-import           Std.Data.Parser.Internal
-import qualified Std.Data.Vector          as V
+import           Data.Word
+import           Std.Data.Parser.Base
+import qualified Std.Data.Vector.Base     as V
+import qualified Std.Data.Vector.Extra    as V
+import qualified Data.Primitive.PrimArray as A
 import           Prelude                  hiding (takeWhile)
 
 --------------------------------------------------------------------------------
@@ -85,8 +88,7 @@ word8 c = do
 -- | Match any byte.
 --
 anyWord8 :: Parser Word8
-anyWord8 = getWord8
-{-# INLINE anyWord8 #-}
+anyWord8 = decodePrim
 
 -- | The parser @skipWord8 p@ succeeds for any byte for which the predicate @p@ returns 'True'.
 --
@@ -108,7 +110,7 @@ skipN n = do
     bs <- get
     let l = V.length bs
     if l >= n then put (V.unsafeDrop n bs)
-              else put V.empty >> skip (l - n)
+              else put V.empty >> skipN (l - n)
 {-# INLINE skipN #-}
 
 -- | Consume input as long as the predicate returns 'False' or reach the end of input,
@@ -206,44 +208,6 @@ string bs = do
         else fail "string"
 {-# INLINE string #-}
 
--- | A stateful scanner.  The predicate consumes and transforms a
--- state argument, and each transformed state is passed to successive
--- invocations of the predicate on each byte of the input until one
--- returns 'Nothing' or the input ends.
---
--- This parser does not fail.  It will return an empty string if the
--- predicate returns 'Nothing' on the first byte of input.
---
-scan :: s -> (s -> Word8 -> Maybe s) -> Parser V.Bytes
-scan s0 consume = withInputChunks s0 consume' V.concat (return . V.concat)
-  where
-    consume' s1 (PS fp off len) = accursedUnutterablePerformIO $
-        withForeignPtr fp $ \ptr0 -> do
-            let start = ptr0 `plusPtr` off
-                end   = start `plusPtr` len
-            go fp off start end start s1
-    go fp off start end ptr !s
-        | ptr < end = do
-            w <- Storable.peek ptr
-            case consume s w of
-                Just s' -> go fp off start end (ptr `plusPtr` 1) s'
-                _       -> do
-                    let !len1 = ptr `minusPtr` start
-                        !off2 = off + len1
-                        !len2 = end `minusPtr` ptr
-                    return (Right (PS fp off len1, PS fp off2 len2))
-        | otherwise = return (Left s)
-{-# INLINE scan #-}
-
--- | Similar to 'scan', but working on 'V.Bytes' chunks, The predicate
--- consumes a 'V.Bytes' chunk and transforms a state argument,
--- and each transformed state is passed to successive invocations of
--- the predicate on each chunk of the input until one chunk got splited to
--- @Right (V.Bytes, V.Bytes)@ or the input ends.
---
-scanChunks :: s -> Consume s -> Parser V.Bytes
-scanChunks s consume = withInputChunks s consume V.concat (return . V.concat)
-{-# INLINE scanChunks #-}
 
 --------------------------------------------------------------------------------
 
@@ -287,7 +251,7 @@ isEndOfLine w = w == 13 || w == 10
 -- return followed by a newline byte @\"\\r\\n\"@.
 endOfLine :: Parser ()
 endOfLine = do
-    w <- getWord8
+    w <- decodePrim :: Parser Word8
     case w of
         10 -> return ()
         13 -> word8 10

@@ -6,7 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 {-|
-Module      : Std.Data.Parser.Internal
+Module      : Std.Data.Parser.Base
 Description : Efficient deserialization/parse.
 Copyright   : (c) Winterland, 2017-2018
 License     : BSD
@@ -16,7 +16,7 @@ Portability : non-portable
 WIP
 -}
 
-module Std.Data.Parser.Internal where
+module Std.Data.Parser.Base where
 
 import           Control.Applicative
 import           Control.Monad
@@ -26,33 +26,33 @@ import           Data.Word
 import           GHC.Prim
 import           GHC.Types
 import           Std.Data.PrimArray.UnalignedAccess
-import qualified Std.Data.Vector                    as V
+import qualified Std.Data.Vector.Base               as V
+import qualified Std.Data.Vector.Extra              as V
 
 -- | Simple parsing result, that represent respectively:
---
--- * success: the remaining unparsed data and the parser value
 --
 -- * failure: with the error message
 --
 -- * continuation: that need for more input data
 --
--- EOF is indicated by supplying an empty 'Bytes' to 'NeedMore'.
-data ParseResult a
+-- * success: the remaining unparsed data and the parser value
+--
+data Result a
     = Success !V.Bytes a
     | Failure !V.Bytes [String]
-    | NeedMore (V.Bytes -> ParseResult a)
+    | NeedMore (V.Bytes -> Result a)
 
-instance Functor ParseResult where
+instance Functor Result where
     fmap f (Success s a)   = Success s (f a)
     fmap _ (Failure s msg) = Failure s msg
     fmap f (NeedMore k) = NeedMore (fmap f . k)
 
-instance Show a => Show (ParseResult a) where
+instance Show a => Show (Result a) where
     show (Failure _ errs) = "ParseFailure: " ++ show errs
     show (NeedMore _)     = "NeedMore _"
     show (Success _ a)    = "ParseOK " ++ show a
 
-type ParseStep r = V.Bytes -> ParseResult r
+type ParseStep r = V.Bytes -> Result r
 
 -- | Simple CPSed parser
 --
@@ -99,7 +99,7 @@ instance Alternative Parser where
             _ -> error "Binary: impossible"
     {-# INLINE (<|>) #-}
 
-parse :: Parser a -> V.Bytes -> ParseResult a
+parse :: Parser a -> V.Bytes -> Result a
 {-# INLINABLE parse #-}
 parse (Parser p) input = p (\ a input' -> Success input' a) input
 
@@ -107,10 +107,10 @@ parse (Parser p) input = p (\ a input' -> Success input' a) input
 -- Once it's finished, return the final result (always 'Success' or 'Failure') and
 -- all consumed chunks.
 --
-runAndKeepTrack :: Parser a -> Parser (ParseResult a, [V.Bytes])
+runAndKeepTrack :: Parser a -> Parser (Result a, [V.Bytes])
 {-# INLINE runAndKeepTrack #-}
-runAndKeepTrack (Parser pa) = Parser (\ k0 input ->
-    let r0 = pa (\ a input' -> Success input' a) input in go [] r0 k0)
+runAndKeepTrack (Parser pa) = Parser $ \ k0 input ->
+    let r0 = pa (\ a input' -> Success input' a) input in go [] r0 k0
   where
     go !acc r k0 = case r of
         NeedMore k -> NeedMore (\ input -> go (input:acc) (k input) k0)
@@ -121,14 +121,6 @@ pushBack :: [V.Bytes] -> Parser ()
 {-# INLINE pushBack #-}
 pushBack [] = return ()
 pushBack bs = Parser (\ k input -> k () (V.concat (input : bs)))
-
-(<?>) :: Parser a
-      -> String                 -- ^ the message to prepend if parsing fails
-      -> Parser a
-{-# INLINE (<?>) #-}
-Parser p <?> msg = Parse (\ k0 input ->
-    case p k0 input of Failure rest msgs -> Failure rest (msg:msgs)
-                       r                 -> r)
 
 -- | Get the current chunk.
 get :: Parser V.Bytes
@@ -162,6 +154,12 @@ ensureN n0 = Parser $ \ ks input -> do
                 let input'' = V.concat (reverse (input':acc))
                 ks () input''
 
+-- | Test whether all input has been consumed, i.e. there are no remaining
+-- undecoded bytes.
+isEmpty :: Parser Bool
+{-# INLINE isEmpty #-}
+isEmpty = Parser $ \ k inp -> k (V.null inp) inp
+
 decodePrim :: forall a. UnalignedAccess a => Parser a
 {-# INLINE decodePrim #-}
 decodePrim = do
@@ -179,3 +177,47 @@ decodePrimLE = getLE <$> decodePrim
 decodePrimBE :: forall a. UnalignedAccess (BE a) => Parser a
 {-# INLINE decodePrimBE #-}
 decodePrimBE = getBE <$> decodePrim
+
+{-
+-- | A stateful scanner.  The predicate consumes and transforms a
+-- state argument, and each transformed state is passed to successive
+-- invocations of the predicate on each byte of the input until one
+-- returns 'Nothing' or the input ends.
+--
+-- This parser does not fail.  It will return an empty string if the
+-- predicate returns 'Nothing' on the first byte of input.
+--
+scan :: s -> (s -> Word8 -> Maybe s) -> Parser V.Bytes
+scan s0 consume = withInputChunks s0 consume' V.concat (return . V.concat)
+  where
+    consume' s1 (V.Vec arr off len) = go arr off (off+len) s1
+    go arr !i end !s
+        | i < end = do
+            let !w = A.indexPrimArray arr i
+            case consume s w of
+                Just s' -> go arr (i+1) end s'
+                _       -> do
+                    let !len1 = i - off
+                        !len2 = end - off
+                    return (Right (V.Vec arr off len1, V.Vec arr i len2))
+        | otherwise = return (Left s)
+{-# INLINE scan #-}
+-}
+
+-- | Similar to 'scan', but working on 'V.Bytes' chunks, The predicate
+-- consumes a 'V.Bytes' chunk and transforms a state argument,
+-- and each transformed state is passed to successive invocations of
+-- the predicate on each chunk of the input until one chunk got splited to
+-- @Right (V.Bytes, V.Bytes)@ or the input ends.
+--
+scanChunks :: s -> (s -> V.Bytes -> Either s (V.Bytes, V.Bytes)) -> Parser V.Bytes
+{-# INLINE scanChunks #-}
+scanChunks s0 consume = Parser (go s0 [])
+  where
+    go s acc k inp =
+        case consume s inp of
+            Left s' -> do
+                let acc' = inp : acc
+                NeedMore (go s' acc' k)
+            Right (want,rest) ->
+                k (V.concat (reverse (want:acc))) rest

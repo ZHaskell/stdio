@@ -36,7 +36,7 @@ module Std.Data.Vector.Base (
   -- * The Vec typeclass
     Vec(..)
   , pattern Vec
-  , elemAt
+  , indexMaybe
   -- * Boxed and unboxed vector type
   , Vector(..)
   , PrimVector(..)
@@ -143,10 +143,10 @@ pattern Vec arr s l <- (toArr -> (arr,s,l)) where
 --
 -- Return 'Nothing' if index is out of bounds.
 --
-elemAt :: (Vec v a, HasCallStack) => v a -> Int -> Maybe a
-{-# INLINE elemAt #-}
-elemAt (Vec arr s l) i | i < 0 || i >= l = Nothing
-                       | otherwise       = arr `indexArrM` (s + i)
+indexMaybe :: (Vec v a, HasCallStack) => v a -> Int -> Maybe a
+{-# INLINE indexMaybe #-}
+indexMaybe (Vec arr s l) i | i < 0 || i >= l = Nothing
+                           | otherwise       = arr `indexArrM` (s + i)
 
 --------------------------------------------------------------------------------
 -- | Boxed vector
@@ -777,6 +777,8 @@ ifoldl' f z (Vec arr s l) = go z s
                | otherwise = acc
 
 -- | Strict left to right fold using first element as the initial value.
+--
+-- Throw 'EmptyVector' if vector is empty.
 foldl1' :: forall v a. (Vec v a, HasCallStack) => (a -> a -> a) -> v a -> a
 {-# INLINE foldl1' #-}
 foldl1' f (Vec arr s l)
@@ -816,6 +818,8 @@ ifoldr' f z (Vec arr s l) = go z (s+l-1) 0
                   | otherwise = acc
 
 -- | Strict right to left fold using last element as the initial value.
+--
+-- Throw 'EmptyVector' if vector is empty.
 foldr1' :: forall v a. (Vec v a, HasCallStack) => (a -> a -> a) -> v a -> a
 {-# INLINE foldr1' #-}
 foldr1' f (Vec arr s l)
@@ -1149,3 +1153,4 @@ errorOutRange i = throw (IndexOutOfVectorRange i callStack)
 -- | Cast between vectors
 castVector :: (Vec v a, Cast a b) => v a -> v b
 castVector = unsafeCoerce#
+

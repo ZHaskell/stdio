@@ -50,6 +50,19 @@ module Std.Data.Vector.Extra (
   , scanr', scanr1'
   -- * Misc
   , rangeCut
+  -- * Unsafe operations
+  , head
+  , tail
+  , init
+  , last
+  , index
+  , unsafeHead
+  , unsafeTail
+  , unsafeInit
+  , unsafeLast
+  , unsafeIndex
+  , unsafeTake
+  , unsafeDrop
   ) where
 
 import           Control.Monad.ST
@@ -63,12 +76,14 @@ import           Prelude                       hiding (concat, concatMap,
                                                 foldl, foldl1, foldr, foldr1,
                                                 maximum, minimum, product, sum,
                                                 all, any, replicate, traverse,
+                                                head, tail, init, last,
                                                 take, drop, splitAt,
                                                 takeWhile, dropWhile,
                                                 break, span, reverse,
                                                 words, lines, unwords, unlines)
 import qualified Data.List                     as List
 import           Data.Bits
+import           Control.Exception             (assert)
 
 --------------------------------------------------------------------------------
 -- Slice
@@ -104,7 +119,7 @@ unsnoc (Vec arr s l)
     | otherwise = let !v = fromArr arr s (l-1)
                   in case indexArr' arr (s+l-1) of (# x #) -> Just (v, x)
 
--- | /O(1)/ Extract the first element of a vector,
+-- | /O(1)/ Extract the first element of a vector.
 headMaybe :: Vec v a => v a -> Maybe a
 {-# INLINE headMaybe #-}
 headMaybe (Vec arr s l)
@@ -127,7 +142,7 @@ lastMaybe (Vec arr s l)
     | l <= 0    = Nothing
     | otherwise = indexArrM arr (s+l-1)
 
--- | /O(1)/ Extract the elements before of the last one,
+-- | /O(1)/ Extract the elements before of the last one.
 --
 -- NOTE: 'initMayEmpty' return empty vector in the case of an empty vector.
 initMayEmpty :: Vec v a => v a -> v a
@@ -708,3 +723,100 @@ rangeCut !r !min !max | r < min = min
 isASCIISpace :: Word8 -> Bool
 {-# INLINE isASCIISpace #-}
 isASCIISpace w = w == 32 || w - 0x9 <= 4 || w == 0xa0
+
+--------------------------------------------------------------------------------
+
+-- | /O(1)/ Extract the first element of a vector.
+--
+-- Throw 'EmptyVector' if vector is empty.
+head :: (Vec v a, HasCallStack) => v a -> a
+{-# INLINE head #-}
+head (Vec arr s l)
+    | l <= 0    = errorEmptyVector
+    | otherwise = indexArr arr s
+
+-- | /O(1)/ Extract the elements after the head of a vector.
+--
+-- Throw 'EmptyVector' if vector is empty.
+tail :: (Vec v a, HasCallStack) => v a -> v a
+{-# INLINE tail #-}
+tail (Vec arr s l)
+    | l <= 0    = errorEmptyVector
+    | otherwise = fromArr arr (s+1) (l-1)
+
+-- | /O(1)/ Extract the elements before of the last one.
+--
+-- Throw 'EmptyVector' if vector is empty.
+init :: (Vec v a, HasCallStack) => v a -> v a
+{-# INLINE init #-}
+init (Vec arr s l)
+    | l <= 0    = errorEmptyVector
+    | otherwise = fromArr arr s (l-1)
+
+-- | /O(1)/ Extract the last element of a vector.
+--
+-- Throw 'EmptyVector' if vector is empty.
+last :: (Vec v a, HasCallStack) => v a -> a
+{-# INLINE last #-}
+last (Vec arr s l)
+    | l <= 0    = errorEmptyVector
+    | otherwise = indexArr arr (s+l-1)
+
+-- | /O(1)/ Index array element.
+--
+-- Throw 'IndexOutOfVectorRange' if index outside of the vector.
+index :: (Vec v a, HasCallStack) => v a -> Int -> a
+{-# INLINE index #-}
+index (Vec arr s l) i | i < 0 || i >= l = errorOutRange i
+                      | otherwise       = arr `indexArr` (s + i)
+
+-- | /O(1)/ Extract the first element of a vector.
+--
+-- Make sure vector is non-empty, otherwise segmentation fault await!
+unsafeHead  :: Vec v a => v a -> a
+{-# INLINE unsafeHead #-}
+unsafeHead (Vec arr s l) = assert (l > 0) (indexArr arr s)
+
+-- | /O(1)/ Extract the elements after the head of a vector.
+--
+-- Make sure vector is non-empty, otherwise segmentation fault await!
+unsafeTail  :: Vec v a => v a -> v a
+{-# INLINE unsafeTail #-}
+unsafeTail (Vec arr s l) = assert (l > 0) (fromArr arr (s+1) (l-1))
+
+-- | /O(1)/ Extract the elements before of the last one.
+--
+-- Make sure vector is non-empty, otherwise segmentation fault await!
+unsafeInit  :: Vec v a => v a -> v a
+{-# INLINE unsafeInit #-}
+unsafeInit (Vec arr s l) = assert (l > 0) (fromArr arr s (l-1))
+
+-- | /O(1)/ Extract the last element of a vector.
+--
+-- Make sure vector is non-empty, otherwise segmentation fault await!
+unsafeLast  :: Vec v a => v a -> a
+{-# INLINE unsafeLast #-}
+unsafeLast (Vec arr s l) = assert (l > 0) (indexArr arr (s+l-1))
+
+-- | /O(1)/ Index array element.
+--
+-- Make sure index is in bound, otherwise segmentation fault await!
+unsafeIndex :: Vec v a => v a -> Int -> a
+{-# INLINE unsafeIndex #-}
+unsafeIndex (Vec arr s l) i = indexArr arr (s + i)
+
+-- | /O(1)/ 'take' @n@, applied to a vector @xs@, returns the prefix
+-- of @xs@ of length @n@.
+--
+-- Make sure n is smaller than vector's length, otherwise segmentation fault await!
+unsafeTake :: Vec v a => Int -> v a -> v a
+{-# INLINE unsafeTake #-}
+unsafeTake n (Vec arr s l) = assert (0 <= n && n <= l) (fromArr arr s n)
+
+-- | /O(1)/ 'drop' @n xs@ returns the suffix of @xs@ after the first @n@
+-- elements.
+--
+-- Make sure n is smaller than vector's length, otherwise segmentation fault await!
+unsafeDrop :: Vec v a => Int -> v a -> v a
+{-# INLINE unsafeDrop #-}
+unsafeDrop n (Vec arr s l) = assert (0 <= n && n <= l) (fromArr arr (s+n) (l-n))

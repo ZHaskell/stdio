@@ -118,7 +118,6 @@ library
                             Std.Data.Array
                             Std.Data.Array.Checked
                             Std.Data.CBytes
-                            Std.Data.Parser
 
                             Std.Data.Text
                             Std.Data.Text.Base
@@ -130,6 +129,11 @@ library
                             Std.Data.Builder.Base
                             Std.Data.Builder.Textual
                             Std.Data.Builder.DigitTable
+
+                            Std.Data.Parser
+                            Std.Data.Parser.Base
+                            Std.Data.Parser.Binary
+                            Std.Data.Parser.Textual
 
                             Std.Foreign.PrimArray
 
