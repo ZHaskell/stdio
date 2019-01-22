@@ -6,7 +6,13 @@ Haskell stdio: haskell standard input and output
 
 Welcome! Haskell stdio is an complete I/O toolkit powered by libuv, it features a multiple core io multiplexer and various improvements on packed data types.
 
-![stdio banner](./img/banner.png)
+```
+    __  _____   _____ __ __ ________    __       _______________  ________ 
+   / / / /   | / ___// //_// ____/ /   / /      / ___/_  __/ __ \/  _/ __ \
+  / /_/ / /| | \__ \/ ,<  / __/ / /   / /       \__ \ / / / / / // // / / /
+ / __  / ___ |___/ / /| |/ /___/ /___/ /___    ___/ // / / /_/ // // /_/ / 
+/_/ /_/_/  |_/____/_/ |_/_____/_____/_____/   /____//_/ /_____/___/\____/
+```
 
 User Guide
 ----------
