@@ -89,7 +89,6 @@ module Std.Data.Vector.Base (
   -- * C FFI
   , c_strcmp
   , c_strlen
-  , c_validate_utf8_fast
  ) where
 
 import           Control.DeepSeq
@@ -422,10 +421,10 @@ packStringAddr addr# = case validateAndCopy addr# of
     validateAndCopy addr# = unsafePerformIO $ do
         let cstr = Ptr addr#
         len <- fromIntegral <$> c_strlen cstr
-        valid <- c_validate_utf8_fast cstr (fromIntegral len)
+        valid <- c_ascii_validate cstr 0 len
         if valid == 0
            then return Nothing
-           else do marr <- newPinnedPrimArray len
+           else do marr <- newPrimArray len
                    copyPtrToMutablePrimArray marr 0 (castPtr cstr) len
                    arr <- unsafeFreezePrimArray marr
                    return $ Just $ PrimVector arr 0 len
@@ -1202,5 +1201,5 @@ foreign import ccall unsafe "string.h strcmp"
 foreign import ccall unsafe "string.h strlen"
     c_strlen :: CString -> IO CSize
 
-foreign import ccall unsafe "simdutf8check.h validate_utf8_fast"
-    c_validate_utf8_fast :: CString -> CSize -> IO CBool
+foreign import ccall unsafe "text.h ascii_validate"
+    c_ascii_validate :: CString -> Int -> Int -> IO Int

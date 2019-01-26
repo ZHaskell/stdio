@@ -4,8 +4,22 @@
 #include <codepoint.h>
 
 #ifdef __SSE2__
+#include <simdasciicheck.h>
 #include <simdutf8check.h>
 #endif
+
+HsInt ascii_validate(const char* p, HsInt off, HsInt len){
+    const char* q = p + off;
+#ifdef __AVX2__
+    return (HsInt)validate_ascii_fast_avx(q, (size_t)len);
+#else
+#ifdef __SSE2__
+    return (HsInt)validate_ascii_fast(q, (size_t)len);
+#else
+    return (HsInt)ascii_u64(q, (size_t)len);
+#endif
+#endif
+}
 
 HsInt utf8_validate(const char* p, HsInt off, HsInt len){
     const char* q = p + off;
@@ -15,14 +29,14 @@ HsInt utf8_validate(const char* p, HsInt off, HsInt len){
 #ifdef __SSE2__
     return (HsInt)validate_utf8_fast(q, (size_t)len);
 #else
-    return utf8_validate_slow(q, len);
+    return utf8_validate_slow(q, (size_t)len);
 #endif
 #endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-static inline int ascii_u64(const uint8_t *data, int len)
+static inline int ascii_u64(const uint8_t *data, size_t len)
 {
     uint8_t orall = 0;
 
@@ -53,70 +67,9 @@ static inline int ascii_u64(const uint8_t *data, int len)
     return orall < 0x80;
 }
 
-#if defined(__x86_64__)
-#include <x86intrin.h>
-
-static inline int ascii_simd(const uint8_t *data, int len)
-{
-    if (len >= 32) {
-        const uint8_t *data2 = data+16;
-
-        __m128i or1 = _mm_set1_epi8(0), or2 = or1;
-
-        while (len >= 32) {
-            __m128i input1 = _mm_lddqu_si128((const __m128i *)data);
-            __m128i input2 = _mm_lddqu_si128((const __m128i *)data2);
-
-            or1 = _mm_or_si128(or1, input1);
-            or2 = _mm_or_si128(or2, input2);
-
-            data += 32;
-            data2 += 32;
-            len -= 32;
-        }
-
-        or1 = _mm_or_si128(or1, or2);
-        if (_mm_movemask_epi8(_mm_cmplt_epi8(or1, _mm_set1_epi8(0))))
-            return 0;
-    }
-
-    return ascii_u64(data, len);
-}
-
-#elif defined(__aarch64__)
-#include <arm_neon.h>
-
-static inline int ascii_simd(const uint8_t *data, int len)
-{
-    if (len >= 32) {
-        const uint8_t *data2 = data+16;
-
-        uint8x16_t or1 = vdupq_n_u8(0), or2 = or1;
-
-        while (len >= 32) {
-            const uint8x16_t input1 = vld1q_u8(data);
-            const uint8x16_t input2 = vld1q_u8(data2);
-
-            or1 = vorrq_u8(or1, input1);
-            or2 = vorrq_u8(or2, input2);
-
-            data += 32;
-            data2 += 32;
-            len -= 32;
-        }
-
-        or1 = vorrq_u8(or1, or2);
-        if (vmaxvq_u8(or1) >= 0x80)
-            return 0;
-    }
-
-    return ascii_u64(data, len);
-}
-
-#endif
 ////////////////////////////////////////////////////////////////////////////////
 
-HsInt utf8_validate_slow(const char* src, HsInt len){
+HsInt utf8_validate_slow(const char* src, size_t len){
     const char* end = src + len;
     unicode_t* decoded;
     for (; src < end; ) {

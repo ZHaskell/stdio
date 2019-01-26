@@ -125,9 +125,11 @@ import           Data.Primitive.PrimArray
 import           Data.Typeable
 import           Data.String              (IsString(..))
 import           Data.Word
+import           Foreign.C
 import           Foreign.C.Types          (CSize(..))
 import           GHC.Exts                 (build)
 import           GHC.Prim
+import           GHC.Ptr
 import           GHC.Ptr
 import           GHC.Types
 import           GHC.Stack
@@ -135,7 +137,7 @@ import           GHC.CString              (unpackCString#)
 import           Std.Data.Array
 import           Std.Data.Text.UTF8Codec
 import           Std.Data.Text.UTF8Rewind
-import           Std.Data.Vector.Base     (Bytes, PrimVector(..), c_strlen, c_validate_utf8_fast)
+import           Std.Data.Vector.Base     (Bytes, PrimVector(..), c_strlen)
 import qualified Std.Data.Vector.Base     as V
 import qualified Std.Data.Vector.Extra    as V
 import qualified Std.Data.Vector.Search   as V
@@ -186,10 +188,10 @@ packStringAddr addr# = case validateAndCopy addr# of
     validateAndCopy addr# = unsafeDupablePerformIO $ do
         let cstr = Ptr addr#
         len <- fromIntegral <$> c_strlen cstr
-        valid <- c_validate_utf8_fast cstr (fromIntegral len)
+        valid <- c_utf8_validate cstr 0 len
         if valid == 0
            then return Nothing
-           else do marr <- newPinnedPrimArray len
+           else do marr <- newPrimArray len
                    copyPtrToMutablePrimArray marr 0 (castPtr cstr) len
                    arr <- unsafeFreezePrimArray marr
                    return $ Just $ Text $ PrimVector arr 0 len
@@ -280,6 +282,9 @@ validateMaybe bs@(V.PrimVector (PrimArray ba#) (I# s#) l@(I# l#))
     | otherwise = Nothing
 
 foreign import ccall unsafe utf8_validate :: ByteArray# -> Int# -> Int# -> Int
+
+foreign import ccall unsafe "text.h utf8_validate"
+    c_utf8_validate :: CString -> Int -> Int -> IO Int
 
 --------------------------------------------------------------------------------
 
