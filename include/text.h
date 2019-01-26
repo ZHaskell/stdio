@@ -30,7 +30,7 @@
 
 #include <Rts.h>
 
-
+HsInt ascii_validate(const char* p, HsInt off, HsInt len);
 HsInt utf8_validate(const char* p, HsInt off, HsInt len);
 
 HsInt utf8_isnormalized(const char* p, HsInt off, HsInt len, size_t flag);

@@ -86,6 +86,9 @@ module Std.Data.Vector.Base (
   , errorEmptyVector
   , errorOutRange
   , castVector
+  -- * C FFI
+  , c_strcmp
+  , c_strlen
  ) where
 
 import           Control.DeepSeq
@@ -93,6 +96,7 @@ import           Control.Exception
 import           Control.Monad
 import           Control.Monad.ST
 import           Data.Bits
+import           Data.Char                     (ord)
 import           Data.Data
 import qualified Data.Foldable                 as F
 import           Data.Functor.Identity
@@ -103,11 +107,15 @@ import           Data.Primitive
 import           Data.Primitive.PrimArray
 import           Data.Primitive.SmallArray
 import           Data.Semigroup                (Semigroup ((<>)))
+import           Data.String                   (IsString(..))
 import qualified Data.Traversable              as T
 import           Data.Typeable
+import           Foreign.C
+import           GHC.CString
 import           GHC.Exts                      (build)
 import           GHC.Stack
 import           GHC.Prim
+import           GHC.Ptr
 import           GHC.Types
 import           GHC.Word
 import           Prelude                       hiding (concat, concatMap,
@@ -115,6 +123,8 @@ import           Prelude                       hiding (concat, concatMap,
                                                 foldl, foldl1, foldr, foldr1,
                                                 maximum, minimum, product, sum,
                                                 all, any, replicate, traverse)
+import           System.IO.Unsafe              (unsafePerformIO)
+
 import           Std.Data.Array
 import           Std.Data.PrimArray.BitTwiddle (c_memchr)
 import           Std.Data.PrimArray.Cast
@@ -395,6 +405,35 @@ type Bytes = PrimVector Word8
 
 pattern Bytes# :: ByteArray# -> Int# -> Int# -> PrimVector a
 pattern Bytes# ba# s# l# = PrimVector (PrimArray ba#) (I# s#) (I# l#)
+
+instance (a ~ Word8) => IsString (PrimVector a) where
+    {-# INLINE fromString #-}
+    fromString = packStringLiteral
+
+packStringLiteral :: String -> Bytes
+packStringLiteral = pack . fmap (fromIntegral . ord)
+
+packStringAddr :: Addr# -> Bytes
+packStringAddr addr# = case validateAndCopy addr# of
+                            Just vec -> vec
+                            Nothing  -> pack . fmap (fromIntegral . ord) $ unpackCString# addr#
+  where
+    validateAndCopy addr# = unsafePerformIO $ do
+        let cstr = Ptr addr#
+        len <- fromIntegral <$> c_strlen cstr
+        valid <- c_ascii_validate cstr 0 len
+        if valid == 0
+           then return Nothing
+           else do marr <- newPrimArray len
+                   copyPtrToMutablePrimArray marr 0 (castPtr cstr) len
+                   arr <- unsafeFreezePrimArray marr
+                   return $ Just $ PrimVector arr 0 len
+
+{-# NOINLINE CONLIKE packStringLiteral #-}
+
+{-# RULES
+    "packStringLiteral/packStringAddr" forall addr . packStringLiteral (unpackCString# addr) = packStringAddr addr
+  #-}
 
 -- | Conversion between 'Word8' and 'Char'. Should compile to a no-op.
 --
@@ -1154,3 +1193,13 @@ errorOutRange i = throw (IndexOutOfVectorRange i callStack)
 castVector :: (Vec v a, Cast a b) => v a -> v b
 castVector = unsafeCoerce#
 
+--------------------------------------------------------------------------------
+
+foreign import ccall unsafe "string.h strcmp"
+    c_strcmp :: CString -> CString -> IO CInt
+
+foreign import ccall unsafe "string.h strlen"
+    c_strlen :: CString -> IO CSize
+
+foreign import ccall unsafe "text.h ascii_validate"
+    c_ascii_validate :: CString -> Int -> Int -> IO Int
