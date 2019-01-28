@@ -6,6 +6,7 @@
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE UnboxedTuples       #-}
+{-# LANGUAGE TypeFamilies       #-}
 
 {-|
 Module      : Std.Data.Builder.Base
@@ -15,9 +16,6 @@ License     : BSD
 Maintainer  : drkoster@qq.com
 Stability   : experimental
 Portability : non-portable
-
-If you're users looking for functions turn data into 'Builder' s, check 'Std.Data.Binary' or
-'Std.Data.Textual'. This module is intend to 'Builder' builders.
 
 A 'Builder' records a buffer writing function, which can be 'mappend' in O(1) via composition.
 In stdio a 'Builder' are designed to deal with different 'AllocateStrategy', it affects how
@@ -47,15 +45,21 @@ import           Control.Monad.ST.Unsafe            (unsafeInterleaveST)
 import           Data.Bits                          (shiftL, shiftR)
 import           Data.Monoid                        (Monoid (..))
 import           Data.Primitive.PrimArray           (MutablePrimArray (..))
+import           Data.Primitive.Ptr                 (copyPtrToMutablePrimArray)
 import           Data.Semigroup                     (Semigroup (..))
 import           Data.String                        (IsString(..))
 import           Data.Word
+import           Data.Bits                          ((.&.))
 import           GHC.CString                        (unpackCString#)
 import           GHC.Prim
 import           GHC.Types
+import           GHC.Ptr
 import qualified Std.Data.Array                     as A
 import           Std.Data.PrimArray.UnalignedAccess
 import qualified Std.Data.Vector.Base               as V
+import  qualified         Std.Data.Text.UTF8Codec            as T
+import qualified Std.Data.Text.Base                 as T
+import           System.IO.Unsafe
 
 -- | 'AllocateStrategy' will decide how each 'BuildStep' proceed when previous buffer is not enough.
 --
@@ -113,58 +117,36 @@ instance Monoid (Builder ()) where
     mconcat = foldr append (pure ())
     {-# INLINE mconcat #-}
 
-instance IsString (Builder ()) where
+instance (a ~ ()) => IsString (Builder a) where
     {-# INLINE fromString #-}
-    fromString = buildStringLiteral
+    fromString = stringLiteral
 
-buildStringLiteral :: String -> Builder ()
-{-# NOINLINE CONLIKE buildStringLiteral #-}
+-- | A alias to 'stringUTF8', but will be rewritten to a memcpy if possible.
+stringLiteral :: String -> Builder ()
+{-# NOINLINE CONLIKE stringLiteral #-}
 {-# RULES
-    "buildStringLiteral" [~1] forall addr. buildStringLiteral (unpackCString# addr) = buildStringAddr addr
+    "stringLiteral/addrLiteral" forall addr . stringLiteral (unpackCString# addr) = addrLiteral addr
   #-}
-buildStringLiteral = undefined
-buildStringAddr :: Addr# -> Builder ()
-buildStringAddr = undefined
+stringLiteral = stringUTF8
+
+addrLiteral :: Addr# -> Builder ()
+addrLiteral addr# = validateAndCopy addr#
+  where
+    len = fromIntegral . unsafeDupablePerformIO $ V.c_strlen addr#
+    valid = unsafeDupablePerformIO $ T.c_utf8_validate addr# 0 len
+    validateAndCopy addr#
+        | valid == 0 = stringLiteral (unpackCString# addr#)
+        | otherwise = do
+            ensureN len
+            Builder (\ _  k (Buffer mba i) -> do
+               copyPtrToMutablePrimArray mba i (Ptr addr#) len
+               k () (Buffer mba (i + len)))
+
 
 append :: Builder a -> Builder b -> Builder b
 append (Builder f) (Builder g) = Builder (\ al k -> f al ( \ _ ->  g al k))
 {-# INLINE append #-}
 
-atMost :: Int  -- ^ size bound
-       -> (forall s. A.MutablePrimArray s Word8 -> Int -> ST s Int)  -- ^ the writer which return a new offset
-                                                                       -- for next write
-       -> Builder ()
-{-# INLINE atMost #-}
-atMost n f = ensureN n `append`
-    Builder (\ _  k (Buffer buf offset ) ->
-        f buf offset >>= \ offset' -> k () (Buffer buf offset'))
-
-writeN :: Int  -- ^ size bound
-       -> (forall s. A.MutablePrimArray s Word8 -> Int -> ST s ())  -- ^ the writer which return a new offset
-                                                                    -- for next write
-       -> Builder ()
-{-# INLINE writeN #-}
-writeN n f = ensureN n `append`
-    Builder (\ _  k (Buffer buf offset ) ->
-        f buf offset >> k () (Buffer buf (offset+n)))
-
-encodePrim :: forall a. UnalignedAccess a => a -> Builder ()
-{-# INLINE encodePrim #-}
-encodePrim x = do
-    ensureN n
-    Builder (\ _  k (Buffer (MutablePrimArray mba#) i@(I# i#)) -> do
-        primitive_ (writeWord8ArrayAs mba# i# x)
-        k () (Buffer (MutablePrimArray mba#) (i + n)))
-  where
-    n = (getUnalignedSize (unalignedSize :: UnalignedSize a))
-
-encodePrimLE :: forall a. UnalignedAccess (LE a) => a -> Builder ()
-{-# INLINE encodePrimLE #-}
-encodePrimLE = encodePrim . LE
-
-encodePrimBE :: forall a. UnalignedAccess (BE a) => a -> Builder ()
-{-# INLINE encodePrimBE #-}
-encodePrimBE = encodePrim . BE
 
 --------------------------------------------------------------------------------
 
@@ -189,6 +171,7 @@ bytes bs@(V.PrimVector arr s l) = Builder (\ strategy k buffer@(Buffer buf offse
                         oneShotAction action 0 (\ buffer' -> action bs >> k () buffer') buffer
                     | otherwise -> action bs >> k () buffer)
   where
+    copy :: forall s a. AllocateStrategy s -> (() -> BuildStep s) -> BuildStep s
     copy strategy k =
         runBuilder (ensureN l) strategy ( \ _ (Buffer buf offset) -> do
                 A.copyArr buf offset arr s l
@@ -205,10 +188,10 @@ ensureN !n = Builder $ \ strategy k buffer@(Buffer buf offset) -> do
     then k () buffer
     else handleBoundary strategy n k buffer
   where
+    {-# NOINLINE handleBoundary #-} -- Don't inline this branchy code
     handleBoundary DoubleBuffer n k buffer = doubleBuffer n (k ()) buffer
     handleBoundary (InsertChunk chunkSiz) n k buffer = insertChunk chunkSiz n (k ()) buffer
     handleBoundary (OneShotAction action) n k buffer = oneShotAction action n (k ()) buffer
-    {-# NOINLINE handleBoundary #-}
 
 --------------------------------------------------------------------------------
 --
@@ -309,3 +292,112 @@ buildAndRunWith chunkSiz action (Builder b) = do
         return [] -- to match the silly return type
 {-# INLINABLE buildAndRun #-}
 
+--------------------------------------------------------------------------------
+
+atMost :: Int  -- ^ size bound
+       -> (forall s. A.MutablePrimArray s Word8 -> Int -> ST s Int)  -- ^ the writer which return a new offset
+                                                                       -- for next write
+       -> Builder ()
+{-# INLINE atMost #-}
+atMost n f = ensureN n `append`
+    Builder (\ _  k (Buffer buf offset ) ->
+        f buf offset >>= \ offset' -> k () (Buffer buf offset'))
+
+writeN :: Int  -- ^ size bound
+       -> (forall s. A.MutablePrimArray s Word8 -> Int -> ST s ())  -- ^ the writer which return a new offset
+                                                                    -- for next write
+       -> Builder ()
+{-# INLINE writeN #-}
+writeN n f = ensureN n `append`
+    Builder (\ _  k (Buffer buf offset ) ->
+        f buf offset >> k () (Buffer buf (offset+n)))
+
+encodePrim :: forall a. UnalignedAccess a => a -> Builder ()
+{-# INLINE encodePrim #-}
+encodePrim x = do
+    ensureN n
+    Builder (\ _  k (Buffer (MutablePrimArray mba#) i@(I# i#)) -> do
+        primitive_ (writeWord8ArrayAs mba# i# x)
+        k () (Buffer (MutablePrimArray mba#) (i + n)))
+  where
+    n = (getUnalignedSize (unalignedSize :: UnalignedSize a))
+
+encodePrimLE :: forall a. UnalignedAccess (LE a) => a -> Builder ()
+{-# INLINE encodePrimLE #-}
+encodePrimLE = encodePrim . LE
+
+encodePrimBE :: forall a. UnalignedAccess (BE a) => a -> Builder ()
+{-# INLINE encodePrimBE #-}
+encodePrimBE = encodePrim . BE
+
+--------------------------------------------------------------------------------
+
+-- | Turn 'String' into 'Builder' with UTF8 encoding
+--
+-- Illegal codepoints will be written as 'T.replacementChar's.
+-- Note, if you're trying to write string literals,
+-- please open 'OverloadedStrings' and use 'Builder's 'IsString' instance,
+-- it will use 'stringLiteral' and should be rewritten into a memcpy,
+-- instead of encoding 'Char's in a loop like what 'stringUTF8' do.
+stringUTF8 :: String -> Builder ()
+{-# INLINE stringUTF8 #-}
+stringUTF8 = mapM_ charUTF8
+
+-- | Turn 'Char' into 'Builder' with UTF8 encoding
+--
+-- Illegal codepoints will be written as 'T.replacementChar's.
+charUTF8 :: Char -> Builder ()
+{-# INLINE charUTF8 #-}
+charUTF8 chr = do
+    let !n = T.encodeCharLength chr
+    ensureN n
+    Builder (\ _  k (Buffer mba i) -> do
+        i' <- T.encodeChar mba i chr
+        k () (Buffer mba i'))
+
+-- | Turn 'String' into 'Builder' with ASCII7 encoding
+--
+-- Codepoints beyond @'\x7F'@ will be chopped.
+string7 :: String -> Builder ()
+{-# INLINE string7 #-}
+string7 = mapM_ char7
+
+-- | Turn 'Char' into 'Builder' with ASCII7 encoding
+--
+-- Codepoints beyond @'\x7F'@ will be chopped.
+char7 :: Char -> Builder ()
+{-# INLINE char7 #-}
+char7 chr = do
+    ensureN 1
+    Builder (\ _  k (Buffer mba@(MutablePrimArray mba#) i@(I# i#)) -> do
+        let x = V.c2w chr .&. 0x7F
+        primitive_ (writeWord8ArrayAs mba# i# x)
+        k () (Buffer mba (i+1)))
+
+-- | Turn 'String' into 'Builder' with ASCII8 encoding
+--
+-- Codepoints beyond @'\xFF'@ will be chopped.
+-- Note, this encoding is NOT compatible with UTF8 encoding, i.e. bytes written
+-- by this builder may not be legal UTF8 encoding bytes.
+string8 :: String -> Builder ()
+{-# INLINE string8 #-}
+string8 = mapM_ char8
+
+-- | Turn 'Char' into 'Builder' with ASCII8 encoding
+--
+-- Codepoints beyond @'\xFF'@ will be chopped.
+-- Note, this encoding is NOT compatible with UTF8 encoding, i.e. bytes written
+-- by this builder may not be legal UTF8 encoding bytes.
+char8 :: Char -> Builder ()
+{-# INLINE char8 #-}
+char8 chr = do
+    ensureN 1
+    Builder (\ _  k (Buffer mba@(MutablePrimArray mba#) i@(I# i#)) -> do
+        let x = V.c2w chr
+        primitive_ (writeWord8ArrayAs mba# i# x)
+        k () (Buffer mba (i+1)))
+
+-- | Write UTF8 encoded 'Text' using 'Builder'.
+text :: T.Text -> Builder ()
+{-# INLINE text #-}
+text (T.Text bs) = bytes bs

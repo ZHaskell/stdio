@@ -11,6 +11,8 @@
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE UnboxedTuples          #-}
 {-# LANGUAGE ViewPatterns           #-}
+{-# LANGUAGE UnliftedFFITypes       #-}
+{-# LANGUAGE QuantifiedConstraints  #-}
 
 {-|
 Module      : Std.Data.Vector.Base
@@ -106,6 +108,7 @@ import           Data.Monoid                   (Monoid (..))
 import           Data.Primitive
 import           Data.Primitive.PrimArray
 import           Data.Primitive.SmallArray
+import           Data.Primitive.Ptr
 import           Data.Semigroup                (Semigroup ((<>)))
 import           Data.String                   (IsString(..))
 import qualified Data.Traversable              as T
@@ -411,29 +414,25 @@ instance (a ~ Word8) => IsString (PrimVector a) where
     fromString = packStringLiteral
 
 packStringLiteral :: String -> Bytes
-packStringLiteral = pack . fmap (fromIntegral . ord)
-
-packStringAddr :: Addr# -> Bytes
-packStringAddr addr# = case validateAndCopy addr# of
-                            Just vec -> vec
-                            Nothing  -> pack . fmap (fromIntegral . ord) $ unpackCString# addr#
-  where
-    validateAndCopy addr# = unsafePerformIO $ do
-        let cstr = Ptr addr#
-        len <- fromIntegral <$> c_strlen cstr
-        valid <- c_ascii_validate cstr 0 len
-        if valid == 0
-           then return Nothing
-           else do marr <- newPrimArray len
-                   copyPtrToMutablePrimArray marr 0 (castPtr cstr) len
-                   arr <- unsafeFreezePrimArray marr
-                   return $ Just $ PrimVector arr 0 len
-
 {-# NOINLINE CONLIKE packStringLiteral #-}
-
 {-# RULES
     "packStringLiteral/packStringAddr" forall addr . packStringLiteral (unpackCString# addr) = packStringAddr addr
   #-}
+packStringLiteral = pack . fmap (fromIntegral . ord)
+
+packStringAddr :: Addr# -> Bytes
+packStringAddr addr# = validateAndCopy addr#
+  where
+    len = fromIntegral . unsafePerformIO $ c_strlen addr#
+    valid = unsafePerformIO $ c_ascii_validate addr# 0 len
+    validateAndCopy addr#
+        | valid == 0 = pack . fmap (fromIntegral . ord) $ unpackCString# addr#
+        | otherwise = runST $ do
+            marr <- newPrimArray len
+            copyPtrToMutablePrimArray marr 0 (Ptr addr#) len
+            arr <- unsafeFreezePrimArray marr
+            return (PrimVector arr 0 len)
+
 
 -- | Conversion between 'Word8' and 'Char'. Should compile to a no-op.
 --
@@ -821,7 +820,7 @@ ifoldl' f z (Vec arr s l) = go z s
 foldl1' :: forall v a. (Vec v a, HasCallStack) => (a -> a -> a) -> v a -> a
 {-# INLINE foldl1' #-}
 foldl1' f (Vec arr s l)
-    | l <= 0    = errorEmptyVector "foldl1'"
+    | l <= 0    = errorEmptyVector
     | otherwise = case indexArr' arr s of
                     (# x0 #) -> foldl' f x0 (fromArr arr (s+1) (l-1) :: v a)
 
@@ -862,7 +861,7 @@ ifoldr' f z (Vec arr s l) = go z (s+l-1) 0
 foldr1' :: forall v a. (Vec v a, HasCallStack) => (a -> a -> a) -> v a -> a
 {-# INLINE foldr1' #-}
 foldr1' f (Vec arr s l)
-    | l <= 0 = errorEmptyVector "foldr1'"
+    | l <= 0 = errorEmptyVector
     | otherwise = case indexArr' arr (s+l-1) of
                     (# x0 #) -> foldl' f x0 (fromArr arr s (l-1) :: v a)
 
@@ -1196,10 +1195,10 @@ castVector = unsafeCoerce#
 --------------------------------------------------------------------------------
 
 foreign import ccall unsafe "string.h strcmp"
-    c_strcmp :: CString -> CString -> IO CInt
+    c_strcmp :: Addr# -> Addr# -> IO CInt
 
 foreign import ccall unsafe "string.h strlen"
-    c_strlen :: CString -> IO CSize
+    c_strlen :: Addr# -> IO CSize
 
 foreign import ccall unsafe "text.h ascii_validate"
-    c_ascii_validate :: CString -> Int -> Int -> IO Int
+    c_ascii_validate :: Addr# -> Int -> Int -> IO Int

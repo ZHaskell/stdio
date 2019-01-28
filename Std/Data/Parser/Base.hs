@@ -122,14 +122,6 @@ pushBack :: [V.Bytes] -> Parser ()
 pushBack [] = return ()
 pushBack bs = Parser (\ k input -> k () (V.concat (input : bs)))
 
--- | Get the current chunk.
-get :: Parser V.Bytes
-get = Parser (\ k input -> k input input)
-
--- | Replace the current chunk.
-put :: V.Bytes -> Parser ()
-put input' = Parser (\ k _ -> k () input')
-
 -- | Ensure that there are at least @n@ bytes available. If not, the
 -- computation will escape with 'NeedMore'.
 ensureN :: Int -> Parser ()
@@ -178,7 +170,6 @@ decodePrimBE :: forall a. UnalignedAccess (BE a) => Parser a
 {-# INLINE decodePrimBE #-}
 decodePrimBE = getBE <$> decodePrim
 
-{-
 -- | A stateful scanner.  The predicate consumes and transforms a
 -- state argument, and each transformed state is passed to successive
 -- invocations of the predicate on each byte of the input until one
@@ -188,21 +179,20 @@ decodePrimBE = getBE <$> decodePrim
 -- predicate returns 'Nothing' on the first byte of input.
 --
 scan :: s -> (s -> Word8 -> Maybe s) -> Parser V.Bytes
-scan s0 consume = withInputChunks s0 consume' V.concat (return . V.concat)
+{-# INLINE scan #-}
+scan s0 f = scanChunks s0 f'
   where
-    consume' s1 (V.Vec arr off len) = go arr off (off+len) s1
-    go arr !i end !s
+    f' st (V.Vec arr s l) = go f st arr s s (s+l)
+    go f st arr off !i !end
         | i < end = do
-            let !w = A.indexPrimArray arr i
-            case consume s w of
-                Just s' -> go arr (i+1) end s'
-                _       -> do
+            let !w = indexPrimArray arr i
+            case f st w of
+                Just st' -> go f st' arr off (i+1) end
+                _        ->
                     let !len1 = i - off
                         !len2 = end - off
-                    return (Right (V.Vec arr off len1, V.Vec arr i len2))
-        | otherwise = return (Left s)
-{-# INLINE scan #-}
--}
+                    in Right (V.Vec arr off len1, V.Vec arr i len2)
+        | otherwise = Left st
 
 -- | Similar to 'scan', but working on 'V.Bytes' chunks, The predicate
 -- consumes a 'V.Bytes' chunk and transforms a state argument,

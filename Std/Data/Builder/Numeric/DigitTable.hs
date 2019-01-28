@@ -1,7 +1,7 @@
 {-# LANGUAGE NoCPP #-}
 {-# LANGUAGE MagicHash #-}
 
-module Std.Data.Builder.DigitTable where
+module Std.Data.Builder.Numeric.DigitTable where
 
 import Data.Primitive.Addr
 

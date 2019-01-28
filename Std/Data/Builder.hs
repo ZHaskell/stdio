@@ -38,6 +38,12 @@ but in case of rolling something shining from the ground, keep an eye on correct
 
 -}
 
-module Std.Data.Builder where
+module Std.Data.Builder (
+    -- TODO, add safe exports
+
+  ) where
 
 import           Std.Data.Builder.Base
+import           Std.Data.Builder.Numeric
+import           Std.Data.Builder.TextBuilder
+

@@ -121,19 +121,20 @@ library
 
                             Std.Data.Text
                             Std.Data.Text.Base
+                            Std.Data.Text.Builder
                             Std.Data.Text.Extra
                             Std.Data.Text.Search
                             Std.Data.Text.UTF8Codec
                             Std.Data.Text.UTF8Rewind
 
                             Std.Data.Builder.Base
-                            Std.Data.Builder.Textual
-                            Std.Data.Builder.DigitTable
+                            Std.Data.Builder.Numeric
+                            Std.Data.Builder.Numeric.DigitTable
 
                             Std.Data.Parser
                             Std.Data.Parser.Base
-                            Std.Data.Parser.Binary
-                            Std.Data.Parser.Textual
+                            -- Std.Data.Parser.Binary
+                            -- Std.Data.Parser.Textual
 
                             Std.Foreign.PrimArray
 

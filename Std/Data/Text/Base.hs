@@ -112,6 +112,8 @@ module Std.Data.Text.Base (
   , categoryIslower
   , categoryIsdigit
   , categoryIsxdigit
+  -- * Misc
+  , c_utf8_validate
  ) where
 
 import           Control.DeepSeq
@@ -125,11 +127,9 @@ import           Data.Primitive.PrimArray
 import           Data.Typeable
 import           Data.String              (IsString(..))
 import           Data.Word
-import           Foreign.C
 import           Foreign.C.Types          (CSize(..))
 import           GHC.Exts                 (build)
 import           GHC.Prim
-import           GHC.Ptr
 import           GHC.Ptr
 import           GHC.Types
 import           GHC.Stack
@@ -141,7 +141,6 @@ import           Std.Data.Vector.Base     (Bytes, PrimVector(..), c_strlen)
 import qualified Std.Data.Vector.Base     as V
 import qualified Std.Data.Vector.Extra    as V
 import qualified Std.Data.Vector.Search   as V
-import           Std.Data.Parser   (Result(..))
 import           System.IO.Unsafe (unsafeDupablePerformIO)
 
 import           Prelude                       hiding (concat, concatMap,
@@ -176,29 +175,25 @@ instance IsString Text where
     fromString = packStringLiteral
 
 packStringLiteral :: String -> Text
-packStringLiteral = pack
-
 {-# NOINLINE CONLIKE packStringLiteral #-}
-
-packStringAddr :: Addr# -> Text
-packStringAddr addr# = case validateAndCopy addr# of
-                            Just txt -> txt
-                            Nothing  -> pack (unpackCString# addr#)
-  where
-    validateAndCopy addr# = unsafeDupablePerformIO $ do
-        let cstr = Ptr addr#
-        len <- fromIntegral <$> c_strlen cstr
-        valid <- c_utf8_validate cstr 0 len
-        if valid == 0
-           then return Nothing
-           else do marr <- newPrimArray len
-                   copyPtrToMutablePrimArray marr 0 (castPtr cstr) len
-                   arr <- unsafeFreezePrimArray marr
-                   return $ Just $ Text $ PrimVector arr 0 len
-
 {-# RULES
     "packStringLiteral/packStringAddr" forall addr . packStringLiteral (unpackCString# addr) = packStringAddr addr
   #-}
+packStringLiteral = pack
+
+
+packStringAddr :: Addr# -> Text
+packStringAddr addr# = validateAndCopy addr#
+  where
+    len = fromIntegral . unsafeDupablePerformIO $ c_strlen addr#
+    valid = unsafeDupablePerformIO $ c_utf8_validate addr# 0 len
+    validateAndCopy addr#
+        | valid == 0 = pack (unpackCString# addr#)
+        | otherwise  = runST $ do
+            marr <- newPrimArray len
+            copyPtrToMutablePrimArray marr 0 (Ptr addr#) len
+            arr <- unsafeFreezePrimArray marr
+            return $ Text (PrimVector arr 0 len)
 
 -- | /O(n)/ Get the nth codepoint from 'Text'.
 charAt :: Text -> Int -> Maybe Char
@@ -284,7 +279,7 @@ validateMaybe bs@(V.PrimVector (PrimArray ba#) (I# s#) l@(I# l#))
 foreign import ccall unsafe utf8_validate :: ByteArray# -> Int# -> Int# -> Int
 
 foreign import ccall unsafe "text.h utf8_validate"
-    c_utf8_validate :: CString -> Int -> Int -> IO Int
+    c_utf8_validate :: Addr# -> Int -> Int -> IO Int
 
 --------------------------------------------------------------------------------
 

@@ -114,8 +114,7 @@ import           Std.IO.Resource
 --
 -- USE THIS FUNCTION WITH UNSAFE FFI CALL ONLY.
 --
-withPrimArrayUnsafe :: forall m a b. (PrimMonad m, Prim a)
-                    => PrimArray a -> (ByteArray# -> Int -> m b) -> m b
+withPrimArrayUnsafe :: (Prim a) => PrimArray a -> (ByteArray# -> Int -> IO b) -> IO b
 withPrimArrayUnsafe pa@(PrimArray ba#) f = f ba# (sizeofPrimArray pa)
 
 -- | Pass mutable primitive array to unsafe FFI as pointer.
@@ -124,15 +123,13 @@ withPrimArrayUnsafe pa@(PrimArray ba#) f = f ba# (sizeofPrimArray pa)
 --
 -- USE THIS FUNCTION WITH UNSAFE FFI CALL ONLY.
 --
-withMutablePrimArrayUnsafe :: forall m a b. (PrimMonad m, Prim a)
-                           => MutablePrimArray (PrimState m) a
-                           -> (MutableByteArray# (PrimState m)-> Int -> m b) -> m b
+withMutablePrimArrayUnsafe :: (Prim a) => MutablePrimArray RealWorld a
+                           -> (MutableByteArray# RealWorld-> Int -> IO b) -> IO b
 withMutablePrimArrayUnsafe mpa@(MutablePrimArray mba#) f =
     getSizeofMutablePrimArray mpa >>= f mba#
 
-withMutableByteArrayUnsafe :: PrimMonad m
-                           => Int      -- ^ In bytes
-                           -> (MutableByteArray# (PrimState m) -> m b) -> m b
+withMutableByteArrayUnsafe :: Int      -- ^ In bytes
+                           -> (MutableByteArray# RealWorld -> IO b) -> IO b
 withMutableByteArrayUnsafe len f = do
     (MutableByteArray mba#) <- newByteArray len
     f mba#
@@ -146,8 +143,8 @@ withMutableByteArrayUnsafe len f = do
 --
 -- USE THIS FUNCTION WITH UNSAFE FFI CALL ONLY.
 --
-withPrimVectorUnsafe :: forall m a b. (PrimMonad m, Prim a)
-                     => PrimVector a -> (ByteArray# -> Int -> Int -> m b) -> m b
+withPrimVectorUnsafe :: (Prim a)
+                     => PrimVector a -> (ByteArray# -> Int -> Int -> IO b) -> IO b
 withPrimVectorUnsafe (PrimVector arr s l) f = withPrimArrayUnsafe arr $ \ ba# _ -> f ba# s l
 
 
@@ -157,8 +154,8 @@ withPrimVectorUnsafe (PrimVector arr s l) f = withPrimArrayUnsafe arr $ \ ba# _ 
 --
 -- USE THIS FUNCTION WITH UNSAFE FFI CALL ONLY.
 --
-withPrimUnsafe :: forall m a b. (PrimMonad m, Prim a)
-               => a -> (MutableByteArray# (PrimState m) -> m b) -> m (a, b)
+withPrimUnsafe :: (Prim a)
+               => a -> (MutableByteArray# RealWorld -> IO b) -> IO (a, b)
 withPrimUnsafe v f = do
     mpa@(MutablePrimArray mba#) <- newPrimArray 1    -- All heap objects are WORD aligned
     writePrimArray mpa 0 v
@@ -166,8 +163,8 @@ withPrimUnsafe v f = do
     !a <- readPrimArray mpa 0
     return (a, b)
 
-withPrimUnsafe' :: forall m a b. (PrimMonad m, Prim a)
-               => (MutableByteArray# (PrimState m) -> m b) -> m (a, b)
+withPrimUnsafe' :: (Prim a)
+               => (MutableByteArray# RealWorld -> IO b) -> IO (a, b)
 withPrimUnsafe' f = do
     mpa@(MutablePrimArray mba#) <- newPrimArray 1    -- All heap objects are WORD aligned
     !b <- f mba#                                      -- so no need to do extra alignment

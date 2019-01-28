@@ -22,6 +22,7 @@ The design choice here is to balance security and convenience, while it's wastef
 module Std.Data.Text (
   -- * Text type
     Text
+  , validate, validateMaybe
   -- * Basic creating
   , empty, singleton, copy
   -- * Conversion between list
@@ -39,7 +40,7 @@ module Std.Data.Text (
   , count
   , all, any
   -- * Building text
-  , replicate
+  , replicate, cycleN
   -- * Searching by equality
   , elem, notElem
   -- * Slice manipulation

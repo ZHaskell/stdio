@@ -142,8 +142,11 @@ takeWhile :: (Word8 -> Bool) -> Parser V.Bytes
 takeWhile p = do
     bs <- get
     let (want, rest) = V.span p bs
-    put rest
-    if V.null rest then V.concat . reverse <$> go [want] else return want
+    if V.null rest
+    then V.concat . reverse <$> go [want]
+    else do
+        put rest
+        return want
   where
     go acc = do
         e <- isEmpty

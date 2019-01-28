@@ -349,3 +349,6 @@ copyChar' !l !mba !j !ba !i = case l of
             writePrimArray mba (j+2) =<< readPrimArray ba (i+2)
             writePrimArray mba (j+3) =<< readPrimArray ba (i+3)
 
+
+replacementChar :: Char
+replacementChar = '\xFFFD'

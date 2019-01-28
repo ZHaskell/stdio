@@ -78,7 +78,6 @@ import           Prelude                 hiding (all, any, appendFile, break,
                                           zipWith)
 import           Std.Data.Array
 import           Std.Data.Text.UTF8Codec (encodeCBytesChar)
-import           Std.Data.Vector.Base    (c_strcmp, c_strlen)
 import qualified Std.Data.Vector.Base    as V
 import           Std.IO.Exception
 import           System.IO.Unsafe        (unsafeDupablePerformIO)
@@ -329,3 +328,11 @@ withCBytes :: CBytes -> (CString -> IO a) -> IO a
 {-# INLINABLE withCBytes #-}
 withCBytes (CBytesOnHeap pa) f = withPrimArrayContents pa (f . castPtr)
 withCBytes (CBytesLiteral ptr) f = f ptr
+
+--------------------------------------------------------------------------------
+
+foreign import ccall unsafe "string.h strcmp"
+    c_strcmp :: CString -> CString -> IO CInt
+
+foreign import ccall unsafe "string.h strlen"
+    c_strlen :: CString -> IO CSize
