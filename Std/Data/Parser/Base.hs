@@ -6,7 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 {-|
-Module      : Std.Data.Parser.Internal
+Module      : Std.Data.Parser.Base
 Description : Efficient deserialization/parse.
 Copyright   : (c) Winterland, 2017-2018
 License     : BSD
@@ -16,7 +16,7 @@ Portability : non-portable
 WIP
 -}
 
-module Std.Data.Parser.Internal where
+module Std.Data.Parser.Base where
 
 import           Control.Applicative
 import           Control.Monad
@@ -26,7 +26,8 @@ import           Data.Word
 import           GHC.Prim
 import           GHC.Types
 import           Std.Data.PrimArray.UnalignedAccess
-import qualified Std.Data.Vector                    as V
+import qualified Std.Data.Vector.Base               as V
+import qualified Std.Data.Vector.Extra              as V
 
 -- | Simple parsing result, that represent respectively:
 --
@@ -121,14 +122,6 @@ pushBack :: [V.Bytes] -> Parser ()
 pushBack [] = return ()
 pushBack bs = Parser (\ k input -> k () (V.concat (input : bs)))
 
--- | Get the current chunk.
-get :: Parser V.Bytes
-get = Parser (\ k input -> k input input)
-
--- | Replace the current chunk.
-put :: V.Bytes -> Parser ()
-put input' = Parser (\ k _ -> k () input')
-
 -- | Ensure that there are at least @n@ bytes available. If not, the
 -- computation will escape with 'NeedMore'.
 ensureN :: Int -> Parser ()
@@ -153,6 +146,12 @@ ensureN n0 = Parser $ \ ks input -> do
                 let input'' = V.concat (reverse (input':acc))
                 ks () input''
 
+-- | Test whether all input has been consumed, i.e. there are no remaining
+-- undecoded bytes.
+isEmpty :: Parser Bool
+{-# INLINE isEmpty #-}
+isEmpty = Parser $ \ k inp -> k (V.null inp) inp
+
 decodePrim :: forall a. UnalignedAccess a => Parser a
 {-# INLINE decodePrim #-}
 decodePrim = do
@@ -170,3 +169,45 @@ decodePrimLE = getLE <$> decodePrim
 decodePrimBE :: forall a. UnalignedAccess (BE a) => Parser a
 {-# INLINE decodePrimBE #-}
 decodePrimBE = getBE <$> decodePrim
+
+-- | A stateful scanner.  The predicate consumes and transforms a
+-- state argument, and each transformed state is passed to successive
+-- invocations of the predicate on each byte of the input until one
+-- returns 'Nothing' or the input ends.
+--
+-- This parser does not fail.  It will return an empty string if the
+-- predicate returns 'Nothing' on the first byte of input.
+--
+scan :: s -> (s -> Word8 -> Maybe s) -> Parser V.Bytes
+{-# INLINE scan #-}
+scan s0 f = scanChunks s0 f'
+  where
+    f' st (V.Vec arr s l) = go f st arr s s (s+l)
+    go f st arr off !i !end
+        | i < end = do
+            let !w = indexPrimArray arr i
+            case f st w of
+                Just st' -> go f st' arr off (i+1) end
+                _        ->
+                    let !len1 = i - off
+                        !len2 = end - off
+                    in Right (V.Vec arr off len1, V.Vec arr i len2)
+        | otherwise = Left st
+
+-- | Similar to 'scan', but working on 'V.Bytes' chunks, The predicate
+-- consumes a 'V.Bytes' chunk and transforms a state argument,
+-- and each transformed state is passed to successive invocations of
+-- the predicate on each chunk of the input until one chunk got splited to
+-- @Right (V.Bytes, V.Bytes)@ or the input ends.
+--
+scanChunks :: s -> (s -> V.Bytes -> Either s (V.Bytes, V.Bytes)) -> Parser V.Bytes
+{-# INLINE scanChunks #-}
+scanChunks s0 consume = Parser (go s0 [])
+  where
+    go s acc k inp =
+        case consume s inp of
+            Left s' -> do
+                let acc' = inp : acc
+                NeedMore (go s' acc' k)
+            Right (want,rest) ->
+                k (V.concat (reverse (want:acc))) rest

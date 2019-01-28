@@ -81,7 +81,7 @@ import           Std.Data.CBytes                 as CBytes
 import           Foreign.Ptr
 import           Foreign.Storable               (peekElemOff)
 import           Foreign.Marshal.Alloc          (allocaBytes)
-import           Std.Foreign.PrimArray          (withPrimSafe, withPrimUnsafe)
+import           Std.Foreign.PrimArray          (withPrimSafe', withPrimUnsafe')
 import           Std.IO.Buffered
 import           Std.IO.Exception
 import           Std.IO.Resource
@@ -368,7 +368,7 @@ scandir path = do
     uvm <- getUVManager
     bracket
         (withCBytes path $ \ p -> do
-            withPrimUnsafe $ \ dents ->
+            withPrimUnsafe' $ \ dents ->
                 throwUVIfMinus (hs_uv_fs_scandir p dents))
         (\ (dents, n) -> hs_uv_fs_scandir_cleanup dents n)
         (\ (dents, n) -> forM [0..n-1] $ \ i -> do
@@ -383,7 +383,7 @@ scandirT path = do
     uvm <- getUVManager
     bracket
         (withCBytes path $ \ p ->
-            withPrimSafe $ \ dents ->
+            withPrimSafe' $ \ dents ->
                 withUVRequestEx uvm
                     (hs_uv_fs_scandir_threaded p dents)
                     (hs_uv_fs_scandir_extra_cleanup dents))

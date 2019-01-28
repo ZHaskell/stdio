@@ -13,7 +13,7 @@ import           Test.Hspec
 import           Test.Hspec.QuickCheck
 
 spec :: Spec
-spec = do
+spec = describe "vector-base" $ do
     describe "vector Eq Ord property" $ do
         prop "vector eq === List.eq" $ \ xs ys ->
             (V.pack @V.Vector @Integer xs == V.pack ys) === (xs == ys)
@@ -83,9 +83,12 @@ spec = do
         prop "vector eq === List.eq" $ \ xs ys ->
             (V.unpack $ V.pack @V.PrimVector @Word8 xs `V.append` V.pack ys) === (xs ++ ys)
 
-    describe "vector map' == List.map" $ do
+    describe "vector map/map' == List.map" $ do
         prop "vector map === List.map" $ \ xs (Fun _ f) ->
             (V.map @V.Vector @V.Vector (f :: Integer -> Integer) $ V.pack @V.Vector @Integer xs) ===
+                (V.pack $ List.map f xs)
+        prop "vector map' === List.map" $ \ xs (Fun _ f) ->
+            (V.map' @V.Vector @V.Vector (f :: Integer -> Integer) $ V.pack @V.Vector @Integer xs) ===
                 (V.pack $ List.map f xs)
         prop "vector map === List.map" $ \ xs (Fun _ f)  ->
             (V.map @V.PrimVector @V.PrimVector (f :: Int -> Word8) $ V.pack @V.PrimVector @Int xs) ===
@@ -99,6 +102,16 @@ spec = do
         prop "vector map === List.map" $ \ xs (Fun _ f) ->
             (V.map @V.Vector @V.PrimVector (f :: Integer -> Word8) $ V.pack @V.Vector @Integer xs) ===
                 (V.pack $ List.map f xs)
+
+    describe "vector imap' (const f) == List.map f" $ do
+        prop "vector imap' (const f) == List.map f" $ \ xs (Fun _ f) ->
+            (V.imap' @V.Vector @V.PrimVector (const (f :: Integer -> Word8)) $ V.pack @V.Vector @Integer xs) ===
+                (V.pack $ List.map f xs)
+
+    describe "vector imap' const == List.zipWith const [0..]" $ do
+        prop "vector imap' const == List.zipWith const [0..]" $ \ xs ->
+            (V.imap' @V.Vector @V.PrimVector const $ V.pack @V.Vector @Integer xs) ===
+                (V.pack $ List.zipWith const [0..] xs)
 
     describe "vector foldl' == List.foldl'" $ do
         prop "vector foldl' === List.foldl'" $ \ xs f x ->

@@ -33,9 +33,8 @@ import           Foreign.C.Types          (CSize (..))
 import           Foreign.Ptr
 import           GHC.Prim
 import           Std.Data.Array
-import qualified Std.Data.Builder         as B
-import qualified Std.Data.Text            as T
-import qualified Std.Data.Text.UTF8Codec  as UTF8
+import qualified Std.Data.Builder.Base    as B
+import qualified Std.Data.Text.Base       as T
 import qualified Std.Data.Vector.Base     as V
 import qualified Std.Data.Vector          as V
 import           Std.Foreign.PrimArray
@@ -197,18 +196,21 @@ readToMagic magic h = V.concat `fmap` (go h magic)
                 chunks <- go h magic
                 return (chunk : chunks)
 
+data UTF8DecodeException = UTF8DecodeException V.Bytes IOEInfo
+  deriving (Show, Typeable)
+instance Exception UTF8DecodeException where
+    toException = ioExceptionToException
+    fromException = ioExceptionFromException
+
 -- | Read a line
 --
 readLine :: (HasCallStack, Input i) => BufferedInput i -> IO T.Text
 readLine h = do
     bss <- go h (V.c2w '\n')
-    case T.validateUTF8 (V.concat bss) of
-        T.Success t -> return t
-        T.PartialBytes _ bs ->
-            throwIO (UTF8PartialBytesException bs
-                (IOEInfo "" "utf8 decode error" callStack))
-        T.InvalidBytes bs ->
-            throwIO (UTF8InvalidBytesException bs
+    let bs = V.concat bss
+    case T.validateMaybe bs of
+        Just t  -> return t
+        Nothing -> throwIO (UTF8DecodeException bs
                 (IOEInfo "" "utf8 decode error" callStack))
   where
     go h magic = do
@@ -223,58 +225,6 @@ readLine h = do
             Nothing -> do
                 chunks <- go h magic
                 return (chunk : chunks)
-
-
--- | Read a chunk of utf8 text
---
-readTextChunkUTF8 :: (HasCallStack, Input i) => BufferedInput i -> IO T.Text
-readTextChunkUTF8 h@BufferedInput{..} = do
-    chunk <- readBuffer h
-    if V.null chunk
-    then return T.empty
-    else do
-        let (V.PrimVector vba vs vl) = chunk
-            minLen = UTF8.decodeCharLen vba vs
-        if minLen > vl                              -- is this chunk partial?
-        then do                                     -- if so, try continue reading first
-            rbuf <- readIORef inputBuffer
-            bufSiz <- getSizeofMutablePrimArray rbuf
-            copyPrimArray rbuf 0 vba vs vl         -- copy the partial chunk into buffer and try read new bytes
-            l <- readInput bufInput (mutablePrimArrayContents rbuf `plusPtr` vl) (bufSiz - vl)
-            let l' = l + vl
-            if l' < bufSiz `quot` 2                -- read less than half size
-            then if l' == vl
-                then do                             -- no new bytes read, partial before EOF
-                    throwIO (UTF8PartialBytesException chunk
-                        (IOEInfo "" "utf8 decode error" callStack))
-                else do
-                    mba <- newPrimArray l'              -- copy result into new array
-                    copyMutablePrimArray mba 0 rbuf 0 l'
-                    ba <- unsafeFreezePrimArray mba
-                    decode (V.fromArr ba 0 l')
-            else do                                 -- freeze buf into result
-                rbuf' <- newPinnedPrimArray bufSiz
-                writeIORef inputBuffer rbuf'
-                ba <- unsafeFreezePrimArray rbuf
-                decode (V.fromArr ba 0 l')
-        else decode chunk
-  where
-    decode bs = case T.validateUTF8 bs of
-        T.Success t -> return t
-        T.PartialBytes t bs -> do
-            unReadBuffer bs h
-            return t
-        T.InvalidBytes bs -> throwIO (UTF8InvalidBytesException bs
-                (IOEInfo "" "utf8 decode error" callStack))
-
-
-data UTF8DecodeException
-    = UTF8InvalidBytesException V.Bytes IOEInfo
-    | UTF8PartialBytesException V.Bytes IOEInfo
-  deriving (Show, Typeable)
-instance Exception UTF8DecodeException where
-    toException = ioExceptionToException
-    fromException = ioExceptionFromException
 
 --------------------------------------------------------------------------------
 

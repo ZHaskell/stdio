@@ -597,4 +597,3 @@ HsInt hs_uv_fs_scandir_threaded(const char* path, uv_dirent_t*** dents, uv_loop_
 HsInt hs_uv_fs_stat_threaded(const char* path, uv_stat_t* stat, uv_loop_t* loop);
 HsInt hs_uv_fs_fstat_threaded(int32_t file, uv_stat_t* stat, uv_loop_t* loop);
 HsInt hs_uv_fs_lstat_threaded(const char* path, uv_stat_t* stat, uv_loop_t* loop);
-

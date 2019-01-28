@@ -19,7 +19,7 @@ For example, data encoded using the 'Binary' class could be written on any machi
 and read back on any another using @stdio@ packages with the same major version.
 -}
 
-module Std.Data.Piston where
+module Std.Data.Binary where
 
 import           GHC.Word
 import           GHC.Int

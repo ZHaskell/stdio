@@ -11,6 +11,8 @@
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE UnboxedTuples          #-}
 {-# LANGUAGE ViewPatterns           #-}
+{-# LANGUAGE UnliftedFFITypes       #-}
+{-# LANGUAGE QuantifiedConstraints  #-}
 
 {-|
 Module      : Std.Data.Vector.Base
@@ -36,6 +38,7 @@ module Std.Data.Vector.Base (
   -- * The Vec typeclass
     Vec(..)
   , pattern Vec
+  , indexMaybe
   -- * Boxed and unboxed vector type
   , Vector(..)
   , PrimVector(..)
@@ -44,7 +47,7 @@ module Std.Data.Vector.Base (
   , pattern Bytes#
   , w2c, c2w
   -- * Basic creating
-  , create, creating, createN, createN2
+  , create, create', creating, creating', createN, createN2
   , empty, singleton, copy
   -- * Conversion between list
   , pack, packN, packR, packRN
@@ -70,11 +73,11 @@ module Std.Data.Vector.Base (
   , mapAccumR
   -- ** Generating and unfolding vector
   , replicate
+  , cycleN
   , unfoldr
   , unfoldrN
   -- * Searching by equality
-  , elem, notElem
-  , elemIndex, elemIndexBytes
+  , elem, notElem, elemIndex
   -- * Misc
   , IPair(..)
   , defaultInitSize
@@ -85,6 +88,9 @@ module Std.Data.Vector.Base (
   , errorEmptyVector
   , errorOutRange
   , castVector
+  -- * C FFI
+  , c_strcmp
+  , c_strlen
  ) where
 
 import           Control.DeepSeq
@@ -92,6 +98,7 @@ import           Control.Exception
 import           Control.Monad
 import           Control.Monad.ST
 import           Data.Bits
+import           Data.Char                     (ord)
 import           Data.Data
 import qualified Data.Foldable                 as F
 import           Data.Functor.Identity
@@ -101,12 +108,17 @@ import           Data.Monoid                   (Monoid (..))
 import           Data.Primitive
 import           Data.Primitive.PrimArray
 import           Data.Primitive.SmallArray
+import           Data.Primitive.Ptr
 import           Data.Semigroup                (Semigroup ((<>)))
+import           Data.String                   (IsString(..))
 import qualified Data.Traversable              as T
 import           Data.Typeable
+import           Foreign.C
+import           GHC.CString
 import           GHC.Exts                      (build)
 import           GHC.Stack
 import           GHC.Prim
+import           GHC.Ptr
 import           GHC.Types
 import           GHC.Word
 import           Prelude                       hiding (concat, concatMap,
@@ -114,6 +126,8 @@ import           Prelude                       hiding (concat, concatMap,
                                                 foldl, foldl1, foldr, foldr1,
                                                 maximum, minimum, product, sum,
                                                 all, any, replicate, traverse)
+import           System.IO.Unsafe              (unsafePerformIO)
+
 import           Std.Data.Array
 import           Std.Data.PrimArray.BitTwiddle (c_memchr)
 import           Std.Data.PrimArray.Cast
@@ -142,11 +156,10 @@ pattern Vec arr s l <- (toArr -> (arr,s,l)) where
 --
 -- Return 'Nothing' if index is out of bounds.
 --
-(!) :: (Vec v a, HasCallStack) => v a -> Int -> Maybe a
-{-# INLINE (!) #-}
-infixl 9 !
-(!) (Vec arr s l) i | i < 0 || i >= l = Nothing
-                    | otherwise       = arr `indexArrM` (s + i)
+indexMaybe :: (Vec v a, HasCallStack) => v a -> Int -> Maybe a
+{-# INLINE indexMaybe #-}
+indexMaybe (Vec arr s l) i | i < 0 || i >= l = Nothing
+                           | otherwise       = arr `indexArrM` (s + i)
 
 --------------------------------------------------------------------------------
 -- | Boxed vector
@@ -396,6 +409,31 @@ type Bytes = PrimVector Word8
 pattern Bytes# :: ByteArray# -> Int# -> Int# -> PrimVector a
 pattern Bytes# ba# s# l# = PrimVector (PrimArray ba#) (I# s#) (I# l#)
 
+instance (a ~ Word8) => IsString (PrimVector a) where
+    {-# INLINE fromString #-}
+    fromString = packStringLiteral
+
+packStringLiteral :: String -> Bytes
+{-# NOINLINE CONLIKE packStringLiteral #-}
+{-# RULES
+    "packStringLiteral/packStringAddr" forall addr . packStringLiteral (unpackCString# addr) = packStringAddr addr
+  #-}
+packStringLiteral = pack . fmap (fromIntegral . ord)
+
+packStringAddr :: Addr# -> Bytes
+packStringAddr addr# = validateAndCopy addr#
+  where
+    len = fromIntegral . unsafePerformIO $ c_strlen addr#
+    valid = unsafePerformIO $ c_ascii_validate addr# 0 len
+    validateAndCopy addr#
+        | valid == 0 = pack . fmap (fromIntegral . ord) $ unpackCString# addr#
+        | otherwise = runST $ do
+            marr <- newPrimArray len
+            copyPtrToMutablePrimArray marr 0 (Ptr addr#) len
+            arr <- unsafeFreezePrimArray marr
+            return (PrimVector arr 0 len)
+
+
 -- | Conversion between 'Word8' and 'Char'. Should compile to a no-op.
 --
 w2c :: Word8 -> Char
@@ -426,7 +464,25 @@ create n0 fill = runST (do
         ba <- unsafeFreezeArr marr
         return $! fromArr ba 0 n)
 
--- | Create a vector, return both the vector and the monadic result during creating.
+-- | Create a vector with a initial size N array (which may not be the final array).
+--
+create' :: Vec v a
+        => Int                                                      -- ^ length in elements of type @a@
+        -> (forall s. MArray v s a -> ST s (IPair (MArray v s a)))  -- ^ initialization function
+                                                                    --   return a result size and array
+                                                                    --   the result must start from index 0
+        -> v a
+{-# INLINE create' #-}
+create' n0 fill = runST (do
+        let n = max 0 n0
+        marr <- newArr n
+        IPair n' marr' <- fill marr
+        shrinkMutableArr marr' n'
+        ba <- unsafeFreezeArr marr'
+        return $! fromArr ba 0 n')
+
+-- | Create a vector with a initial size N array, return both the vector and
+-- the monadic result during creating.
 --
 -- The result is not demanded strictly while the returned vector will be in normal form.
 -- It this is not desired, use @return $!@ idiom in your initialization function.
@@ -441,6 +497,25 @@ creating n0 fill = runST (do
         b <- fill marr
         ba <- unsafeFreezeArr marr
         let !v = fromArr ba 0 n
+        return (b, v))
+
+-- | Create a vector with a initial size N array (which may not be the final array),
+-- return both the vector and the monadic result during creating.
+--
+-- The result is not demanded strictly while the returned vector will be in normal form.
+-- It this is not desired, use @return $!@ idiom in your initialization function.
+creating' :: Vec v a
+         => Int  -- length in elements of type @a@
+         -> (forall s. MArray v s a -> ST s (b, (IPair (MArray v s a))))  -- ^ initialization function
+         -> (b, v a)
+{-# INLINE creating' #-}
+creating' n0 fill = runST (do
+        let n = max 0 n0
+        marr <- newArr n
+        (b, IPair n' marr') <- fill marr
+        shrinkMutableArr marr' n'
+        ba <- unsafeFreezeArr marr'
+        let !v = fromArr ba 0 n'
         return (b, v))
 
 -- | Create a vector up to a specific length.
@@ -740,10 +815,12 @@ ifoldl' f z (Vec arr s l) = go z s
                | otherwise = acc
 
 -- | Strict left to right fold using first element as the initial value.
+--
+-- Throw 'EmptyVector' if vector is empty.
 foldl1' :: forall v a. (Vec v a, HasCallStack) => (a -> a -> a) -> v a -> a
 {-# INLINE foldl1' #-}
 foldl1' f (Vec arr s l)
-    | l <= 0    = errorEmptyVector "foldl1'"
+    | l <= 0    = errorEmptyVector
     | otherwise = case indexArr' arr s of
                     (# x0 #) -> foldl' f x0 (fromArr arr (s+1) (l-1) :: v a)
 
@@ -768,19 +845,23 @@ foldr' f z (Vec arr s l) = go z (s+l-1)
                | otherwise = acc
 
 -- | Strict right to left fold with index
+--
+-- NOTE: the index is counting from 0, not backwards
 ifoldr' :: Vec v a => (Int -> a -> b -> b) -> b -> v a -> b
 {-# INLINE ifoldr' #-}
-ifoldr' f z (Vec arr s l) = go z (s+l-1)
+ifoldr' f z (Vec arr s l) = go z (s+l-1) 0
   where
-    go !acc !i | i >= s    = case indexArr' arr i of
-                                (# x #) -> go (f i x acc) (i - 1)
-               | otherwise = acc
+    go !acc !i !k | i >= s    = case indexArr' arr i of
+                                    (# x #) -> go (f k x acc) (i - 1) (k + 1)
+                  | otherwise = acc
 
 -- | Strict right to left fold using last element as the initial value.
+--
+-- Throw 'EmptyVector' if vector is empty.
 foldr1' :: forall v a. (Vec v a, HasCallStack) => (a -> a -> a) -> v a -> a
 {-# INLINE foldr1' #-}
 foldr1' f (Vec arr s l)
-    | l <= 0 = errorEmptyVector "foldr1'"
+    | l <= 0 = errorEmptyVector
     | otherwise = case indexArr' arr (s+l-1) of
                     (# x0 #) -> foldl' f x0 (fromArr arr s (l-1) :: v a)
 
@@ -873,8 +954,8 @@ product' (Vec arr s l) = go 1 s
                | otherwise = case indexArr' arr i of
                                 (# x #) -> go (acc*x) (i+1)
 
--- | /O(n)/ Applied to a predicate and a vector, 'all' determines
--- if all elements of the vector satisfy the predicate.
+-- | /O(n)/ Applied to a predicate and a vector, 'any' determines
+-- if any elements of the vector satisfy the predicate.
 any :: Vec v a => (a -> Bool) -> v a -> Bool
 {-# INLINE any #-}
 any f (Vec arr s l)
@@ -888,8 +969,8 @@ any f (Vec arr s l)
                | otherwise = case indexArr' arr i of
                                 (# x #) -> go (acc || f x) (i+1)
 
--- | /O(n)/ Applied to a predicate and a vector, 'any' determines
--- if any elements of the vector satisfy the predicate.
+-- | /O(n)/ Applied to a predicate and a vector, 'all' determines
+-- if all elements of the vector satisfy the predicate.
 all :: Vec v a => (a -> Bool) -> v a -> Bool
 {-# INLINE all #-}
 all f (Vec arr s l)
@@ -974,6 +1055,18 @@ replicate :: (Vec v a) => Int -> a -> v a
 {-# INLINE replicate #-}
 replicate n x | n <= 0    = empty
               | otherwise = create n (\ marr -> setArr marr 0 n x)
+
+-- | /O(n*m)/ 'cycleN' a vector n times.
+cycleN :: forall v a. Vec v a => Int -> v a -> v a
+{-# INLINE cycleN #-}
+cycleN n (Vec arr s l)
+    | l == 0    = empty
+    | otherwise = create end (go 0)
+  where
+    !end = n*l
+    go :: Int -> MArray v s a -> ST s ()
+    go !i !marr | i >= end  = return ()
+                | otherwise = copyArr marr i arr s l >> go (i+l) marr
 
 -- | /O(n)/, where /n/ is the length of the result.  The 'unfoldr'
 -- function is analogous to the List \'unfoldr\'.  'unfoldr' builds a
@@ -1098,3 +1191,14 @@ errorOutRange i = throw (IndexOutOfVectorRange i callStack)
 -- | Cast between vectors
 castVector :: (Vec v a, Cast a b) => v a -> v b
 castVector = unsafeCoerce#
+
+--------------------------------------------------------------------------------
+
+foreign import ccall unsafe "string.h strcmp"
+    c_strcmp :: Addr# -> Addr# -> IO CInt
+
+foreign import ccall unsafe "string.h strlen"
+    c_strlen :: Addr# -> IO CSize
+
+foreign import ccall unsafe "text.h ascii_validate"
+    c_ascii_validate :: Addr# -> Int -> Int -> IO Int

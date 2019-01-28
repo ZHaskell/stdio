@@ -24,16 +24,19 @@ module Std.Data.Vector.Extra (
   , headMaybe, tailMayEmpty
   , lastMaybe, initMayEmpty
   , inits, tails
-  , take, drop
-  , slice , (|..|)
+  , take, drop, takeLast, dropLast
+  , slice
   , splitAt
-  , takeWhile , dropWhile
+  , takeWhile, takeLastWhile, dropWhile, dropLastWhile, dropAround
   , break, span
-  , breakEnd, spanEnd
+  , breakEnd, spanEnd, breakOn
   , group, groupBy
   , stripPrefix, stripSuffix
-  , split, splitWith
+  , split, splitWith, splitOn
   , isPrefixOf, isSuffixOf, isInfixOf
+  , commonPrefix
+  , words, lines, unwords, unlines
+  , padLeft, padRight
   -- * Transform
   , reverse
   , intersperse
@@ -47,6 +50,19 @@ module Std.Data.Vector.Extra (
   , scanr', scanr1'
   -- * Misc
   , rangeCut
+  -- * Unsafe operations
+  , head
+  , tail
+  , init
+  , last
+  , index
+  , unsafeHead
+  , unsafeTail
+  , unsafeInit
+  , unsafeLast
+  , unsafeIndex
+  , unsafeTake
+  , unsafeDrop
   ) where
 
 import           Control.Monad.ST
@@ -60,11 +76,14 @@ import           Prelude                       hiding (concat, concatMap,
                                                 foldl, foldl1, foldr, foldr1,
                                                 maximum, minimum, product, sum,
                                                 all, any, replicate, traverse,
+                                                head, tail, init, last,
                                                 take, drop, splitAt,
                                                 takeWhile, dropWhile,
-                                                break, span, reverse)
+                                                break, span, reverse,
+                                                words, lines, unwords, unlines)
 import qualified Data.List                     as List
 import           Data.Bits
+import           Control.Exception             (assert)
 
 --------------------------------------------------------------------------------
 -- Slice
@@ -100,7 +119,7 @@ unsnoc (Vec arr s l)
     | otherwise = let !v = fromArr arr s (l-1)
                   in case indexArr' arr (s+l-1) of (# x #) -> Just (v, x)
 
--- | /O(1)/ Extract the first element of a vector,
+-- | /O(1)/ Extract the first element of a vector.
 headMaybe :: Vec v a => v a -> Maybe a
 {-# INLINE headMaybe #-}
 headMaybe (Vec arr s l)
@@ -123,7 +142,7 @@ lastMaybe (Vec arr s l)
     | l <= 0    = Nothing
     | otherwise = indexArrM arr (s+l-1)
 
--- | /O(1)/ Extract the elements before of the last one,
+-- | /O(1)/ Extract the elements before of the last one.
 --
 -- NOTE: 'initMayEmpty' return empty vector in the case of an empty vector.
 initMayEmpty :: Vec v a => v a -> v a
@@ -151,6 +170,15 @@ take n v@(Vec arr s l)
     | n >= l    = v
     | otherwise = fromArr arr s n
 
+-- | /O(1)/ 'takeLast' @n@, applied to a vector @xs@, returns the suffix
+-- of @xs@ of length @n@, or @xs@ itself if @n > 'length' xs@.
+takeLast :: Vec v a => Int -> v a -> v a
+{-# INLINE takeLast #-}
+takeLast n v@(Vec arr s l)
+    | n <= 0    = empty
+    | n >= l    = v
+    | otherwise = fromArr arr (s+l-n) n
+
 -- | /O(1)/ 'drop' @n xs@ returns the suffix of @xs@ after the first @n@
 -- elements, or @[]@ if @n > 'length' xs@.
 drop :: Vec v a => Int -> v a -> v a
@@ -159,6 +187,15 @@ drop n v@(Vec arr s l)
     | n <= 0    = v
     | n >= l    = empty
     | otherwise = fromArr arr (s+n) (l-n)
+
+-- | /O(1)/ 'drop' @n xs@ returns the prefix of @xs@ before the last @n@
+-- elements, or @[]@ if @n > 'length' xs@.
+dropLast :: Vec v a => Int -> v a -> v a
+{-# INLINE dropLast #-}
+dropLast n v@(Vec arr s l)
+    | n <= 0    = v
+    | n >= l    = empty
+    | otherwise = fromArr arr s (l-n)
 
 -- | /O(1)/ Extract a sub-range vector with give start index and length.
 --
@@ -173,39 +210,11 @@ drop n v@(Vec arr s l)
 -- @
 --
 -- This holds for all x y: @slice x y vs == drop x . take (x+y) vs@
-slice :: Vec v a => Int -> Int -> v a -> v a
+slice :: Vec v a => Int     -- ^ slice beginning index
+                 -> Int     -- ^ slice length
+                 -> v a -> v a
 {-# INLINE slice #-}
 slice x y = drop x . take (x+y)
-
--- | /O(1)/ Extract a sub-range vector with give start and end index
--- (sliced vector will include the end index element), both
--- start and end index can be negative, which stand for counting from the end
--- (similar to the slicing operator([..]) in many other language).
---
--- This function is a total function just like 'take/drop', e.g.
---
--- @
--- "hello" |..| (1, 2) == "el"
--- "hello" |..| (1, -2) == "ell"
--- "hello" |..| (-3, -2) == "ll"
--- "hello" |..| (-3, -4) == ""
--- @
--- This holds for all x y:
---
--- @
--- vs |..| x y == let l = length vs
---                    x' = if x >= 0 then x else l+x
---                    y' = if y >= 0 then y else l+y
---                in slice x' (y'-x'+1) vs
--- @
-(|..|) :: Vec v a => v a -> (Int, Int) -> v a
-{-# INLINE (|..|) #-}
-infixl 9 |..|
-(Vec arr s l) |..| (s1, s2) | s1' >  s2' = empty
-                            | otherwise  = fromArr arr s1' (s2' - s1')
-  where
-    !s1' = rangeCut (if s1>=0 then s+s1 else s+l+s1) s (s+l)
-    !s2' = rangeCut (if s2>=0 then s+s2+1 else s+l+s2+1) s (s+l)
 
 -- | /O(1)/ 'splitAt' @n xs@ is equivalent to @('take' n xs, 'drop' n xs)@.
 splitAt :: Vec v a => Int -> v a -> (v a, v a)
@@ -226,6 +235,16 @@ takeWhile f v@(Vec arr s l) =
         i  -> Vec arr s i
 
 -- | /O(n)/ Applied to a predicate @p@ and a vector @vs@,
+-- returns the longest suffix (possibly empty) of @vs@ of elements that
+-- satisfy @p@.
+takeLastWhile :: Vec v a => (a -> Bool) -> v a -> v a
+{-# INLINE takeLastWhile #-}
+takeLastWhile f v@(Vec arr s l) =
+    case findLastIndexOrStart (not . f) v of
+        -1 -> v
+        i  -> Vec arr (s+i+1) (l-i-1)
+
+-- | /O(n)/ Applied to a predicate @p@ and a vector @vs@,
 -- returns the suffix (possibly empty) remaining after 'takeWhile' @p vs@.
 dropWhile :: Vec v a => (a -> Bool) -> v a -> v a
 {-# INLINE dropWhile #-}
@@ -233,6 +252,20 @@ dropWhile f v@(Vec arr s l) =
     case findIndexOrEnd (not . f) v of
         i | i == l     -> empty
           | otherwise  -> Vec arr (s+i) (l-i)
+
+-- | /O(n)/ Applied to a predicate @p@ and a vector @vs@,
+-- returns the prefix (possibly empty) remaining before 'takeLastWhile' @p vs@.
+dropLastWhile :: Vec v a => (a -> Bool) -> v a -> v a
+{-# INLINE dropLastWhile #-}
+dropLastWhile f v@(Vec arr s l) =
+    case findLastIndexOrStart (not . f) v of
+        -1 -> empty
+        i  -> Vec arr s (i+1)
+
+-- | /O(n)/ @dropAround f = dropWhile f . dropLastWhile f@
+dropAround :: Vec v a => (a -> Bool) -> v a -> v a
+{-# INLINE dropAround #-}
+dropAround f = dropWhile f . dropLastWhile f
 
 break :: Vec v a => (a -> Bool) -> v a -> (v a, v a)
 {-# INLINE break #-}
@@ -249,7 +282,7 @@ span f = break (not . f)
 breakEnd :: Vec v a => (a -> Bool) -> v a -> (v a, v a)
 {-# INLINE breakEnd #-}
 breakEnd f vs@(Vec arr s l) =
-    let !n = findIndexReverseOrStart f vs
+    let !n = findLastIndexOrStart f vs
         !v1 = Vec arr s (n+1)
         !v2 = Vec arr (s+n+1) (l-1-n)
     in (v1, v2)
@@ -257,6 +290,21 @@ breakEnd f vs@(Vec arr s l) =
 spanEnd :: Vec v a => (a -> Bool) -> v a -> (v a, v a)
 {-# INLINE spanEnd #-}
 spanEnd f = breakEnd (not . f)
+
+-- | Break a string on a substring, returning a pair of the part of the
+-- string prior to the match, and the rest of the string, e.g.
+--
+-- > break "wor" "hello, world" = ("hello, ", "world")
+--
+breakOn :: (Vec v a, Eq a) => v a -> v a -> (v a, v a)
+{-# INLINE breakOn #-}
+breakOn needle = \ haystack@(Vec arr s l) ->
+    case search haystack False of
+        (i:_) -> let !v1 = Vec arr s i
+                     !v2 = Vec arr (s+i) (l-i)
+                 in (v1, v2)
+        _     -> (haystack, empty)
+  where search = indices needle
 
 group :: (Vec v a, Eq a) => v a -> [v a]
 {-# INLINE group #-}
@@ -292,6 +340,29 @@ isPrefixOf (Vec arrA sA lA) (Vec arrB sB lB)
     | lA > lB = False
     | otherwise = Vec arrA sA lA == Vec arrB sB lA
 
+-- | /O(n)/ Find the longest non-empty common prefix of two strings
+-- and return it, along with the suffixes of each string at which they
+-- no longer match. e.g.
+--
+-- >>> commonPrefix "foobar" "fooquux"
+-- ("foo","bar","quux")
+--
+-- >>> commonPrefix "veeble" "fetzer"
+-- ("","veeble","fetzer")
+commonPrefix :: (Vec v a, Eq a) => v a -> v a -> (v a, v a, v a)
+commonPrefix vA@(Vec arrA sA lA) vB@(Vec arrB sB lB) = go sA sB
+  where
+    !endA = sA + lA
+    !endB = sB + lB
+    go !i !j | i >= endA = let !vB' = fromArr arrB (sB+i-sA) (lB-i+sA) in (vA, empty, vB')
+             | j >= endB = let !vA' = fromArr arrA (sA+j-sB) (lA-j+sB) in (vB, vA', empty)
+             | indexArr arrA i == indexArr arrB j = go (i+1) (j+1)
+             | otherwise =
+                let !vB' = fromArr arrB (sB+i-sA) (lB-i+sA)
+                    !vA' = fromArr arrA (sA+j-sB) (lA-j+sB)
+                    !vC  = fromArr arrA sA (i-sA)
+                in (vC, vA', vB')
+
 stripSuffix :: (Vec v a, Eq (v a)) => v a -> v a -> Maybe (v a)
 {-# INLINE stripSuffix #-}
 stripSuffix v1@(Vec _ _ l1) v2@(Vec arr s l2)
@@ -309,10 +380,11 @@ isSuffixOf (Vec arrA sA lA) (Vec arrB sB lB)
 
 -- | Check whether one vector is a subvector of another.
 --
--- @needle `isInfixOf` haystack@ is equivalent to
--- @null needle || indices needle haystake /= []@.
+-- @needle `isInfixOf` haystack === null haystack || indices needle haystake /= []@.
 isInfixOf :: (Vec v a, Eq a) => v a -> v a -> Bool
-isInfixOf needle haystack = null needle || indices needle haystack False /= []
+{-# INLINE isInfixOf #-}
+isInfixOf needle = \ haystack -> null haystack || search haystack False /= []
+  where search = indices needle
 
 -- | /O(n)/ Break a vector into pieces separated by the delimiter element
 -- consuming the delimiter. I.e.
@@ -332,6 +404,39 @@ split :: (Vec v a, Eq a) => a -> v a -> [v a]
 {-# INLINE split #-}
 split x = splitWith (==x)
 
+-- | /O(m+n)/ Break haystack into pieces separated by needle.
+--
+-- Note: An empty needle will essentially split haystack element
+-- by element.
+--
+-- Examples:
+--
+-- >>> splitOn "\r\n" "a\r\nb\r\nd\r\ne"
+-- ["a","b","d","e"]
+--
+-- >>> splitOn "aaa"  "aaaXaaaXaaaXaaa"
+-- ["","X","X","X",""]
+--
+-- >>> splitOn "x"  "x"
+-- ["",""]
+--
+-- and
+--
+-- > intercalate s . splitOn s         == id
+-- > splitOn (singleton c)             == split (==c)
+splitOn :: (Vec v a, Eq a) => v a -> v a -> [v a]
+{-# INLINE splitOn #-}
+splitOn needle = splitBySearch
+  where
+    splitBySearch haystack@(Vec arr s l) = go s (search haystack False)
+      where
+        !l' = length needle
+        !end = s+l
+        search = indices needle
+        go !s' (i:is) = let !v = fromArr arr s' (i+s-s')
+                               in v : go (i+l') is
+        go !s' _      = let !v = fromArr arr s' (end-s') in [v]
+
 -- | /O(n)/ Splits a vector into components delimited by
 -- separators, where the predicate returns True for a separator element.
 -- The resulting components do not contain the separators.  Two adjacent
@@ -347,10 +452,73 @@ splitWith :: Vec v a => (a -> Bool) -> v a -> [v a]
 splitWith f (Vec arr s l) = go s s
   where
     !end = s + l
-    go !p !q | q >= end  = let v = Vec arr p (q-p) in [v]
-             | f x       = let v = Vec arr p (q-p) in v:go (q+1) (q+1)
+    go !p !q | q >= end  = let !v = Vec arr p (q-p) in [v]
+             | f x       = let !v = Vec arr p (q-p) in v:go (q+1) (q+1)
              | otherwise = go p (q+1)
         where (# x #) = indexArr' arr q
+
+-- | /O(n)/ Breaks a 'Bytes' up into a list of words, delimited by ascii space.
+words ::  Bytes -> [Bytes]
+{-# INLINE words #-}
+words (Vec arr s l) = go s s
+  where
+    !end = s + l
+    go !s' !i | i >= end =
+                    if s' == end
+                    then []
+                    else let !v = fromArr arr s' (end-s') in [v]
+              | isASCIISpace (indexArr arr i) =
+                    if s' == i
+                    then go (i+1) (i+1)
+                    else
+                    let !v = fromArr arr s' (i-s') in v : go (i+1) (i+1)
+              | otherwise = go s' (i+1)
+
+-- | /O(n)/ Breaks a 'Bytes' up into a list of lines, delimited by ascii '\n'.
+lines ::  Bytes -> [Bytes]
+{-# INLINE lines #-}
+lines (Vec arr s l) = go s s
+  where
+    !end = s + l
+    go !p !q | q >= end              = if p == q
+                                       then []
+                                       else let !v = Vec arr p (q-p) in [v]
+             | indexArr arr q == 10  = let !v = Vec arr p (q-p) in v:go (q+1) (q+1)
+             | otherwise             = go p (q+1)
+
+-- | /O(n)/ Joins words with ascii space.
+unwords :: [Bytes] -> Bytes
+{-# INLINE unwords #-}
+unwords = intercalateElem 32
+
+-- | /O(n)/ Joins lines with ascii '\n'.
+unlines :: [Bytes] -> Bytes
+{-# INLINE unlines #-}
+unlines [] = empty
+unlines vs = create (len vs 0) (copy 0 vs)
+  where
+    len []             !acc = acc
+    len (Vec _ _ l:vs) !acc = len vs (acc+l+1)
+    copy !i []               !marr = return ()
+    copy !i (Vec arr s l:vs) !marr = do
+        let !i' = i + l
+        copyArr marr i arr s l
+        writeArr marr i' 10
+        copy (i'+1) vs marr
+
+padLeft :: Vec v a => Int -> a -> v a -> v a
+{-# INLINE padLeft #-}
+padLeft n x v@(Vec arr s l) | n <= l = v
+                            | otherwise = create n (\ marr -> do
+                                    setArr marr 0 (n-l) x
+                                    copyArr marr (n-l) arr s l)
+
+padRight :: Vec v a => Int -> a -> v a -> v a
+{-# INLINE padRight #-}
+padRight n x v@(Vec arr s l) | n <= l = v
+                             | otherwise = create n (\ marr -> do
+                                    copyArr marr 0 arr s l
+                                    setArr marr l (n-l) x)
 
 --------------------------------------------------------------------------------
 -- Transform
@@ -551,3 +719,104 @@ rangeCut :: Int -> Int -> Int -> Int
 rangeCut !r !min !max | r < min = min
                       | r > max = max
                       | otherwise = r
+
+isASCIISpace :: Word8 -> Bool
+{-# INLINE isASCIISpace #-}
+isASCIISpace w = w == 32 || w - 0x9 <= 4 || w == 0xa0
+
+--------------------------------------------------------------------------------
+
+-- | /O(1)/ Extract the first element of a vector.
+--
+-- Throw 'EmptyVector' if vector is empty.
+head :: (Vec v a, HasCallStack) => v a -> a
+{-# INLINE head #-}
+head (Vec arr s l)
+    | l <= 0    = errorEmptyVector
+    | otherwise = indexArr arr s
+
+-- | /O(1)/ Extract the elements after the head of a vector.
+--
+-- Throw 'EmptyVector' if vector is empty.
+tail :: (Vec v a, HasCallStack) => v a -> v a
+{-# INLINE tail #-}
+tail (Vec arr s l)
+    | l <= 0    = errorEmptyVector
+    | otherwise = fromArr arr (s+1) (l-1)
+
+-- | /O(1)/ Extract the elements before of the last one.
+--
+-- Throw 'EmptyVector' if vector is empty.
+init :: (Vec v a, HasCallStack) => v a -> v a
+{-# INLINE init #-}
+init (Vec arr s l)
+    | l <= 0    = errorEmptyVector
+    | otherwise = fromArr arr s (l-1)
+
+-- | /O(1)/ Extract the last element of a vector.
+--
+-- Throw 'EmptyVector' if vector is empty.
+last :: (Vec v a, HasCallStack) => v a -> a
+{-# INLINE last #-}
+last (Vec arr s l)
+    | l <= 0    = errorEmptyVector
+    | otherwise = indexArr arr (s+l-1)
+
+-- | /O(1)/ Index array element.
+--
+-- Throw 'IndexOutOfVectorRange' if index outside of the vector.
+index :: (Vec v a, HasCallStack) => v a -> Int -> a
+{-# INLINE index #-}
+index (Vec arr s l) i | i < 0 || i >= l = errorOutRange i
+                      | otherwise       = arr `indexArr` (s + i)
+
+-- | /O(1)/ Extract the first element of a vector.
+--
+-- Make sure vector is non-empty, otherwise segmentation fault await!
+unsafeHead  :: Vec v a => v a -> a
+{-# INLINE unsafeHead #-}
+unsafeHead (Vec arr s l) = assert (l > 0) (indexArr arr s)
+
+-- | /O(1)/ Extract the elements after the head of a vector.
+--
+-- Make sure vector is non-empty, otherwise segmentation fault await!
+unsafeTail  :: Vec v a => v a -> v a
+{-# INLINE unsafeTail #-}
+unsafeTail (Vec arr s l) = assert (l > 0) (fromArr arr (s+1) (l-1))
+
+-- | /O(1)/ Extract the elements before of the last one.
+--
+-- Make sure vector is non-empty, otherwise segmentation fault await!
+unsafeInit  :: Vec v a => v a -> v a
+{-# INLINE unsafeInit #-}
+unsafeInit (Vec arr s l) = assert (l > 0) (fromArr arr s (l-1))
+
+-- | /O(1)/ Extract the last element of a vector.
+--
+-- Make sure vector is non-empty, otherwise segmentation fault await!
+unsafeLast  :: Vec v a => v a -> a
+{-# INLINE unsafeLast #-}
+unsafeLast (Vec arr s l) = assert (l > 0) (indexArr arr (s+l-1))
+
+-- | /O(1)/ Index array element.
+--
+-- Make sure index is in bound, otherwise segmentation fault await!
+unsafeIndex :: Vec v a => v a -> Int -> a
+{-# INLINE unsafeIndex #-}
+unsafeIndex (Vec arr s l) i = indexArr arr (s + i)
+
+-- | /O(1)/ 'take' @n@, applied to a vector @xs@, returns the prefix
+-- of @xs@ of length @n@.
+--
+-- Make sure n is smaller than vector's length, otherwise segmentation fault await!
+unsafeTake :: Vec v a => Int -> v a -> v a
+{-# INLINE unsafeTake #-}
+unsafeTake n (Vec arr s l) = assert (0 <= n && n <= l) (fromArr arr s n)
+
+-- | /O(1)/ 'drop' @n xs@ returns the suffix of @xs@ after the first @n@
+-- elements.
+--
+-- Make sure n is smaller than vector's length, otherwise segmentation fault await!
+unsafeDrop :: Vec v a => Int -> v a -> v a
+{-# INLINE unsafeDrop #-}
+unsafeDrop n (Vec arr s l) = assert (0 <= n && n <= l) (fromArr arr (s+n) (l-n))

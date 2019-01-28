@@ -124,6 +124,8 @@ encodeCBytesChar# mba# i# c# = case (int2Word# (ord# c#)) of
                 s4# = writeWord8Array# mba# (i# +# 3#) (0x80## `or#` (n# `and#` 0x3F##)) s3#
             in (# s4#, i# +# 4# #)
 
+--------------------------------------------------------------------------------
+
 -- | Decode a 'Char' from bytes
 --
 -- This function assumed all bytes are UTF-8 encoded, and the index param point to the
@@ -135,6 +137,11 @@ decodeChar :: PrimArray Word8 -> Int -> (# Char, Int #)
 {-# INLINE decodeChar #-}
 decodeChar (PrimArray ba#) (I# idx#) =
     let (# c#, i# #) = decodeChar# ba# idx# in (# C# c#, I# i# #)
+
+decodeChar_ :: PrimArray Word8 -> Int -> Char
+{-# INLINE decodeChar_ #-}
+decodeChar_ (PrimArray ba#) (I# idx#) =
+    let (# c#, i# #) = decodeChar# ba# idx# in C# c#
 
 -- | The unboxed version of 'decodeChar'
 --
@@ -191,6 +198,11 @@ decodeCharReverse :: PrimArray Word8 -> Int -> (# Char, Int #)
 decodeCharReverse (PrimArray ba#) (I# idx#) =
     let (# c#, i# #) = decodeCharReverse# ba# idx# in (# C# c#, I# i# #)
 
+decodeCharReverse_ :: PrimArray Word8 -> Int -> Char
+{-# INLINE decodeCharReverse_ #-}
+decodeCharReverse_ (PrimArray ba#) (I# idx#) =
+    let (# c#, i# #) = decodeCharReverse# ba# idx# in C# c#
+
 -- | The unboxed version of 'decodeCharReverse'
 --
 -- This function is marked as @NOINLINE@ to reduce code size.
@@ -244,176 +256,7 @@ decodeCharLenReverse# ba# idx# =
         else 2#
     else 1#
 
--- | Validate if current index point to a valid utf8 codepoint.
---
--- If the codepoint is valid, return the utf8 bytes length, otherwise return the negation of
--- offset we should skip(so that a replacing decoder can meet the security rules).
--- If @0#@ is returned, then you should feed more bytes to continue validation. Note this function
--- guarantee only return @0@ when the trailing bytes are partial valid codepoint. That means you
--- can safely replace them with a replacement char or ignore it if no more bytes are to be fed.
---
--- reference: https://howardhinnant.github.io/utf_summary.html
---
-validateChar :: PrimArray Word8
-             -> Int  -- current index
-             -> Int  -- end index(which shouldn't be accessed)
-             -> Int
-{-# INLINE validateChar #-}
-validateChar (PrimArray ba#) (I# idx#) (I# end#) =
-    let i# = validateChar# ba# idx# end# in I# i#
-
-
--- | The unboxed version of 'decodeCharLenReverse'
---
--- This function is marked as @NOINLINE@ to reduce code size.
---
-validateChar# :: ByteArray# -> Int# -> Int# -> Int#
-{-# NOINLINE validateChar# #-}
-validateChar# ba# idx# end# =
-    let w1# = indexWord8Array# ba# idx#
-    in case end# -# idx# of
-        1#
-            | isTrue# (w1# `leWord#` 0x7F##) -> 1#
-            | isTrue# (w1# `leWord#` 0xC1##) -> -1#
-            | isTrue# (w1# `geWord#` 0xF5##) -> -1#
-            | otherwise -> 0#
-        2#
-            | isTrue# (w1# `leWord#` 0x7F##) -> 1#
-            | isTrue# (w1# `leWord#` 0xC1##) -> -1#
-            | isTrue# (w1# `leWord#` 0xDF##) ->
-                let w2# = indexWord8Array# ba# (idx# +# 1#)
-                in if between# w2# 0x80## 0xBF##
-                then 2#
-                else -1#
-            | isTrue# (w1# `geWord#` 0xF5##) -> -1#
-            | otherwise -> 0#
-        3#
-            | isTrue# (w1# `leWord#` 0x7F##) -> 1#
-            | isTrue# (w1# `leWord#` 0xC1##) -> -1#
-            | isTrue# (w1# `leWord#` 0xDF##) ->
-                let w2# = indexWord8Array# ba# (idx# +# 1#)
-                in if between# w2# 0x80## 0xBF##
-                then 2#
-                else -1#
-
-            | isTrue# (w1# `eqWord#` 0xE0##) ->
-                let w2# = indexWord8Array# ba# (idx# +# 1#)
-                    w3# = indexWord8Array# ba# (idx# +# 2#)
-                in if between# w2# 0xA0## 0xBF##
-                then if between# w3# 0x80## 0xBF##
-                    then 3#
-                    else -2#
-                else -1#
-
-            | isTrue# (w1# `leWord#` 0xEC##) ->
-                let w2# = indexWord8Array# ba# (idx# +# 1#)
-                    w3# = indexWord8Array# ba# (idx# +# 2#)
-                in if between# w2# 0x80## 0xBF##
-                then if between# w3# 0x80## 0xBF##
-                    then 3#
-                    else -2#
-                else -1#
-
-            | isTrue# (w1# `eqWord#` 0xED##) ->
-                let w2# = indexWord8Array# ba# (idx# +# 1#)
-                    w3# = indexWord8Array# ba# (idx# +# 2#)
-                in if between# w2# 0x80## 0x9F##
-                then if between# w3# 0x80## 0xBF##
-                    then 3#
-                    else -2#
-                else -1#
-            | isTrue# (w1# `eqWord#` 0xEF##) ->
-                let w2# = indexWord8Array# ba# (idx# +# 1#)
-                    w3# = indexWord8Array# ba# (idx# +# 2#)
-                in if between# w2# 0x80## 0xBF##
-                then if between# w3# 0x80## 0xBF##
-                    then 3#
-                    else -2#
-                else -1#
-            | isTrue# (w1# `geWord#` 0xF5##) -> -1#
-            | otherwise -> 0#
-
-        _
-            | isTrue# (w1# `leWord#` 0x7F##) -> 1#
-            | isTrue# (w1# `leWord#` 0xC1##) -> -1#
-            | isTrue# (w1# `leWord#` 0xDF##) ->
-                let w2# = indexWord8Array# ba# (idx# +# 1#)
-                in if between# w2# 0x80## 0xBF##
-                then 2#
-                else -1#
-
-            | isTrue# (w1# `eqWord#` 0xE0##) ->
-                let w2# = indexWord8Array# ba# (idx# +# 1#)
-                    w3# = indexWord8Array# ba# (idx# +# 2#)
-                in if between# w2# 0xA0## 0xBF##
-                then if between# w3# 0x80## 0xBF##
-                    then 3#
-                    else -2#
-                else -1#
-
-            | isTrue# (w1# `leWord#` 0xEC##) ->
-                let w2# = indexWord8Array# ba# (idx# +# 1#)
-                    w3# = indexWord8Array# ba# (idx# +# 2#)
-                in if between# w2# 0x80## 0xBF##
-                then if between# w3# 0x80## 0xBF##
-                    then 3#
-                    else -2#
-                else -1#
-
-            | isTrue# (w1# `eqWord#` 0xED##) ->
-                let w2# = indexWord8Array# ba# (idx# +# 1#)
-                    w3# = indexWord8Array# ba# (idx# +# 2#)
-                in if between# w2# 0x80## 0x9F##
-                then if between# w3# 0x80## 0xBF##
-                    then 3#
-                    else -2#
-                else -1#
-            | isTrue# (w1# `eqWord#` 0xEF##) ->
-                let w2# = indexWord8Array# ba# (idx# +# 1#)
-                    w3# = indexWord8Array# ba# (idx# +# 2#)
-                in if between# w2# 0x80## 0xBF##
-                then if between# w3# 0x80## 0xBF##
-                    then 3#
-                    else -2#
-                else -1#
-
-            | isTrue# (w1# `eqWord#` 0xF0##) ->
-                let w2# = indexWord8Array# ba# (idx# +# 1#)
-                    w3# = indexWord8Array# ba# (idx# +# 2#)
-                    w4# = indexWord8Array# ba# (idx# +# 3#)
-                in if between# w2# 0x90## 0xBF##
-                then if between# w3# 0x80## 0xBF##
-                    then if between# w4# 0x80## 0xBF##
-                        then 4#
-                        else -3#
-                    else -2#
-                else -1#
-
-            | isTrue# (w1# `leWord#` 0xF3##) ->
-                let w2# = indexWord8Array# ba# (idx# +# 1#)
-                    w3# = indexWord8Array# ba# (idx# +# 2#)
-                    w4# = indexWord8Array# ba# (idx# +# 3#)
-                in if between# w2# 0x80## 0xBF##
-                then if between# w3# 0x80## 0xBF##
-                    then if between# w4# 0x80## 0xBF##
-                        then 4#
-                        else -3#
-                    else -2#
-                else -1#
-
-            | isTrue# (w1# `eqWord#` 0xF4##) ->
-                let w2# = indexWord8Array# ba# (idx# +# 1#)
-                    w3# = indexWord8Array# ba# (idx# +# 2#)
-                    w4# = indexWord8Array# ba# (idx# +# 3#)
-                in if between# w2# 0x80## 0x8F##
-                then if between# w3# 0x80## 0xBF##
-                    then if between# w4# 0x80## 0xBF##
-                        then 4#
-                        else -3#
-                    else -2#
-                else -1#
-            | isTrue# (w1# `geWord#` 0xF5##) -> -1#
-            | otherwise -> -1#
+--------------------------------------------------------------------------------
 
 between# :: Word# -> Word# -> Word# -> Bool
 {-# INLINE between# #-}
@@ -462,6 +305,8 @@ chr4# x1# x2# x3# x4# = chr# (z1# +# z2# +# z3# +# z4#)
     !z3# = uncheckedIShiftL# (y3# -# 0x80#) 6#
     !z4# = y4# -# 0x80#
 
+--------------------------------------------------------------------------------
+
 -- | Unrolled copy loop for copying a utf8-encoded codepoint from source array to target array.
 --
 copyChar :: Int                       -- copy length, must be 1, 2, 3 or 4
@@ -482,3 +327,28 @@ copyChar !l !mba !j !ba !i = case l of
             writePrimArray mba (j+1) $ indexPrimArray ba (i+1)
             writePrimArray mba (j+2) $ indexPrimArray ba (i+2)
             writePrimArray mba (j+3) $ indexPrimArray ba (i+3)
+
+-- | Unrolled copy loop for copying a utf8-encoded codepoint from source array to target array.
+--
+copyChar' :: Int                       -- copy length, must be 1, 2, 3 or 4
+          -> MutablePrimArray s Word8  -- target array
+          -> Int                       -- writing offset
+          -> MutablePrimArray s Word8  -- source array
+          -> Int                       -- reading offset
+          -> ST s ()
+{-# INLINE copyChar' #-}
+copyChar' !l !mba !j !ba !i = case l of
+    1 -> do writePrimArray mba j =<< readPrimArray ba i
+    2 -> do writePrimArray mba j =<< readPrimArray ba i
+            writePrimArray mba (j+1) =<< readPrimArray ba (i+1)
+    3 -> do writePrimArray mba j =<< readPrimArray ba i
+            writePrimArray mba (j+1) =<< readPrimArray ba (i+1)
+            writePrimArray mba (j+2) =<< readPrimArray ba (i+2)
+    _ -> do writePrimArray mba j =<< readPrimArray ba i
+            writePrimArray mba (j+1) =<< readPrimArray ba (i+1)
+            writePrimArray mba (j+2) =<< readPrimArray ba (i+2)
+            writePrimArray mba (j+3) =<< readPrimArray ba (i+3)
+
+
+replacementChar :: Char
+replacementChar = '\xFFFD'

@@ -96,7 +96,7 @@ data CBytes
 -- proper initialization and return the actual length.
 --
 create :: HasCallStack
-       => Int  -- capacity, includeing the '\NUL' terminator
+       => Int  -- capacity, including the '\NUL' terminator
        -> (CString -> IO Int)  -- initialization function,
                                -- write the pointer, return the length
        -> IO CBytes

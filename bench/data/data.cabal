@@ -31,6 +31,8 @@ executable data
                     ,   stm
                     ,   template-haskell
 
+  include-dirs:       ../../include
+  includes:           bytes.h
   c-sources:          ../../cbits/bytes.c
   hs-source-dirs:       ./
                         ../../
