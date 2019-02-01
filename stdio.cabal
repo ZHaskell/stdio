@@ -90,6 +90,7 @@ extra-source-files:  ChangeLog.md
                      third_party/utf8rewind/source/utf8rewind.c
 
                      -- simd utf8 code
+                     third_party/fastvalidate-utf-8/include/simdasciicheck.h
                      third_party/fastvalidate-utf-8/include/simdutf8check.h
 
 source-repository head
@@ -186,12 +187,14 @@ library
                         hs_uv.h
                         text.h
                         utf8rewind.h
+                        simdasciicheck.h
                         simdutf8check.h
     install-includes:   bytes.h
                         dtoa.h
                         hs_uv.h
                         text.h
                         utf8rewind.h
+                        simdasciicheck.h
                         simdutf8check.h
     cc-options:         -march=native
     c-sources:          cbits/bytes.c
