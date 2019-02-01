@@ -72,28 +72,77 @@ module Std.Data.Text (
   -- ** element-wise search
   , find, findLast
   , filter, partition
-  -- * QuasiQuoters
-  -- , txt
-  -- * Misc
+    -- ** normalization
+  , NormalizationResult(..), NormalizeMode(..)
+  , isNormalized, isNormalizedTo, normalize, normalizeTo
+    -- ** Case conversion
+    -- $case
+  , Locale, localeDefault, localeLithuanian, localeTurkishAndAzeriLatin
+  , caseFold, caseFoldWith, toLower, toLowerWith, toUpper, toUpperWith, toTitle, toTitleWith
+    -- ** Unicode category
+  , isCategory, spanCategory
+  , Category
+  , categoryLetterUppercase
+  , categoryLetterLowercase
+  , categoryLetterTitlecase
+  , categoryLetterOther
+  , categoryLetter
+  , categoryCaseMapped
+
+  , categoryMarkNonSpacing
+  , categoryMarkSpacing
+  , categoryMarkEnclosing
+  , categoryMark
+
+  , categoryNumberDecimal
+  , categoryNumberLetter
+  , categoryNumberOther
+  , categoryNumber
+
+  , categoryPunctuationConnector
+  , categoryPunctuationDash
+  , categoryPunctuationOpen
+  , categoryPunctuationClose
+  , categoryPunctuationInitial
+  , categoryPunctuationFinal
+  , categoryPunctuationOther
+  , categoryPunctuation
+
+  , categorySymbolMath
+  , categorySymbolCurrency
+  , categorySymbolModifier
+  , categorySymbolOther
+  , categorySymbol
+
+  , categorySeparatorSpace
+  , categorySeparatorLine
+  , categorySeparatorParagraph
+  , categorySeparator
+  , categoryControl
+  , categoryFormat
+  , categorySurrogate
+  , categoryPrivateUse
+  , categoryUnassigned
+  , categoryCompatibility
+  , categoryIgnoreGraphemeCluste
+  , categoryIscntrl
+
+  , categoryIsprint
+  , categoryIsspace
+  , categoryIsblank
+  , categoryIsgraph
+  , categoryIspunct
+  , categoryIsalnum
+  , categoryIsalpha
+  , categoryIsupper
+  , categoryIslower
+  , categoryIsdigit
+  , categoryIsxdigit
  ) where
 
-import           Control.DeepSeq
-import           Control.Monad.ST
-import           Data.Bits
-import           Data.Char
-import           Data.Foldable            (foldlM)
-import qualified Data.List                as List
-import           Data.Primitive.PrimArray
-import           Data.Typeable
-import           Data.Word
-import           GHC.Exts                 (build)
-import           GHC.Prim
-import           GHC.Types
-import           Std.Data.Array
 import           Std.Data.Text.Base
 import           Std.Data.Text.Search
 import           Std.Data.Text.Extra
-
 import           Prelude                  ()
 
 

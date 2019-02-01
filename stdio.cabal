@@ -133,6 +133,7 @@ library
 
                             Std.Data.Parser
                             Std.Data.Parser.Base
+                            Std.Data.Parser.Numeric
                             -- Std.Data.Parser.Binary
                             -- Std.Data.Parser.Textual
 
@@ -162,6 +163,10 @@ library
                         ,   unboxed-ref >= 0.4
                         ,   exceptions >= 0.10
                         ,   transformers
+                        ,   word8
+                        ,   scientific
+                        ,   hashable
+                        ,   case-insensitive
                         ,   stm
 
   if flag(integer-simple)
@@ -265,6 +270,8 @@ test-suite test
                   , HUnit
                   , QuickCheck >= 2.10
                   , unboxed-ref
+                  , word8
+                  , scientific
 
   if flag(integer-simple)
     cpp-options: -DINTEGER_SIMPLE

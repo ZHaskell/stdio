@@ -5,7 +5,7 @@ sudo: required
 
 # The following enables several GHC versions to be tested; often it's enough to test only against the last release in a major GHC version. Feel free to omit lines listings versions you don't need/want testing for.
 env:
-    - CABALVER=head GHCVER=8.6.1
+    - CABALVER=2.4 GHCVER=8.6.2
     - CABALVER=head GHCVER=head   # see section about GHC HEAD snapshots
 
 matrix:
@@ -29,14 +29,13 @@ install:
     - cabal --version
     - echo "$(ghc --version) [$(ghc --print-project-git-commit-id 2> /dev/null || echo '?')]"
     - travis_retry cabal update
-    - cabal install --only-dependencies --enable-tests
 
 # Here starts the actual work to be performed for the package under test; any command which exits with a non-zero exit code causes the build to fail.
 script:
     - if [ -f configure.ac ]; then autoreconf -i; fi
     - cabal configure --enable-tests --enable-benchmarks $EXTRA_OPT -v3
     - cabal build   # this builds all libraries and executables (including tests/benchmarks)
-    - cabal test --show-details=always --test-options="--color"
+    - cabal test --test-show-details=direct --test-options="--color"
     # - cabal check
     - cabal sdist   # tests that a source-distribution can be generated
 

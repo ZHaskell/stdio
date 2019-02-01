@@ -5,8 +5,8 @@
 {-# LANGUAGE MagicHash           #-}
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE UnboxedTuples       #-}
-{-# LANGUAGE TypeFamilies       #-}
 
 {-|
 Module      : Std.Data.Builder.Base
@@ -43,22 +43,22 @@ import           Control.Monad.Primitive
 import           Control.Monad.ST
 import           Control.Monad.ST.Unsafe            (unsafeInterleaveST)
 import           Data.Bits                          (shiftL, shiftR)
+import           Data.Bits                          ((.&.))
 import           Data.Monoid                        (Monoid (..))
 import           Data.Primitive.PrimArray           (MutablePrimArray (..))
 import           Data.Primitive.Ptr                 (copyPtrToMutablePrimArray)
 import           Data.Semigroup                     (Semigroup (..))
-import           Data.String                        (IsString(..))
+import           Data.String                        (IsString (..))
 import           Data.Word
-import           Data.Bits                          ((.&.))
 import           GHC.CString                        (unpackCString#)
 import           GHC.Prim
-import           GHC.Types
 import           GHC.Ptr
+import           GHC.Types
 import qualified Std.Data.Array                     as A
 import           Std.Data.PrimArray.UnalignedAccess
-import qualified Std.Data.Vector.Base               as V
-import  qualified         Std.Data.Text.UTF8Codec            as T
 import qualified Std.Data.Text.Base                 as T
+import qualified Std.Data.Text.UTF8Codec            as T
+import qualified Std.Data.Vector.Base               as V
 import           System.IO.Unsafe
 
 -- | 'AllocateStrategy' will decide how each 'BuildStep' proceed when previous buffer is not enough.
@@ -335,9 +335,10 @@ encodePrimBE = encodePrim . BE
 -- | Turn 'String' into 'Builder' with UTF8 encoding
 --
 -- Illegal codepoints will be written as 'T.replacementChar's.
--- Note, if you're trying to write string literals,
+--
+-- Note, if you're trying to write string literals builders,
 -- please open 'OverloadedStrings' and use 'Builder's 'IsString' instance,
--- it will use 'stringLiteral' and should be rewritten into a memcpy,
+-- it will use 'stringLiteral' and will be rewritten into a memcpy,
 -- instead of encoding 'Char's in a loop like what 'stringUTF8' do.
 stringUTF8 :: String -> Builder ()
 {-# INLINE stringUTF8 #-}
@@ -398,6 +399,10 @@ char8 chr = do
         k () (Buffer mba (i+1)))
 
 -- | Write UTF8 encoded 'Text' using 'Builder'.
+--
+-- Note, if you're trying to write string literals builders,
+-- please open 'OverloadedStrings' and use 'Builder's 'IsString' instance,
+-- it will use 'stringLiteral' and will be rewritten into a memcpy.
 text :: T.Text -> Builder ()
 {-# INLINE text #-}
 text (T.Text bs) = bytes bs

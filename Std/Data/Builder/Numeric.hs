@@ -1,15 +1,14 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE MagicHash #-}
-{-# LANGUAGE UnboxedTuples #-}
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE BangPatterns        #-}
+{-# LANGUAGE CPP                 #-}
+{-# LANGUAGE MagicHash           #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE UnliftedFFITypes #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE TypeFamilies        #-}
+{-# LANGUAGE UnboxedTuples       #-}
+{-# LANGUAGE UnliftedFFITypes    #-}
 
-module Std.Data.Builder.Numeric
-  (
+module Std.Data.Builder.Numeric (
   -- * Integral type formatting
     IFormat(..)
   , defaultIFormat
@@ -25,45 +24,48 @@ module Std.Data.Builder.Numeric
   , doubleWith
   , float
   , floatWith
+  , scientific
+  , scientificWith
   -- * Misc
   , grisu3
   , grisu3_sp
   , minus, plus, zero, space
   , i2wDec, i2wHex, i2wHeX
   , countDigits, countHexDigits
-  ) where
+) where
 
-import Std.Data.Builder.Base
-import Std.Data.Builder.Numeric.DigitTable
-import Std.Data.Text.Base
-import Data.Primitive.PrimArray
-import Data.Primitive.ByteArray
-import Data.Primitive.Addr
-import Data.Int
-import Data.Word
-import Data.Bits
-import Data.Char
-import qualified Data.List as List
-import Control.Monad
-import Control.Monad.ST
-import GHC.Integer
-import GHC.Types
-import GHC.Exts
-import GHC.Float
-import Std.Foreign.PrimArray
-import System.IO.Unsafe
+import           Control.Monad
+import           Control.Monad.ST
+import           Data.Bits
+import           Data.Char
+import           Data.Int
+import qualified Data.List                           as List
+import           Data.Primitive.Addr
+import           Data.Primitive.ByteArray
+import           Data.Primitive.PrimArray
+import qualified Data.Scientific                     as Sci
+import           Data.Word
+import           GHC.Exts
+import           GHC.Float
+import           GHC.Integer
+import           GHC.Types
+import           Std.Data.Builder.Base
+import           Std.Data.Builder.Numeric.DigitTable
+import           Std.Data.Text.Base
+import           Std.Foreign.PrimArray
+import           System.IO.Unsafe
 #ifdef INTEGER_GMP
-import GHC.Integer.GMP.Internals
+import           GHC.Integer.GMP.Internals
 #endif
-import GHC.Float (FFFormat(..))
+import           GHC.Float                           (FFFormat (..))
 
 --------------------------------------------------------------------------------
 
 -- | Integral formatting options.
 --
 data IFormat = IFormat
-    { width :: Int              -- ^ total width, only effective with padding options
-    , padding :: Padding        -- ^ padding options
+    { width       :: Int              -- ^ total width, only effective with padding options
+    , padding     :: Padding        -- ^ padding options
     , postiveSign :: Bool       -- ^ show @+@ when the number is positive
     } deriving (Show, Eq, Ord)
 
@@ -596,7 +598,7 @@ doubleWith fmt decs x
                                 Nothing -> floatToDigits 10 y
 
 doFmt :: FFFormat -> Maybe Int -> ([Int], Int) -> Builder ()
-{-# INLINE doFmt #-}
+{-# INLINABLE doFmt #-}
 doFmt format decs (is, e) =
     let ds = map i2cDec is
     in case format of
@@ -725,3 +727,22 @@ grisu3_sp d = unsafePerformIO $
             let !e' = e + len
             return $ Just (buf, e')
 
+--------------------------------------------------------------------------------
+
+-- | A @Builder@ which renders a scientific number to full
+-- precision, using standard decimal notation for arguments whose
+-- absolute value lies between @0.1@ and @9,999,999@, and scientific
+-- notation otherwise.
+scientific :: Sci.Scientific -> Builder ()
+{-# INLINE scientific #-}
+scientific = scientificWith FFGeneric Nothing
+
+-- | Like 'scientific' but provides rendering options.
+scientificWith :: FFFormat
+               -> Maybe Int  -- ^ Number of decimal places to render.
+               -> Sci.Scientific
+               -> Builder ()
+{-# INLINE scientificWith #-}
+scientificWith fmt decs scntfc
+   | scntfc < 0 = char8 '-' <> doFmt fmt decs (Sci.toDecimalDigits (-scntfc))
+   | otherwise  =              doFmt fmt decs (Sci.toDecimalDigits   scntfc)

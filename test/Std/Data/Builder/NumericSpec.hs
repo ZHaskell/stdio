@@ -12,6 +12,7 @@ import qualified Std.Data.Builder.Numeric as B
 import qualified Std.Data.Builder.Base    as B
 import qualified Std.Data.Text as T
 import qualified Std.Data.Vector as V
+import qualified Data.Scientific as Sci
 import           Test.QuickCheck
 import           Test.QuickCheck.Function
 import           Test.QuickCheck.Property
@@ -19,7 +20,7 @@ import           Test.Hspec
 import           Test.Hspec.QuickCheck
 
 spec :: Spec
-spec = describe "textual-builder" . modifyMaxSuccess (*50) . modifyMaxSize (*50) $ do
+spec = describe "builder numeric" . modifyMaxSuccess (*50) . modifyMaxSize (*50) $ do
     describe "int roundtrip" $ do
         prop "int roundtrip" $ \ i ->
             i === (read . T.unpack . T.validate . B.buildBytes $ B.int @Word i)
@@ -74,6 +75,37 @@ spec = describe "textual-builder" . modifyMaxSuccess (*50) . modifyMaxSize (*50)
     describe "integer roundtrip" $ do
         prop "integer roundtrip" $ \ i ->
             i === (read . T.unpack . T.validate . B.buildBytes $ B.integer i)
+
+    describe "scientific roundtrip" $ do
+        prop "scientific roundtrip" $ \ c e ->
+            Sci.scientific c e ===
+                (read . T.unpack . T.validate . B.buildBytes . B.scientific $ Sci.scientific c e)
+        prop "scientificWith roundtrip" $ \ c e ->
+            Sci.scientific c e ===
+                (read . T.unpack . T.validate . B.buildBytes . B.scientificWith B.FFExponent Nothing $
+                    Sci.scientific c e)
+        {- FFExponent doesn't roundtrip, i.e. B.scientificWith B.FFExponent (Just 0) 101 ===> 1e2
+        prop "scientificWith roundtrip" $ \ c e ->
+            Sci.scientific c e ===
+                (read . T.unpack . T.validate . B.buildBytes . B.scientificWith B.FFExponent (Just (abs e)) $
+                    Sci.scientific c e)
+        -}
+        prop "scientificWith roundtrip" $ \ c e ->
+            Sci.scientific c e ===
+                (read . T.unpack . T.validate . B.buildBytes . B.scientificWith B.FFGeneric Nothing $
+                    Sci.scientific c e)
+        prop "scientificWith roundtrip" $ \ c e ->
+            Sci.scientific c e ===
+                (read . T.unpack . T.validate . B.buildBytes . B.scientificWith B.FFGeneric (Just (abs e)) $
+                    Sci.scientific c e)
+        prop "scientificWith roundtrip" $ \ c e ->
+            Sci.scientific c e ===
+                (read . T.unpack . T.validate . B.buildBytes . B.scientificWith B.FFFixed Nothing $
+                    Sci.scientific c e)
+        prop "scientificWith roundtrip" $ \ c e ->
+            Sci.scientific c e ===
+                (read . T.unpack . T.validate . B.buildBytes . B.scientificWith B.FFFixed (Just (abs e)) $
+                    Sci.scientific c e)
 
     describe "hex roundtrip" $ do
 
