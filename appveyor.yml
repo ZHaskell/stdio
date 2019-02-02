@@ -11,7 +11,7 @@ install:
     - refreshenv
     # See http://help.appveyor.com/discussions/problems/6312-curl-command-not-found#comment_42195491
     # NB: Do this after refreshenv, otherwise it will be clobbered!
-    - set PATH=C:\Program Files\Git\mingw64\bin;%PATH%
+    - set PATH=%AppData%\cabal\bin;C:\Program Files\Git\mingw64\bin;%PATH%
     # TODO: remove --insecure, this is to workaround haskell.org
     # failing to send intermediate cert; see https://github.com/haskell/cabal/pull/4172
     # - curl -o cabal.zip --insecure --progress-bar https://www.haskell.org/cabal/release/cabal-install-1.24.0.0/cabal-install-1.24.0.0-x86_64-unknown-mingw32.zip
