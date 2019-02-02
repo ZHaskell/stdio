@@ -33,6 +33,20 @@ HsInt utf8_validate(const char* p, HsInt off, HsInt len){
 #endif
 #endif
 }
+// for some reason unknown, on windows we have to supply a seperated version of utf8_validate
+// otherwise we got segfault if we import the same FFI with different type (Addr# vs ByteArray#)
+HsInt utf8_validate_addr(const char* p, HsInt off, HsInt len){
+    const char* q = p + off;
+#ifdef __AVX2__
+    return (HsInt)validate_utf8_fast_avx(q, (size_t)len);
+#else
+#ifdef __SSE2__
+    return (HsInt)validate_utf8_fast(q, (size_t)len);
+#else
+    return utf8_validate_slow(q, (size_t)len);
+#endif
+#endif
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -69,81 +83,70 @@ static inline int ascii_u64(const uint8_t *data, size_t len)
 
 ////////////////////////////////////////////////////////////////////////////////
 
-HsInt utf8_validate_slow(const char* src, size_t len){
-    const char* end = src + len;
-    unicode_t* decoded;
-    for (; src < end; ) {
+#define UTF8_ACCEPT 0
+#define UTF8_REJECT 1
 
-        if (*src <= MAX_BASIC_LATIN)
-        {
-            /* Basic Latin */
-            src++;
-        }
-        else
-        {
-            /* Multi-byte sequence */
+static const uint8_t utf8d[] = {
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // 00..1f
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // 20..3f
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // 40..5f
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // 60..7f
+    1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,
+    1,   1,   1,   1,   1,   9,   9,   9,   9,   9,   9,
+    9,   9,   9,   9,   9,   9,   9,   9,   9,   9, // 80..9f
+    7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,
+    7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,
+    7,   7,   7,   7,   7,   7,   7,   7,   7,   7, // a0..bf
+    8,   8,   2,   2,   2,   2,   2,   2,   2,   2,   2,
+    2,   2,   2,   2,   2,   2,   2,   2,   2,   2,   2,
+    2,   2,   2,   2,   2,   2,   2,   2,   2,   2, // c0..df
+    0xa, 0x3, 0x3, 0x3, 0x3, 0x3, 0x3, 0x3, 0x3, 0x3, 0x3,
+    0x3, 0x3, 0x4, 0x3, 0x3, // e0..ef
+    0xb, 0x6, 0x6, 0x6, 0x5, 0x8, 0x8, 0x8, 0x8, 0x8, 0x8,
+    0x8, 0x8, 0x8, 0x8, 0x8 // f0..ff
+};
 
-            static const uint8_t SequenceMask[7] = {
-                0x00, 0x7F, 0x1F, 0x0F,
-                0x07, 0x03, 0x01
-            };
-            static const unicode_t SequenceMinimum[7] = {
-                0x0000, 0x0000, 0x0080, 0x0800,
-                0x10000, MAX_LEGAL_UNICODE, MAX_LEGAL_UNICODE
-            };
+static const uint8_t utf8d_transition[] = {
+    0x0, 0x1, 0x2, 0x3, 0x5, 0x8, 0x7, 0x1, 0x1, 0x1, 0x4,
+    0x6, 0x1, 0x1, 0x1, 0x1, // s0..s0
+    1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,
+    1,   1,   1,   1,   1,   1,   0,   1,   1,   1,   1,
+    1,   0,   1,   0,   1,   1,   1,   1,   1,   1, // s1..s2
+    1,   2,   1,   1,   1,   1,   1,   2,   1,   2,   1,
+    1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,
+    1,   2,   1,   1,   1,   1,   1,   1,   1,   1, // s3..s4
+    1,   2,   1,   1,   1,   1,   1,   1,   1,   2,   1,
+    1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,
+    1,   3,   1,   3,   1,   1,   1,   1,   1,   1, // s5..s6
+    1,   3,   1,   1,   1,   1,   1,   3,   1,   3,   1,
+    1,   1,   1,   1,   1,   1,   3,   1,   1,   1,   1,
+    1,   1,   1,   1,   1,   1,   1,   1,   1,   1, // s7..s8
+};
 
-            size_t src_size = end-src;
-            uint8_t src_index;
-
-            /* Length of sequence is determined by first byte */
-
-            uint8_t decoded_length = codepoint_decoded_length[*src];
-            if (decoded_length < 1 || decoded_length > 4)
-            {
-                /* Not a multi-byte sequence starter */
-                return 0;
-            } else {
-                /* Use mask to strip value from first byte */
-
-                decoded = (unicode_t)(*src & SequenceMask[decoded_length]);
-
-                /* All bytes in the sequence must be processed */
-
-                for (src_index = 1; src_index < decoded_length; ++src_index)
-                {
-                    src++;
-
-                    /* Check if next byte is valid */
-
-                    if (src_size == 0 ||               /* Not enough data */
-                        (*src < 0x80 || *src > 0xBF))  /* Not a continuation byte */
-                    {
-                        return 0;
-                    }
-
-                    src_size--;
-
-                    /* Add value of continuation byte to codepoint */
-
-                    decoded = (*decoded << 6) | (*src & 0x3F);
-                }
-
-                /* Check for overlong sequences and surrogate pairs */
-
-                if (decoded < SequenceMinimum[decoded_length] || decoded > MAX_LEGAL_UNICODE ||
-                    (decoded >= SURROGATE_HIGH_START && decoded <= SURROGATE_LOW_END))
-                {
-                    return 0;
-                }
-            }
-
-            src += decoded_length;
-        }
-    }
-    /* loop over all bytes */
-    return 1;
+static uint32_t inline updatestate(uint32_t *state, uint32_t byte) {
+    uint32_t type = utf8d[byte];
+    *state = utf8d_transition[16 * *state + type];
+    return *state;
 }
 
+HsInt utf8_validate_slow(const char* c, size_t len){
+    const unsigned char *cu = (const unsigned char *)c;
+    uint32_t state = 0;
+    for (size_t i = 0; i < len; i++) {
+        uint32_t byteval = (uint32_t)cu[i];
+        if (updatestate(&state, byteval) == UTF8_REJECT)
+            return 0;
+    }
+    return 1;
+}
 
 HsInt utf8_isnormalized(const char* p, HsInt off, HsInt len, size_t flag){
     size_t offset;
