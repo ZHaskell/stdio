@@ -113,7 +113,8 @@ module Std.Data.Text.Base (
   , categoryIsdigit
   , categoryIsxdigit
   -- * Misc
-  , c_utf8_validate
+  , utf8_validate
+  , utf8_validate_addr
  ) where
 
 import           Control.DeepSeq
@@ -186,7 +187,7 @@ packStringAddr :: Addr# -> Text
 packStringAddr addr# = validateAndCopy addr#
   where
     len = fromIntegral . unsafeDupablePerformIO $ c_strlen addr#
-    valid = unsafeDupablePerformIO $ c_utf8_validate addr# 0 len
+    valid = unsafeDupablePerformIO $ utf8_validate_addr addr# 0 len
     validateAndCopy addr#
         | valid == 0 = pack (unpackCString# addr#)
         | otherwise  = runST $ do
@@ -277,9 +278,7 @@ validateMaybe bs@(V.PrimVector (PrimArray ba#) (I# s#) l@(I# l#))
     | otherwise = Nothing
 
 foreign import ccall unsafe utf8_validate :: ByteArray# -> Int# -> Int# -> Int
-
-foreign import ccall unsafe "text.h utf8_validate"
-    c_utf8_validate :: Addr# -> Int -> Int -> IO Int
+foreign import ccall unsafe utf8_validate_addr :: Addr# -> Int -> Int -> IO Int
 
 --------------------------------------------------------------------------------
 

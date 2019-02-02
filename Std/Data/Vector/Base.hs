@@ -91,6 +91,7 @@ module Std.Data.Vector.Base (
   -- * C FFI
   , c_strcmp
   , c_strlen
+  , c_ascii_validate
  ) where
 
 import           Control.DeepSeq

@@ -133,7 +133,7 @@ addrLiteral :: Addr# -> Builder ()
 addrLiteral addr# = validateAndCopy addr#
   where
     len = fromIntegral . unsafeDupablePerformIO $ V.c_strlen addr#
-    valid = unsafeDupablePerformIO $ T.c_utf8_validate addr# 0 len
+    valid = unsafeDupablePerformIO $ T.utf8_validate_addr addr# 0 len
     validateAndCopy addr#
         | valid == 0 = stringLiteral (unpackCString# addr#)
         | otherwise = do
