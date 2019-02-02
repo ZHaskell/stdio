@@ -254,7 +254,7 @@ library
       include-dirs:      third_party/libuv/include
                          third_party/libuv/src
       -- The C runtime dependencies are imposed by libuv and utf8rewind.
-      extra-libraries:   psapi, Iphlpapi, userenv, Ws2_32, msvcrt, msvcr80
+      extra-libraries:   psapi, Iphlpapi, userenv, Ws2_32, msvcrt
     else
       extra-libraries:   uv
 
