@@ -39,7 +39,27 @@ but in case of rolling something shining from the ground, keep an eye on correct
 -}
 
 module Std.Data.Builder (
-    -- TODO, add safe exports
+  -- * Integral type formatting
+    IFormat(..)
+  , defaultIFormat
+  , Padding(..)
+  , int
+  , intWith
+  , integer
+  -- * Fixded size hexidecimal formatting
+  , hex, heX
+  -- * IEEE float formating
+  , FFFormat(..)
+  , double
+  , doubleWith
+  , float
+  , floatWith
+  -- * Misc
+  , grisu3
+  , grisu3_sp
+  , minus, plus, zero, space
+  , i2wDec, i2wHex, i2wHeX
+  , countDigits, countHexDigits
 
   ) where
 

@@ -90,6 +90,7 @@ extra-source-files:  ChangeLog.md
                      third_party/utf8rewind/source/utf8rewind.c
 
                      -- simd utf8 code
+                     third_party/fastvalidate-utf-8/include/simdasciicheck.h
                      third_party/fastvalidate-utf-8/include/simdutf8check.h
 
 source-repository head
@@ -133,6 +134,7 @@ library
 
                             Std.Data.Parser
                             Std.Data.Parser.Base
+                            Std.Data.Parser.Numeric
                             -- Std.Data.Parser.Binary
                             -- Std.Data.Parser.Textual
 
@@ -162,6 +164,10 @@ library
                         ,   unboxed-ref >= 0.4
                         ,   exceptions >= 0.10
                         ,   transformers
+                        ,   word8
+                        ,   scientific
+                        ,   hashable
+                        ,   case-insensitive
                         ,   stm
 
   if flag(integer-simple)
@@ -181,12 +187,14 @@ library
                         hs_uv.h
                         text.h
                         utf8rewind.h
+                        simdasciicheck.h
                         simdutf8check.h
     install-includes:   bytes.h
                         dtoa.h
                         hs_uv.h
                         text.h
                         utf8rewind.h
+                        simdasciicheck.h
                         simdutf8check.h
     cc-options:         -march=native
     c-sources:          cbits/bytes.c
@@ -245,14 +253,14 @@ library
       cpp-options:       -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0600
       include-dirs:      third_party/libuv/include
                          third_party/libuv/src
-      -- The C runtime dependencies are imposed by libuv.
-      extra-libraries:   psapi, Iphlpapi, userenv, Ws2_32
+      -- The C runtime dependencies are imposed by libuv and utf8rewind.
+      extra-libraries:   psapi, Iphlpapi, userenv, Ws2_32, msvcrt
     else
       extra-libraries:   uv
 
     -- hs-source-dirs:
     default-language:    Haskell2010
-    build-tools:         hsc2hs
+    build-tools:         hsc2hs, hspec-discover
     -- ghc-options:        -Wall
 
 test-suite test
@@ -265,6 +273,8 @@ test-suite test
                   , HUnit
                   , QuickCheck >= 2.10
                   , unboxed-ref
+                  , word8
+                  , scientific
 
   if flag(integer-simple)
     cpp-options: -DINTEGER_SIMPLE

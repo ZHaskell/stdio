@@ -22,3 +22,5 @@ stg_dump
 *.eventlog
 *.stderr
 bench/testbench/**
+.ghc.environment.*
+cabal.project.*

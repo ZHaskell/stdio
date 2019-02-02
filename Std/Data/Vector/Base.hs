@@ -105,6 +105,8 @@ import           Data.Functor.Identity
 import qualified Data.List                     as List
 import           Data.Maybe
 import           Data.Monoid                   (Monoid (..))
+import           Data.Word8                    (toLower)
+import qualified Data.CaseInsensitive          as CI
 import           Data.Primitive
 import           Data.Primitive.PrimArray
 import           Data.Primitive.SmallArray
@@ -413,6 +415,11 @@ instance (a ~ Word8) => IsString (PrimVector a) where
     {-# INLINE fromString #-}
     fromString = packStringLiteral
 
+instance CI.FoldCase Bytes where
+    {-# INLINE foldCase #-}
+    foldCase = map toLower
+
+
 packStringLiteral :: String -> Bytes
 {-# NOINLINE CONLIKE packStringLiteral #-}
 {-# RULES
@@ -432,7 +439,6 @@ packStringAddr addr# = validateAndCopy addr#
             copyPtrToMutablePrimArray marr 0 (Ptr addr#) len
             arr <- unsafeFreezePrimArray marr
             return (PrimVector arr 0 len)
-
 
 -- | Conversion between 'Word8' and 'Char'. Should compile to a no-op.
 --
