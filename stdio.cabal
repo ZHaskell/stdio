@@ -128,6 +128,7 @@ library
                             Std.Data.Text.UTF8Codec
                             Std.Data.Text.UTF8Rewind
 
+                            Std.Data.Builder
                             Std.Data.Builder.Base
                             Std.Data.Builder.Numeric
                             Std.Data.Builder.Numeric.DigitTable
@@ -135,8 +136,6 @@ library
                             Std.Data.Parser
                             Std.Data.Parser.Base
                             Std.Data.Parser.Numeric
-                            -- Std.Data.Parser.Binary
-                            -- Std.Data.Parser.Textual
 
                             Std.Foreign.PrimArray
 
@@ -275,6 +274,7 @@ test-suite test
                   , unboxed-ref
                   , word8
                   , scientific
+                  , primitive
 
   if flag(integer-simple)
     cpp-options: -DINTEGER_SIMPLE

@@ -134,25 +134,25 @@ take :: Int -> Text -> Text
 {-# INLINABLE take #-}
 take n t@(Text (V.PrimVector ba s l))
     | n <= 0 = empty
-    | otherwise = case byteAt t n of i -> Text (V.PrimVector ba s (i-s))
+    | otherwise = case charByteIndex t n of i -> Text (V.PrimVector ba s (i-s))
 
 drop :: Int -> Text -> Text
 {-# INLINABLE drop #-}
 drop n t@(Text (V.PrimVector ba s l))
     | n <= 0 = t
-    | otherwise = case byteAt t n of i -> Text (V.PrimVector ba i (l+s-i))
+    | otherwise = case charByteIndex t n of i -> Text (V.PrimVector ba i (l+s-i))
 
 takeLast :: Int -> Text -> Text
 {-# INLINABLE takeLast #-}
 takeLast n t@(Text (V.PrimVector ba s l))
     | n <= 0 = empty
-    | otherwise = case byteAtLast t n of i -> Text (V.PrimVector ba (i+1) (s+l-1-i))
+    | otherwise = case charByteIndexR t n of i -> Text (V.PrimVector ba (i+1) (s+l-1-i))
 
 dropLast :: Int -> Text -> Text
 {-# INLINABLE dropLast #-}
 dropLast n t@(Text (V.PrimVector ba s l))
     | n <= 0 = t
-    | otherwise = case byteAtLast t n of i -> Text (V.PrimVector ba s (i-s+1))
+    | otherwise = case charByteIndexR t n of i -> Text (V.PrimVector ba s (i-s+1))
 
 -- | /O(1)/ Extract a sub-range text with give start index and length.
 --
@@ -180,7 +180,7 @@ splitAt :: Int -> Text -> (Text, Text)
 {-# INLINE splitAt #-}
 splitAt n t@(Text (V.PrimVector ba s l))
     | n <= 0 = (empty, t)
-    | otherwise = case byteAt t n of
+    | otherwise = case charByteIndex t n of
         i -> (Text (V.PrimVector ba s (i-s)), Text (V.PrimVector ba i (s+l-i)))
 
 

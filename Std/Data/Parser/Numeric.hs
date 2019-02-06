@@ -1,6 +1,16 @@
 {-# LANGUAGE BangPatterns #-}
 
-module Std.Data.Parser.Numeric where
+module Std.Data.Parser.Numeric
+  ( -- * decimal
+    uint, int
+    -- * hex
+  , hex
+    -- * fractional
+  , rational
+  , float, double
+  , scientific
+  , scientifically
+  ) where
 
 import           Control.Applicative
 import           Control.Monad
@@ -10,6 +20,8 @@ import qualified Data.Primitive.PrimArray as A
 import qualified Data.Scientific          as Sci
 import           Data.Word
 import           Data.Word8               (isDigit, isHexDigit)
+import           Foreign.Ptr              (IntPtr)
+import           Std.Data.Parser.Base     (Parser)
 import qualified Std.Data.Parser.Base     as P
 import qualified Std.Data.Vector.Base     as V
 import qualified Std.Data.Vector.Extra    as V
@@ -28,8 +40,19 @@ dot      = 46
 -- sign bit part of the binary hex nibbles, i.e.
 -- 'parse hex "0xFF" == Right (-1 :: Int8)'
 --
-hex :: (Integral a, Bits a) => P.Parser a
+hex :: (Integral a, Bits a) => Parser a
 {-# INLINE hex #-}
+{-# SPECIALIZE INLINE hex :: Parser Int    #-}
+{-# SPECIALIZE INLINE hex :: Parser Int64  #-}
+{-# SPECIALIZE INLINE hex :: Parser Int32  #-}
+{-# SPECIALIZE INLINE hex :: Parser Int16  #-}
+{-# SPECIALIZE INLINE hex :: Parser Int8   #-}
+{-# SPECIALIZE INLINE hex :: Parser Word   #-}
+{-# SPECIALIZE INLINE hex :: Parser Word64 #-}
+{-# SPECIALIZE INLINE hex :: Parser Word32 #-}
+{-# SPECIALIZE INLINE hex :: Parser Word16 #-}
+{-# SPECIALIZE INLINE hex :: Parser Word8  #-}
+{-# SPECIALIZE INLINE hex :: Parser IntPtr #-}
 hex = do
     (V.Vec arr s l) <- P.takeWhile1 isHexDigit
     return $! hexLoop arr s (l-1) 0
@@ -49,8 +72,18 @@ w2iHex w
 
 
 -- | Parse and decode an unsigned decimal number.
-uint :: Integral a => P.Parser a
+uint :: Integral a => Parser a
 {-# INLINE uint #-}
+{-# SPECIALIZE INLINE uint :: Parser Int    #-}
+{-# SPECIALIZE INLINE uint :: Parser Int64  #-}
+{-# SPECIALIZE INLINE uint :: Parser Int32  #-}
+{-# SPECIALIZE INLINE uint :: Parser Int16  #-}
+{-# SPECIALIZE INLINE uint :: Parser Int8   #-}
+{-# SPECIALIZE INLINE uint :: Parser Word   #-}
+{-# SPECIALIZE INLINE uint :: Parser Word64 #-}
+{-# SPECIALIZE INLINE uint :: Parser Word32 #-}
+{-# SPECIALIZE INLINE uint :: Parser Word16 #-}
+{-# SPECIALIZE INLINE uint :: Parser Word8  #-}
 uint = do
     (V.Vec arr s l) <- P.takeWhile1 isDigit
     return $! decLoop arr s (l-1) 0
@@ -67,8 +100,18 @@ w2iDec w = fromIntegral w - 48
 
 -- | Parse a decimal number with an optional leading @\'+\'@ or @\'-\'@ sign
 -- character.
-int :: Integral a => P.Parser a
+int :: Integral a => Parser a
 {-# INLINE int #-}
+{-# SPECIALIZE INLINE int :: Parser Int    #-}
+{-# SPECIALIZE INLINE int :: Parser Int64  #-}
+{-# SPECIALIZE INLINE int :: Parser Int32  #-}
+{-# SPECIALIZE INLINE int :: Parser Int16  #-}
+{-# SPECIALIZE INLINE int :: Parser Int8   #-}
+{-# SPECIALIZE INLINE int :: Parser Word   #-}
+{-# SPECIALIZE INLINE int :: Parser Word64 #-}
+{-# SPECIALIZE INLINE int :: Parser Word32 #-}
+{-# SPECIALIZE INLINE int :: Parser Word16 #-}
+{-# SPECIALIZE INLINE int :: Parser Word8  #-}
 int = do
     w <- P.peek
     if w == minus
@@ -87,7 +130,7 @@ int = do
 -- In most cases, it is better to use 'double' or 'scientific'
 -- instead.
 --
-rational :: Fractional a => P.Parser a
+rational :: Fractional a => Parser a
 {-# INLINE rational #-}
 rational = scientifically realToFrac
 
@@ -116,14 +159,14 @@ rational = scientifically realToFrac
 -- This function does not accept string representations of \"NaN\" or
 -- \"Infinity\".
 --
-double :: P.Parser Double
+double :: Parser Double
 {-# INLINE double #-}
 double = scientifically Sci.toRealFloat
 
 -- | Parse a rational number and round to 'Float'.
 --
 -- Single precision version of 'double'.
-float :: P.Parser Float
+float :: Parser Float
 {-# INLINE float #-}
 float = scientifically Sci.toRealFloat
 
@@ -131,7 +174,7 @@ float = scientifically Sci.toRealFloat
 --
 -- The syntax accepted by this parser is the same as for 'double'.
 --
-scientific :: P.Parser Sci.Scientific
+scientific :: Parser Sci.Scientific
 {-# INLINE scientific #-}
 scientific = scientifically id
 
@@ -139,7 +182,7 @@ scientific = scientifically id
 --
 -- The syntax accepted by this parser is the same as for 'double'.
 --
-scientifically :: (Sci.Scientific -> a) -> P.Parser a
+scientifically :: (Sci.Scientific -> a) -> Parser a
 {-# INLINE scientifically #-}
 scientifically h = do
     sign <- P.peek

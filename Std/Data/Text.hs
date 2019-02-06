@@ -25,9 +25,14 @@ module Std.Data.Text (
   , validate, validateMaybe
   -- * Basic creating
   , empty, singleton, copy
+  -- * Building text
+  , replicate, cycleN
   -- * Conversion between list
   , pack, packN, packR, packRN
   , unpack, unpackR
+  -- * Conversion between codepoint vector
+  , fromVector
+  , toVector
   -- * Basic interface
   , null
   , length
@@ -35,12 +40,9 @@ module Std.Data.Text (
   , map', imap'
   , foldl', ifoldl'
   , foldr', ifoldr'
-    -- ** Special folds
   , concat, concatMap
-  , count
-  , all, any
-  -- * Building text
-  , replicate, cycleN
+    -- ** Special folds
+  , count, all, any
   -- * Searching by equality
   , elem, notElem
   -- * Slice manipulation
@@ -72,6 +74,7 @@ module Std.Data.Text (
   -- ** element-wise search
   , find, findLast
   , filter, partition
+  -- * Unicode processing
     -- ** normalization
   , NormalizationResult(..), NormalizeMode(..)
   , isNormalized, isNormalizedTo, normalize, normalizeTo

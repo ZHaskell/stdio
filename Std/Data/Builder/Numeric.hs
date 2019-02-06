@@ -29,9 +29,8 @@ module Std.Data.Builder.Numeric (
   -- * Misc
   , grisu3
   , grisu3_sp
-  , minus, plus, zero, space
   , i2wDec, i2wHex, i2wHeX
-  , countDigits, countHexDigits
+  , countDigits
 ) where
 
 import           Control.Monad
@@ -415,33 +414,6 @@ countDigits v0
                         then 8 + fin v 1000000000
                         else 10 + fin v 100000000000
            | otherwise = go (k + 12) (v `quot` 1000000000000)
-        fin v n = if v >= n then 1 else 0
-
-countHexDigits :: (Integral a) => a -> Int
-{-# INLINE countHexDigits #-}
-countHexDigits v0
-  | fromIntegral v64 == v0 = go 1 v64
-  | otherwise              = goBig 1 (fromIntegral v0)
-  where v64 = fromIntegral v0
-        goBig !k (v :: Integer)
-           | v > big   = goBig (k + 18) (v `quot` big)
-           | otherwise = go k (fromIntegral v)
-        big = 0x1000000000000000000
-        go !k (v :: Word64)
-           | v < 0x10    = k
-           | v < 0x100   = k + 1
-           | v < 0x1000  = k + 2
-           | v < 0x1000000000000 =
-               k + if v < 0x100000000
-                   then if v < 0x1000000
-                        then if v < 0x10000
-                             then 3
-                             else 4 + fin v 0x100000
-                        else 6 + fin v 0x10000000
-                   else if v < 0x10000000000
-                        then 8 + fin v 0x1000000000
-                        else 10 + fin v 0x100000000000
-           | otherwise = go (k + 12) (v `quot` 0x1000000000000)
         fin v n = if v >= n then 1 else 0
 
 minus, plus, zero, space :: Word8

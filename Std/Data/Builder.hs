@@ -38,32 +38,47 @@ but in case of rolling something shining from the ground, keep an eye on correct
 
 -}
 
-module Std.Data.Builder (
-  -- * Integral type formatting
-    IFormat(..)
+module Std.Data.Builder
+  ( -- * Builder type
+    Builder
+  , append
+   -- * Running builders
+  , buildBytes
+  , buildBytesWith
+  , buildBytesList
+  , buildBytesListWith
+  , buildAndRun
+  , buildAndRunWith
+    -- * Basic buiders
+  , bytes
+  , ensureN
+  , atMost
+  , writeN
+   -- * Pritimive builders
+  , encodePrim
+  , encodePrimLE
+  , encodePrimBE
+  -- * More builders
+  , stringUTF8, charUTF8, string7, char7, string8, char8, text
+  -- * Numeric builders
+  -- ** Integral type formatting
+  , IFormat(..)
   , defaultIFormat
   , Padding(..)
   , int
   , intWith
   , integer
-  -- * Fixded size hexidecimal formatting
+  -- ** Fixded size hexidecimal formatting
   , hex, heX
-  -- * IEEE float formating
+  -- ** IEEE float formating
   , FFFormat(..)
   , double
   , doubleWith
   , float
   , floatWith
-  -- * Misc
-  , grisu3
-  , grisu3_sp
-  , minus, plus, zero, space
-  , i2wDec, i2wHex, i2wHeX
-  , countDigits, countHexDigits
-
+  , scientific
+  , scientificWith
   ) where
 
 import           Std.Data.Builder.Base
 import           Std.Data.Builder.Numeric
-import           Std.Data.Builder.TextBuilder
-

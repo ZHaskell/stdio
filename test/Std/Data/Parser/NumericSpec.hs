@@ -24,72 +24,72 @@ import           Test.Hspec.QuickCheck
 spec :: Spec
 spec = describe "numeric parsers roundtrip" . modifyMaxSuccess (*10) . modifyMaxSize (*10) $ do
         prop "positive hex roundtrip" $ \ i ->
-            P.parse P.hex (B.buildBytes (B.hex i)) == Right (i :: Int)
+            P.parse P.hex (B.buildBytes (B.hex i)) === Right (i :: Int)
         prop "positive hex roundtrip" $ \ i ->
-            P.parse P.hex (B.buildBytes (B.hex i)) == Right (i :: Int64)
+            P.parse P.hex (B.buildBytes (B.hex i)) === Right (i :: Int64)
         prop "positive hex roundtrip" $ \ i ->
-            P.parse P.hex (B.buildBytes (B.hex i)) == Right (i :: Int32)
+            P.parse P.hex (B.buildBytes (B.hex i)) === Right (i :: Int32)
         prop "positive hex roundtrip" $ \ i ->
-            P.parse P.hex (B.buildBytes (B.hex i)) == Right (i :: Int16)
+            P.parse P.hex (B.buildBytes (B.hex i)) === Right (i :: Int16)
         prop "positive hex roundtrip" $ \ i ->
-            P.parse P.hex (B.buildBytes (B.hex i)) == Right (i :: Int8)
+            P.parse P.hex (B.buildBytes (B.hex i)) === Right (i :: Int8)
         prop "positive hex roundtrip" $ \ i ->
-            P.parse P.hex (B.buildBytes (B.hex i)) == Right (i :: Word)
+            P.parse P.hex (B.buildBytes (B.hex i)) === Right (i :: Word)
         prop "positive hex roundtrip" $ \ i ->
-            P.parse P.hex (B.buildBytes (B.hex i)) == Right (i :: Word64)
+            P.parse P.hex (B.buildBytes (B.hex i)) === Right (i :: Word64)
         prop "positive hex roundtrip" $ \ i ->
-            P.parse P.hex (B.buildBytes (B.hex i)) == Right (i :: Word32)
+            P.parse P.hex (B.buildBytes (B.hex i)) === Right (i :: Word32)
         prop "positive hex roundtrip" $ \ i ->
-            P.parse P.hex (B.buildBytes (B.hex i)) == Right (i :: Word16)
+            P.parse P.hex (B.buildBytes (B.hex i)) === Right (i :: Word16)
         prop "positive hex roundtrip" $ \ i ->
-            P.parse P.hex (B.buildBytes (B.hex i)) == Right (i :: Word8)
+            P.parse P.hex (B.buildBytes (B.hex i)) === Right (i :: Word8)
 
 
         prop "positive int roundtrip" $ \ (Positive i) ->
-            P.parse P.uint (B.buildBytes (B.int i)) == Right (i :: Int)
+            P.parse P.uint (B.buildBytes (B.int i)) === Right (i :: Int)
         prop "positive int roundtrip" $ \ (Positive i) ->
-            P.parse P.uint (B.buildBytes (B.int i)) == Right (i :: Int64)
+            P.parse P.uint (B.buildBytes (B.int i)) === Right (i :: Int64)
         prop "positive int roundtrip" $ \ (Positive i) ->
-            P.parse P.uint (B.buildBytes (B.int i)) == Right (i :: Int32)
+            P.parse P.uint (B.buildBytes (B.int i)) === Right (i :: Int32)
         prop "positive int roundtrip" $ \ (Positive i) ->
-            P.parse P.uint (B.buildBytes (B.int i)) == Right (i :: Int16)
+            P.parse P.uint (B.buildBytes (B.int i)) === Right (i :: Int16)
         prop "positive int roundtrip" $ \ (Positive i) ->
-            P.parse P.uint (B.buildBytes (B.int i)) == Right (i :: Int8)
+            P.parse P.uint (B.buildBytes (B.int i)) === Right (i :: Int8)
         prop "positive int roundtrip" $ \ (Positive i) ->
-            P.parse P.uint (B.buildBytes (B.int i)) == Right (i :: Word)
+            P.parse P.uint (B.buildBytes (B.int i)) === Right (i :: Word)
         prop "positive int roundtrip" $ \ (Positive i) ->
-            P.parse P.uint (B.buildBytes (B.int i)) == Right (i :: Word64)
+            P.parse P.uint (B.buildBytes (B.int i)) === Right (i :: Word64)
         prop "positive int roundtrip" $ \ (Positive i) ->
-            P.parse P.uint (B.buildBytes (B.int i)) == Right (i :: Word32)
+            P.parse P.uint (B.buildBytes (B.int i)) === Right (i :: Word32)
         prop "positive int roundtrip" $ \ (Positive i) ->
-            P.parse P.uint (B.buildBytes (B.int i)) == Right (i :: Word16)
+            P.parse P.uint (B.buildBytes (B.int i)) === Right (i :: Word16)
         prop "positive int roundtrip" $ \ (Positive i) ->
-            P.parse P.uint (B.buildBytes (B.int i)) == Right (i :: Word8)
+            P.parse P.uint (B.buildBytes (B.int i)) === Right (i :: Word8)
 
 
         prop "positive int roundtrip" $ \ i ->
-            P.parse P.int (B.buildBytes (B.int i)) == Right (i :: Int)
+            P.parse P.int (B.buildBytes (B.int i)) === Right (i :: Int)
         prop "positive int roundtrip" $ \ i ->
-            P.parse P.int (B.buildBytes (B.int i)) == Right (i :: Int64)
+            P.parse P.int (B.buildBytes (B.int i)) === Right (i :: Int64)
         prop "positive int roundtrip" $ \ i ->
-            P.parse P.int (B.buildBytes (B.int i)) == Right (i :: Int32)
+            P.parse P.int (B.buildBytes (B.int i)) === Right (i :: Int32)
         prop "positive int roundtrip" $ \ i ->
-            P.parse P.int (B.buildBytes (B.int i)) == Right (i :: Int16)
+            P.parse P.int (B.buildBytes (B.int i)) === Right (i :: Int16)
         prop "positive int roundtrip" $ \ i ->
-            P.parse P.int (B.buildBytes (B.int i)) == Right (i :: Int8)
+            P.parse P.int (B.buildBytes (B.int i)) === Right (i :: Int8)
         prop "positive int roundtrip" $ \ i ->
-            P.parse P.int (B.buildBytes (B.int i)) == Right (i :: Word)
+            P.parse P.int (B.buildBytes (B.int i)) === Right (i :: Word)
         prop "positive int roundtrip" $ \ i ->
-            P.parse P.int (B.buildBytes (B.int i)) == Right (i :: Word64)
+            P.parse P.int (B.buildBytes (B.int i)) === Right (i :: Word64)
         prop "positive int roundtrip" $ \ i ->
-            P.parse P.int (B.buildBytes (B.int i)) == Right (i :: Word32)
+            P.parse P.int (B.buildBytes (B.int i)) === Right (i :: Word32)
         prop "positive int roundtrip" $ \ i ->
-            P.parse P.int (B.buildBytes (B.int i)) == Right (i :: Word16)
+            P.parse P.int (B.buildBytes (B.int i)) === Right (i :: Word16)
         prop "positive int roundtrip" $ \ i ->
-            P.parse P.int (B.buildBytes (B.int i)) == Right (i :: Word8)
+            P.parse P.int (B.buildBytes (B.int i)) === Right (i :: Word8)
 
 
         prop "float roundtrip" $ \ i ->
-            P.parse P.float (B.buildBytes (B.float i)) == Right (i :: Float)
+            P.parse P.float (B.buildBytes (B.float i)) === Right (i :: Float)
         prop "double roundtrip" $ \ i ->
-            P.parse P.double (B.buildBytes (B.double i)) == Right (i :: Double)
+            P.parse P.double (B.buildBytes (B.double i)) === Right (i :: Double)

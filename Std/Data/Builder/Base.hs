@@ -36,20 +36,45 @@ but in case of rolling something shining from the ground, keep an eye on correct
 
 -}
 
-module Std.Data.Builder.Base where
+module Std.Data.Builder.Base
+  ( -- * Builder type
+    AllocateStrategy(..)
+  , Buffer(..)
+  , BuildStep
+  , Builder(..)
+  , append
+   -- * Running a builder
+  , buildBytes
+  , buildBytesWith
+  , buildBytesList
+  , buildBytesListWith
+  , buildAndRun
+  , buildAndRunWith
+    -- * Basic buiders
+  , bytes
+  , ensureN
+  , atMost
+  , writeN
+   -- * Pritimive builders
+  , encodePrim
+  , encodePrimLE
+  , encodePrimBE
+  -- * More builders
+  , stringUTF8, charUTF8, string7, char7, string8, char8, text
+  ) where
 
 import           Control.Monad
 import           Control.Monad.Primitive
 import           Control.Monad.ST
 import           Control.Monad.ST.Unsafe            (unsafeInterleaveST)
-import           Data.Bits                          (shiftL, shiftR)
-import           Data.Bits                          ((.&.))
+import           Data.Bits                          (shiftL, shiftR, (.&.))
 import           Data.Monoid                        (Monoid (..))
 import           Data.Primitive.PrimArray           (MutablePrimArray (..))
 import           Data.Primitive.Ptr                 (copyPtrToMutablePrimArray)
 import           Data.Semigroup                     (Semigroup (..))
 import           Data.String                        (IsString (..))
 import           Data.Word
+import           Data.Int
 import           GHC.CString                        (unpackCString#)
 import           GHC.Prim
 import           GHC.Ptr
@@ -72,8 +97,8 @@ data AllocateStrategy s
 
 -- | Helper type to help ghc unpack
 --
-data Buffer s = Buffer {-# UNPACK #-} !(A.MutablePrimArray s Word8)  -- well, the buffer content
-                       {-# UNPACK #-} !Int  -- writing offset
+data Buffer s = Buffer {-# UNPACK #-} !(A.MutablePrimArray s Word8)  -- ^ the buffer content
+                       {-# UNPACK #-} !Int  -- ^ writing offset
 
 -- | @BuilderStep@ is a function that fill buffer under given conditions.
 --
@@ -130,6 +155,7 @@ stringLiteral :: String -> Builder ()
 stringLiteral = stringUTF8
 
 addrLiteral :: Addr# -> Builder ()
+{-# INLINE addrLiteral #-}
 addrLiteral addr# = validateAndCopy addr#
   where
     len = fromIntegral . unsafeDupablePerformIO $ V.c_strlen addr#
@@ -144,9 +170,8 @@ addrLiteral addr# = validateAndCopy addr#
 
 
 append :: Builder a -> Builder b -> Builder b
-append (Builder f) (Builder g) = Builder (\ al k -> f al ( \ _ ->  g al k))
 {-# INLINE append #-}
-
+append (Builder f) (Builder g) = Builder (\ al k -> f al ( \ _ ->  g al k))
 
 --------------------------------------------------------------------------------
 
@@ -207,6 +232,7 @@ doubleBuffer !wantSiz k buffer@(Buffer buf offset) = do
 {-# INLINE doubleBuffer #-}
 
 insertChunk :: Int -> Int -> BuildStep s -> BuildStep s
+{-# INLINE insertChunk #-}
 insertChunk !chunkSiz !wantSiz k buffer@(Buffer buf offset) = do
     !siz <- A.sizeofMutableArr buf
     case () of
@@ -223,9 +249,9 @@ insertChunk !chunkSiz !wantSiz k buffer@(Buffer buf offset) = do
             | otherwise -> do
                 buf' <- A.newArr wantSiz        -- make a new buffer
                 k (Buffer buf' 0 )
-{-# INLINE insertChunk #-}
 
 oneShotAction :: (V.Bytes -> ST s ()) -> Int -> BuildStep s -> BuildStep s
+{-# INLINE oneShotAction #-}
 oneShotAction action !wantSiz k buffer@(Buffer buf offset) = do
     !siz <- A.sizeofMutableArr buf
     case () of
@@ -242,14 +268,18 @@ oneShotAction action !wantSiz k buffer@(Buffer buf offset) = do
             | otherwise -> do
                 buf' <- A.newArr wantSiz                -- make a new buffer
                 k (Buffer buf' 0 )
-{-# INLINE oneShotAction #-}
 
 --------------------------------------------------------------------------------
 
+-- | shortcut to 'buildBytesWith' 'V.defaultInitSize'.
 buildBytes :: Builder a -> V.Bytes
+{-# INLINE buildBytes #-}
 buildBytes = buildBytesWith V.defaultInitSize
 
+-- | run Builder with 'DoubleBuffer' strategy, which is suitable
+-- for building short bytes.
 buildBytesWith :: Int -> Builder a -> V.Bytes
+{-# INLINABLE buildBytesWith #-}
 buildBytesWith initSiz (Builder b) = runST $ do
     buf <- A.newArr initSiz
     [bs] <- b DoubleBuffer lastStep (Buffer buf 0 )
@@ -260,13 +290,16 @@ buildBytesWith initSiz (Builder b) = runST $ do
         when (offset < siz) (A.shrinkMutableArr buf offset)
         arr <- A.unsafeFreezeArr buf
         return [V.PrimVector arr 0 offset]
-{-# INLINABLE buildBytes #-}
 
-
+-- | shortcut to 'buildBytesListWith' 'V.defaultChunkSize'.
 buildBytesList :: Builder a -> [V.Bytes]
+{-# INLINE buildBytesList #-}
 buildBytesList = buildBytesListWith  V.smallChunkSize V.defaultChunkSize
 
+-- | run Builder with 'InsertChunk' strategy, which is suitable
+-- for building lazy bytes chunks.
 buildBytesListWith :: Int -> Int -> Builder a -> [V.Bytes]
+{-# INLINABLE buildBytesListWith #-}
 buildBytesListWith initSiz chunkSiz (Builder b) = runST $ do
     buf <- A.newArr initSiz
     b (InsertChunk chunkSiz) lastStep (Buffer buf 0)
@@ -274,11 +307,13 @@ buildBytesListWith initSiz chunkSiz (Builder b) = runST $ do
     lastStep _ (Buffer buf offset) = do
         arr <- A.unsafeFreezeArr buf
         return [V.PrimVector arr 0 offset]
-{-# INLINABLE buildBytesList #-}
 
+-- | shortcut to 'buildAndRunWith' 'V.defaultChunkSize'.
 buildAndRun :: (V.Bytes -> IO ()) -> Builder a -> IO ()
 buildAndRun = buildAndRunWith V.defaultChunkSize
 
+-- | run Builder with 'OneShotAction' strategy, which is suitable
+-- for doing effects while building.
 buildAndRunWith :: Int -> (V.Bytes -> IO ()) -> Builder a -> IO ()
 buildAndRunWith chunkSiz action (Builder b) = do
     buf <- A.newArr chunkSiz
@@ -312,8 +347,19 @@ writeN n f = ensureN n `append`
     Builder (\ _  k (Buffer buf offset ) ->
         f buf offset >> k () (Buffer buf (offset+n)))
 
+-- | write primitive types in host byte order.
 encodePrim :: forall a. UnalignedAccess a => a -> Builder ()
 {-# INLINE encodePrim #-}
+{-# SPECIALIZE INLINE encodePrim :: Word -> Builder () #-}
+{-# SPECIALIZE INLINE encodePrim :: Word64 -> Builder () #-}
+{-# SPECIALIZE INLINE encodePrim :: Word32 -> Builder () #-}
+{-# SPECIALIZE INLINE encodePrim :: Word16 -> Builder () #-}
+{-# SPECIALIZE INLINE encodePrim :: Word8 -> Builder () #-}
+{-# SPECIALIZE INLINE encodePrim :: Int -> Builder () #-}
+{-# SPECIALIZE INLINE encodePrim :: Int64 -> Builder () #-}
+{-# SPECIALIZE INLINE encodePrim :: Int32 -> Builder () #-}
+{-# SPECIALIZE INLINE encodePrim :: Int16 -> Builder () #-}
+{-# SPECIALIZE INLINE encodePrim :: Int8 -> Builder () #-}
 encodePrim x = do
     ensureN n
     Builder (\ _  k (Buffer (MutablePrimArray mba#) i@(I# i#)) -> do
@@ -322,12 +368,30 @@ encodePrim x = do
   where
     n = (getUnalignedSize (unalignedSize :: UnalignedSize a))
 
+-- | write primitive types with little endianess.
 encodePrimLE :: forall a. UnalignedAccess (LE a) => a -> Builder ()
 {-# INLINE encodePrimLE #-}
+{-# SPECIALIZE INLINE encodePrimLE :: Word -> Builder () #-}
+{-# SPECIALIZE INLINE encodePrimLE :: Word64 -> Builder () #-}
+{-# SPECIALIZE INLINE encodePrimLE :: Word32 -> Builder () #-}
+{-# SPECIALIZE INLINE encodePrimLE :: Word16 -> Builder () #-}
+{-# SPECIALIZE INLINE encodePrimLE :: Int -> Builder () #-}
+{-# SPECIALIZE INLINE encodePrimLE :: Int64 -> Builder () #-}
+{-# SPECIALIZE INLINE encodePrimLE :: Int32 -> Builder () #-}
+{-# SPECIALIZE INLINE encodePrimLE :: Int16 -> Builder () #-}
 encodePrimLE = encodePrim . LE
 
+-- | write primitive types with big endianess.
 encodePrimBE :: forall a. UnalignedAccess (BE a) => a -> Builder ()
 {-# INLINE encodePrimBE #-}
+{-# SPECIALIZE INLINE encodePrimBE :: Word -> Builder () #-}
+{-# SPECIALIZE INLINE encodePrimBE :: Word64 -> Builder () #-}
+{-# SPECIALIZE INLINE encodePrimBE :: Word32 -> Builder () #-}
+{-# SPECIALIZE INLINE encodePrimBE :: Word16 -> Builder () #-}
+{-# SPECIALIZE INLINE encodePrimBE :: Int -> Builder () #-}
+{-# SPECIALIZE INLINE encodePrimBE :: Int64 -> Builder () #-}
+{-# SPECIALIZE INLINE encodePrimBE :: Int32 -> Builder () #-}
+{-# SPECIALIZE INLINE encodePrimBE :: Int16 -> Builder () #-}
 encodePrimBE = encodePrim . BE
 
 --------------------------------------------------------------------------------

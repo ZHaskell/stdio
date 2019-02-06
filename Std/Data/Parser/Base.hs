@@ -8,28 +8,50 @@
 {-|
 Module      : Std.Data.Parser.Base
 Description : Efficient deserialization/parse.
-Copyright   : (c) Winterland, 2017-2018
+Copyright   : (c) Winterland, 2017-2019
 License     : BSD
 Maintainer  : drkoster@qq.com
 Stability   : experimental
 Portability : non-portable
-WIP
+
+This module provide a simple resumable 'Parser', which is suitable for binary protocol and simple textual protocol parsing.
+
+You can use 'Alternative' instance to do backtracking, each branch will either succeed and may consume some input, or fail without consume anything.
+
+It's recommend to use 'peek' to avoid backtracking if possible to get high performance.
+
 -}
 
-module Std.Data.Parser.Base where
+module Std.Data.Parser.Base
+  ( -- * Parser types
+    Result(..)
+  , ParseStep
+  , Parser(..)
+    -- * Running a parser
+  , parse, parse', parseChunk, parseChunks, finishParsing
+  , runAndKeepTrack
+    -- * Basic parsers
+  , ensureN, endOfInput
+    -- * Primitive decoders
+  , decodePrim, decodePrimLE, decodePrimBE
+    -- * More parsers
+  , scan, scanChunks, peekMaybe, peek, satisfy, satisfyWith
+  , word8, anyWord8, endOfLine, skip, skipWhile, skipSpaces
+  , take, takeTill, takeWhile, takeWhile1, bytes, bytesCI
+  , text
+  ) where
 
 import           Control.Applicative
 import           Control.Monad
 import qualified Control.Monad.Fail                 as Fail
-import           Data.Word8                         (isSpace)
 import qualified Data.CaseInsensitive               as CI
-import           Data.Primitive.PrimArray
+import qualified Data.Primitive.PrimArray           as A
+import           Data.Int
 import           Data.Word
-import           GHC.Prim
+import           Data.Word8                         (isSpace)
 import           GHC.Types
 import           Prelude                            hiding (take, takeWhile)
 import           Std.Data.PrimArray.UnalignedAccess
-import qualified Data.Primitive.PrimArray           as A
 import qualified Std.Data.Text.Base                 as T
 import qualified Std.Data.Vector.Base               as V
 import qualified Std.Data.Vector.Extra              as V
@@ -40,7 +62,7 @@ import qualified Std.Data.Vector.Extra              as V
 --
 -- * failure: the remaining unparsed data and the error message
 --
--- * partial: that need for more input data, supply empty bytes to indicate 'EndOfInput'
+-- * partial: that need for more input data, supply empty bytes to indicate 'endOfInput'
 --
 data Result a
     = Success !V.Bytes a
@@ -50,7 +72,7 @@ data Result a
 instance Functor Result where
     fmap f (Success s a)   = Success s (f a)
     fmap _ (Failure s msg) = Failure s msg
-    fmap f (Partial k)    = Partial (fmap f . k)
+    fmap f (Partial k)     = Partial (fmap f . k)
 
 instance Show a => Show (Result a) where
     show (Success _ a)    = "Success " ++ show a
@@ -107,35 +129,33 @@ instance Alternative Parser where
 
 -- | Parse the complete input, without resupplying
 parse :: Parser a -> V.Bytes -> Either String a
-{-# INLINABLE parse #-}
-parse (Parser p) input = go (p (flip Success) input)
-  where
-    go r = case r of
-        Success _ a    -> Right a
-        Failure _ errs -> Left errs
-        Partial f     -> go (f V.empty)
+{-# INLINE parse #-}
+parse (Parser p) input = snd $ finishParsing (p (flip Success) input)
 
 -- | Parse the complete input, without resupplying, return the rest bytes
 parse' :: Parser a -> V.Bytes -> (V.Bytes, Either String a)
-{-# INLINABLE parse' #-}
-parse' (Parser p) input = go (p (flip Success) input)
-  where
-    go r = case r of
-        Success rest a    -> (rest, Right a)
-        Failure rest errs -> (rest, Left errs)
-        Partial f     -> go (f V.empty)
+{-# INLINE parse' #-}
+parse' (Parser p) input = finishParsing (p (flip Success) input)
 
 -- | Parse an input chunk
 parseChunk :: Parser a -> V.Bytes -> Result a
-{-# INLINABLE parseChunk #-}
+{-# INLINE parseChunk #-}
 parseChunk (Parser p) = p (flip Success)
+
+-- | Finish parsing and fetch result, feed empty bytes if it's 'Partial' result.
+finishParsing :: Result a -> (V.Bytes, Either String a)
+{-# INLINABLE finishParsing #-}
+finishParsing r = case r of
+    Success rest a    -> (rest, Right a)
+    Failure rest errs -> (rest, Left errs)
+    Partial f         -> finishParsing (f V.empty)
 
 -- | Run a parser with an initial input string, and a monadic action
 -- that can supply more input if needed.
 --
--- Note, once the monadic action return empty bytes, we will stop drawing
--- more bytes.
-parseChunks :: Monad m => m V.Bytes -> Parser a -> V.Bytes -> m (Result a)
+-- Note, once the monadic action return empty bytes, parsers will stop drawing
+-- more bytes (take it as 'endOfInput').
+parseChunks :: Monad m => m V.Bytes -> Parser a -> V.Bytes -> m (V.Bytes, Either String a)
 {-# INLINABLE parseChunks #-}
 parseChunks m (Parser p) input = go m (p (flip Success) input)
   where
@@ -145,7 +165,8 @@ parseChunks m (Parser p) input = go m (p (flip Success) input)
             if V.null inp
             then go (return V.empty) (f V.empty)
             else go m (f inp)
-        r          -> return r
+        Success rest a    -> return (rest, Right a)
+        Failure rest errs -> return (rest, Left errs)
 
 -- | Run a parser and keep track of all the input it consumes.
 -- Once it's finished, return the final result (always 'Success' or 'Failure') and
@@ -157,7 +178,7 @@ runAndKeepTrack (Parser pa) = Parser $ \ k0 input ->
     let r0 = pa (\ a input' -> Success input' a) input in go [] r0 k0
   where
     go !acc r k0 = case r of
-        Partial k       -> Partial (\ input -> go (input:acc) (k input) k0)
+        Partial k        -> Partial (\ input -> go (input:acc) (k input) k0)
         Success input' _ -> k0 (r, reverse acc) input'
         Failure input' _ -> k0 (r, reverse acc) input'
 
@@ -201,20 +222,46 @@ endOfInput = Parser $ \ k inp ->
 
 decodePrim :: forall a. UnalignedAccess a => Parser a
 {-# INLINE decodePrim #-}
+{-# SPECIALIZE INLINE decodePrim :: Parser Word   #-}
+{-# SPECIALIZE INLINE decodePrim :: Parser Word64 #-}
+{-# SPECIALIZE INLINE decodePrim :: Parser Word32 #-}
+{-# SPECIALIZE INLINE decodePrim :: Parser Word16 #-}
+{-# SPECIALIZE INLINE decodePrim :: Parser Word8  #-}
+{-# SPECIALIZE INLINE decodePrim :: Parser Int   #-}
+{-# SPECIALIZE INLINE decodePrim :: Parser Int64 #-}
+{-# SPECIALIZE INLINE decodePrim :: Parser Int32 #-}
+{-# SPECIALIZE INLINE decodePrim :: Parser Int16 #-}
+{-# SPECIALIZE INLINE decodePrim :: Parser Int8  #-}
 decodePrim = do
     ensureN n
-    Parser (\ k (V.PrimVector (PrimArray ba#) i@(I# i#) len) ->
+    Parser (\ k (V.PrimVector (A.PrimArray ba#) i@(I# i#) len) ->
         let !r = indexWord8ArrayAs ba# i#
-        in k r (V.PrimVector (PrimArray ba#) (i+n) (len-n)))
+        in k r (V.PrimVector (A.PrimArray ba#) (i+n) (len-n)))
   where
     n = (getUnalignedSize (unalignedSize :: UnalignedSize a))
 
 decodePrimLE :: forall a. UnalignedAccess (LE a) => Parser a
 {-# INLINE decodePrimLE #-}
+{-# SPECIALIZE INLINE decodePrimLE :: Parser Word   #-}
+{-# SPECIALIZE INLINE decodePrimLE :: Parser Word64 #-}
+{-# SPECIALIZE INLINE decodePrimLE :: Parser Word32 #-}
+{-# SPECIALIZE INLINE decodePrimLE :: Parser Word16 #-}
+{-# SPECIALIZE INLINE decodePrimLE :: Parser Int   #-}
+{-# SPECIALIZE INLINE decodePrimLE :: Parser Int64 #-}
+{-# SPECIALIZE INLINE decodePrimLE :: Parser Int32 #-}
+{-# SPECIALIZE INLINE decodePrimLE :: Parser Int16 #-}
 decodePrimLE = getLE <$> decodePrim
 
 decodePrimBE :: forall a. UnalignedAccess (BE a) => Parser a
 {-# INLINE decodePrimBE #-}
+{-# SPECIALIZE INLINE decodePrimBE :: Parser Word   #-}
+{-# SPECIALIZE INLINE decodePrimBE :: Parser Word64 #-}
+{-# SPECIALIZE INLINE decodePrimBE :: Parser Word32 #-}
+{-# SPECIALIZE INLINE decodePrimBE :: Parser Word16 #-}
+{-# SPECIALIZE INLINE decodePrimBE :: Parser Int   #-}
+{-# SPECIALIZE INLINE decodePrimBE :: Parser Int64 #-}
+{-# SPECIALIZE INLINE decodePrimBE :: Parser Int32 #-}
+{-# SPECIALIZE INLINE decodePrimBE :: Parser Int16 #-}
 decodePrimBE = getBE <$> decodePrim
 
 -- | A stateful scanner.  The predicate consumes and transforms a
@@ -232,7 +279,7 @@ scan s0 f = scanChunks s0 f'
     f' st (V.Vec arr s l) = go f st arr s s (s+l)
     go f st arr off !i !end
         | i < end = do
-            let !w = indexPrimArray arr i
+            let !w = A.indexPrimArray arr i
             case f st w of
                 Just st' -> go f st' arr off (i+1) end
                 _        ->
@@ -329,6 +376,17 @@ anyWord8 :: Parser Word8
 {-# INLINE anyWord8 #-}
 anyWord8 = decodePrim
 
+-- | Match either a single newline byte @\'\\n\'@, or a carriage
+-- return followed by a newline byte @\"\\r\\n\"@.
+endOfLine :: Parser ()
+{-# INLINE endOfLine #-}
+endOfLine = do
+    w <- decodePrim :: Parser Word8
+    case w of
+        10 -> return ()
+        13 -> word8 10
+        _  -> fail "endOfLine"
+
 --------------------------------------------------------------------------------
 
 -- | 'skip' N bytes.
@@ -365,7 +423,13 @@ skipWhile p =
   where
     go k p inp =
         let rest = V.dropWhile p inp    -- If we ever enter 'Partial', empty input
-        in k () rest                    -- means 'EndOfInput'
+        in k () rest                    -- means 'endOfInput'
+
+-- | Skip over white space using 'isSpace'.
+--
+skipSpaces :: Parser ()
+{-# INLINE skipSpaces #-}
+skipSpaces = skipWhile isSpace
 
 take :: Int -> Parser V.Bytes
 {-# INLINE take #-}
@@ -440,12 +504,6 @@ takeWhile1 p = do
     if V.null bs then fail "Std.Data.Parser.Base.takeWhile1" else return bs
 
 
--- | Skip over white space using 'isSpace'.
---
-skipSpaces :: Parser ()
-{-# INLINE skipSpaces #-}
-skipSpaces = skipWhile isSpace
-
 -- | @bytes s@ parses a sequence of bytes that identically match @s@.
 --
 bytes :: V.Bytes -> Parser ()
@@ -478,7 +536,9 @@ bytes bs = do
                         then Partial (go k (n-l) (V.unsafeDrop l bs))
                         else Failure inp "Std.Data.Parser.Base.bytes"
 
+-- | Same as 'bytes' but ignoring case.
 bytesCI :: V.Bytes -> Parser ()
+{-# INLINE bytesCI #-}
 bytesCI bs = do
     let n = V.length bs'
     Parser (\ k inp ->
@@ -508,19 +568,8 @@ bytesCI bs = do
                         then Partial (go k (n-l) (V.unsafeDrop l bs))
                         else Failure inp "Std.Data.Parser.Base.bytesCI"
 
+-- | @text s@ parses a sequence of UTF8 bytes that identically match @s@.
+--
 text :: T.Text -> Parser ()
 {-# INLINE text #-}
 text (T.Text bs) = bytes bs
-
---------------------------------------------------------------------------------
-
--- | Match either a single newline byte @\'\\n\'@, or a carriage
--- return followed by a newline byte @\"\\r\\n\"@.
-endOfLine :: Parser ()
-endOfLine = do
-    w <- decodePrim :: Parser Word8
-    case w of
-        10 -> return ()
-        13 -> word8 10
-        _  -> fail "endOfLine"
-{-# INLINE endOfLine #-}

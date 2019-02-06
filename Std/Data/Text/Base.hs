@@ -27,7 +27,7 @@ module Std.Data.Text.Base (
   , validateMaybe
   , replicate
   , cycleN
-  , charAt, byteAt, charAtLast, byteAtLast
+  , indexMaybe, charByteIndex, indexMaybeR, charByteIndexR
   -- * Basic creating
   , empty, singleton, copy
   -- * Conversion between list
@@ -197,9 +197,9 @@ packStringAddr addr# = validateAndCopy addr#
             return $ Text (PrimVector arr 0 len)
 
 -- | /O(n)/ Get the nth codepoint from 'Text'.
-charAt :: Text -> Int -> Maybe Char
-{-# INLINABLE charAt #-}
-charAt (Text (V.PrimVector ba s l)) n
+indexMaybe :: Text -> Int -> Maybe Char
+{-# INLINABLE indexMaybe #-}
+indexMaybe (Text (V.PrimVector ba s l)) n
     | n < 0 = Nothing
     | otherwise = go s 0
   where
@@ -214,9 +214,9 @@ charAt (Text (V.PrimVector ba s l)) n
 --
 -- The index is only meaningful to the whole byte slice, if there's less than n codepoints,
 -- the index will point to next byte after the end.
-byteAt :: Text -> Int -> Int
-{-# INLINABLE byteAt #-}
-byteAt (Text (V.PrimVector ba s l)) n
+charByteIndex :: Text -> Int -> Int
+{-# INLINABLE charByteIndex #-}
+charByteIndex (Text (V.PrimVector ba s l)) n
     | n < 0 = s
     | otherwise = go s 0
   where
@@ -228,9 +228,9 @@ byteAt (Text (V.PrimVector ba s l)) n
             let l = decodeCharLen ba i in go (i+l) (j+1)
 
 -- | /O(n)/ Get the nth codepoint from 'Text' counting from the end.
-charAtLast :: Text -> Int -> Maybe Char
-{-# INLINABLE charAtLast #-}
-charAtLast (Text (V.PrimVector ba s l)) n
+indexMaybeR :: Text -> Int -> Maybe Char
+{-# INLINABLE indexMaybeR #-}
+indexMaybeR (Text (V.PrimVector ba s l)) n
     | n < 0 = Nothing
     | otherwise = go (s+l-1) 0
   where
@@ -245,9 +245,9 @@ charAtLast (Text (V.PrimVector ba s l)) n
 --
 -- The index is only meaningful to the whole byte slice, if there's less than n codepoints,
 -- the index will point to previous byte before the start.
-byteAtLast :: Text -> Int -> Int
-{-# INLINABLE byteAtLast #-}
-byteAtLast (Text (V.PrimVector ba s l)) n
+charByteIndexR :: Text -> Int -> Int
+{-# INLINABLE charByteIndexR #-}
+charByteIndexR (Text (V.PrimVector ba s l)) n
     | n < 0 = s+l
     | otherwise = go (s+l-1) 0
   where
