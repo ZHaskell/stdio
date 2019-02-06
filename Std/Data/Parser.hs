@@ -13,7 +13,11 @@ License     : BSD
 Maintainer  : drkoster@qq.com
 Stability   : experimental
 Portability : non-portable
-WIP
+
+This module provide a simple resumable 'Parser', which is suitable for binary protocol and simple textual protocol parsing.
+
+You can use 'Alternative' instance to do backtracking, each branch will either succeed and may consume some input, or fail without consume anything. It's recommend to use 'peek' to avoid backtracking if possible to get high performance.
+
 -}
 module Std.Data.Parser
   ( -- * Parser types

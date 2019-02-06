@@ -137,6 +137,8 @@ library
                             Std.Data.Parser.Base
                             Std.Data.Parser.Numeric
 
+                            Std.Data.LEON
+
                             Std.Foreign.PrimArray
 
                             Std.IO.Resource

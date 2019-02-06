@@ -6,8 +6,8 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 
 {-|
-Module      : Std.Data.PrimArray.BitTwiddle
-Description : Primitive bits twiddling
+Module      : Std.Data.PrimArray.Cast
+Description : Primitive casting
 Copyright   : Haskell Foundation, (c) Winterland, 2017-2018
 License     : BSD
 Maintainer  : drkoster@qq.com

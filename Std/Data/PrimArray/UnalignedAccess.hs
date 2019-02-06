@@ -6,7 +6,7 @@
 {-|
 Module      : Std.Data.PrimArray.UnalignedAccess
 Description : unaligned access for primitive arrays
-Copyright   : (c) Winterland, 2017-2018
+Copyright   : (c) Winterland, 2017-2019
 License     : BSD
 Maintainer  : drkoster@qq.com
 Stability   : experimental
@@ -46,7 +46,7 @@ instance UnalignedAccess Word8 where
     writeWord8ArrayAs mba# i# (W8# x#) = writeWord8Array# mba# i# x#
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, w# #) = readWord8Array# mba# i# s0 in (# s1, W8# w# #)
+        let (# s1, x# #) = readWord8Array# mba# i# s0 in (# s1, W8# x# #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# = W8# (indexWord8Array# ba# i#)
 
@@ -57,7 +57,7 @@ instance UnalignedAccess Int8 where
     writeWord8ArrayAs mba# i# (I8# x#) = writeInt8Array# mba# i# x#
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, w# #) = readInt8Array# mba# i# s0 in (# s1, I8# w# #)
+        let (# s1, x# #) = readInt8Array# mba# i# s0 in (# s1, I8# x# #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# = I8# (indexInt8Array# ba# i#)
 
@@ -87,7 +87,7 @@ instance UnalignedAccess Word16 where
     writeWord8ArrayAs mba# i# (W16# x#) = writeWord8ArrayAsWord16# mba# i# x#
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, w# #) = readWord8ArrayAsWord16# mba# i# s0 in (# s1, W16# w# #)
+        let (# s1, x# #) = readWord8ArrayAsWord16# mba# i# s0 in (# s1, W16# x# #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# = W16# (indexWord8ArrayAsWord16# ba# i#)
 
@@ -126,8 +126,8 @@ instance UnalignedAccess (BE Word16) where
     writeWord8ArrayAs mba# i# (BE (W16# x#)) = writeWord8ArrayAsWord16# mba# i# (byteSwap16# x#)
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, w# #) = readWord8ArrayAsWord16# mba# i# s0
-        in (# s1, BE (W16# (byteSwap16# w#)) #)
+        let (# s1, x# #) = readWord8ArrayAsWord16# mba# i# s0
+        in (# s1, BE (W16# (byteSwap16# x#)) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# = BE (W16# (byteSwap16# (indexWord8ArrayAsWord16# ba# i#)))
 #else
@@ -157,7 +157,7 @@ instance UnalignedAccess Word32 where
     writeWord8ArrayAs mba# i# (W32# x#) =  writeWord8ArrayAsWord32# mba# i# x#
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, w# #) = readWord8ArrayAsWord32# mba# i# s0 in (# s1, W32# w# #)
+        let (# s1, x# #) = readWord8ArrayAsWord32# mba# i# s0 in (# s1, W32# x# #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# = W32# (indexWord8ArrayAsWord32# ba# i#)
 
@@ -207,8 +207,8 @@ instance UnalignedAccess (BE Word32) where
     writeWord8ArrayAs mba# i# (BE (W32# x#)) = writeWord8ArrayAsWord32# mba# i# (byteSwap32# x#)
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, w# #) = readWord8ArrayAsWord32# mba# i# s0
-        in (# s1, BE (W32# (byteSwap32# w#)) #)
+        let (# s1, x# #) = readWord8ArrayAsWord32# mba# i# s0
+        in (# s1, BE (W32# (byteSwap32# x#)) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# = BE (W32# (byteSwap32# (indexWord8ArrayAsWord32# ba# i#)))
 #else
@@ -248,7 +248,7 @@ instance UnalignedAccess Word64 where
     writeWord8ArrayAs mba# i# (W64# x#) =  writeWord8ArrayAsWord64# mba# i# x#
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, w# #) = readWord8ArrayAsWord64# mba# i# s0 in (# s1, W64# w# #)
+        let (# s1, x# #) = readWord8ArrayAsWord64# mba# i# s0 in (# s1, W64# x# #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# = W64# (indexWord8ArrayAsWord64# ba# i#)
 
@@ -318,8 +318,8 @@ instance UnalignedAccess (BE Word64) where
     writeWord8ArrayAs mba# i# (BE (W64# x#)) = writeWord8ArrayAsWord64# mba# i# (byteSwap64# x#)
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, w# #) = readWord8ArrayAsWord64# mba# i# s0
-        in (# s1, BE (W64# (byteSwap64# w#)) #)
+        let (# s1, x# #) = readWord8ArrayAsWord64# mba# i# s0
+        in (# s1, BE (W64# (byteSwap64# x#)) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# = BE (W64# (byteSwap64# (indexWord8ArrayAsWord64# ba# i#)))
 #else
@@ -384,7 +384,7 @@ instance UnalignedAccess Word where
     writeWord8ArrayAs mba# i# (W# x#) = writeWord8ArrayAsWord# mba# i# x#
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, w# #) = readWord8ArrayAsWord# mba# i# s0 in (# s1, W# w# #)
+        let (# s1, x# #) = readWord8ArrayAsWord# mba# i# s0 in (# s1, W# x# #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# = W# (indexWord8ArrayAsWord# ba# i#)
 
@@ -396,7 +396,7 @@ instance UnalignedAccess (LE Word) where
     writeWord8ArrayAs mba# i# (LE (W# x#)) = writeWord8ArrayAs mba# i# (LE (W32# x#))
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, LE (W32# w#) #) = readWord8ArrayAs mba# i# s0 in (# s1, LE (W# w#) #)
+        let (# s1, LE (W32# x#) #) = readWord8ArrayAs mba# i# s0 in (# s1, LE (W# x#) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# = case (indexWord8ArrayAs ba# i#) of (LE (W32# x#)) -> LE (W# x#)
 #else
@@ -406,7 +406,7 @@ instance UnalignedAccess (LE Word) where
     writeWord8ArrayAs mba# i# (LE (W# x#)) = writeWord8ArrayAs mba# i# (LE (W64# x#))
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, LE (W64# w#) #) = readWord8ArrayAs mba# i# s0 in (# s1, LE (W# w#) #)
+        let (# s1, LE (W64# x#) #) = readWord8ArrayAs mba# i# s0 in (# s1, LE (W# x#) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# = case (indexWord8ArrayAs ba# i#) of (LE (W64# x#)) -> LE (W# x#)
 #endif
@@ -419,7 +419,7 @@ instance UnalignedAccess (BE Word) where
     writeWord8ArrayAs mba# i# (BE (W# x#)) = writeWord8ArrayAs mba# i# (BE (W32# x#))
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, BE (W32# w#) #) = readWord8ArrayAs mba# i# s0 in (# s1, BE (W# w#) #)
+        let (# s1, BE (W32# x#) #) = readWord8ArrayAs mba# i# s0 in (# s1, BE (W# x#) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# = case (indexWord8ArrayAs ba# i#) of (BE (W32# x#)) -> BE (W# x#)
 #else
@@ -429,7 +429,7 @@ instance UnalignedAccess (BE Word) where
     writeWord8ArrayAs mba# i# (BE (W# x#)) = writeWord8ArrayAs mba# i# (BE (W64# x#))
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, BE (W64# w#) #) = readWord8ArrayAs mba# i# s0 in (# s1, BE (W# w#) #)
+        let (# s1, BE (W64# x#) #) = readWord8ArrayAs mba# i# s0 in (# s1, BE (W# x#) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# = case (indexWord8ArrayAs ba# i#) of (BE (W64# x#)) -> BE (W# x#)
 #endif
@@ -456,12 +456,12 @@ instance UnalignedAccess (LE Int16) where
         writeWord8ArrayAs mba# i# (LE (W16# (int2Word# x#)))
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, LE (W16# w#) #) = readWord8ArrayAs mba# i# s0
-        in (# s1, LE (I16# (narrow16Int# (word2Int# w#))) #)
+        let (# s1, LE (W16# x#) #) = readWord8ArrayAs mba# i# s0
+        in (# s1, LE (I16# (narrow16Int# (word2Int# x#))) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# =
-        let LE (W16# w#) = indexWord8ArrayAs ba# i#
-        in LE (I16# (narrow16Int# (word2Int# w#)))
+        let LE (W16# x#) = indexWord8ArrayAs ba# i#
+        in LE (I16# (narrow16Int# (word2Int# x#)))
 #else
     USE_HOST_IMPL(LE)
 #endif
@@ -477,12 +477,12 @@ instance UnalignedAccess (BE Int16) where
         writeWord8ArrayAs mba# i# (BE (W16# (int2Word# x#)))
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, BE (W16# w#) #) = readWord8ArrayAs mba# i# s0
-        in (# s1, BE (I16# (narrow16Int# (word2Int# w#))) #)
+        let (# s1, BE (W16# x#) #) = readWord8ArrayAs mba# i# s0
+        in (# s1, BE (I16# (narrow16Int# (word2Int# x#))) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# =
-        let BE (W16# w#) = indexWord8ArrayAs ba# i#
-        in BE (I16# (narrow16Int# (word2Int# w#)))
+        let BE (W16# x#) = indexWord8ArrayAs ba# i#
+        in BE (I16# (narrow16Int# (word2Int# x#)))
 #endif
 
 --------------------------------------------------------------------------------
@@ -507,12 +507,12 @@ instance UnalignedAccess (LE Int32) where
         writeWord8ArrayAs mba# i# (LE (W32# (int2Word# x#)))
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, LE (W32# w#) #) = readWord8ArrayAs mba# i# s0
-        in (# s1, LE (I32# (narrow32Int# (word2Int# w#))) #)
+        let (# s1, LE (W32# x#) #) = readWord8ArrayAs mba# i# s0
+        in (# s1, LE (I32# (narrow32Int# (word2Int# x#))) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# =
-        let LE (W32# w#) = indexWord8ArrayAs ba# i#
-        in LE (I32# (narrow32Int# (word2Int# w#)))
+        let LE (W32# x#) = indexWord8ArrayAs ba# i#
+        in LE (I32# (narrow32Int# (word2Int# x#)))
 #else
     USE_HOST_IMPL(LE)
 #endif
@@ -528,12 +528,12 @@ instance UnalignedAccess (BE Int32) where
         writeWord8ArrayAs mba# i# (BE (W32# (int2Word# x#)))
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, BE (W32# w#) #) = readWord8ArrayAs mba# i# s0
-        in (# s1, BE (I32# (narrow32Int# (word2Int# w#))) #)
+        let (# s1, BE (W32# x#) #) = readWord8ArrayAs mba# i# s0
+        in (# s1, BE (I32# (narrow32Int# (word2Int# x#))) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# =
-        let BE (W32# w#) = indexWord8ArrayAs ba# i#
-        in BE (I32# (narrow32Int# (word2Int# w#)))
+        let BE (W32# x#) = indexWord8ArrayAs ba# i#
+        in BE (I32# (narrow32Int# (word2Int# x#)))
 #endif
 
 --------------------------------------------------------------------------------
@@ -558,12 +558,12 @@ instance UnalignedAccess (LE Int64) where
         writeWord8ArrayAs mba# i# (LE (W64# (int2Word# x#)))
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, LE (W64# w#) #) = readWord8ArrayAs mba# i# s0
-        in (# s1, LE (I64# (word2Int# w#)) #)
+        let (# s1, LE (W64# x#) #) = readWord8ArrayAs mba# i# s0
+        in (# s1, LE (I64# (word2Int# x#)) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# =
-        let LE (W64# w#) = indexWord8ArrayAs ba# i#
-        in LE (I64# (word2Int# w#))
+        let LE (W64# x#) = indexWord8ArrayAs ba# i#
+        in LE (I64# (word2Int# x#))
 #else
     USE_HOST_IMPL(LE)
 #endif
@@ -579,12 +579,12 @@ instance UnalignedAccess (BE Int64) where
         writeWord8ArrayAs mba# i# (BE (W64# (int2Word# x#)))
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, BE (W64# w#) #) = readWord8ArrayAs mba# i# s0
-        in (# s1, BE (I64# (word2Int# w#)) #)
+        let (# s1, BE (W64# x#) #) = readWord8ArrayAs mba# i# s0
+        in (# s1, BE (I64# (word2Int# x#)) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# =
-        let BE (W64# w#) = indexWord8ArrayAs ba# i#
-        in BE (I64# (word2Int# w#))
+        let BE (W64# x#) = indexWord8ArrayAs ba# i#
+        in BE (I64# (word2Int# x#))
 #endif
 
 --------------------------------------------------------------------------------
@@ -601,7 +601,7 @@ instance UnalignedAccess Int where
     writeWord8ArrayAs mba# i# (I# x#) = writeWord8ArrayAsInt# mba# i# x#
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, w# #) = readWord8ArrayAsInt# mba# i# s0 in (# s1, I# w# #)
+        let (# s1, x# #) = readWord8ArrayAsInt# mba# i# s0 in (# s1, I# x# #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# = I# (indexWord8ArrayAsInt# ba# i#)
 
@@ -613,7 +613,7 @@ instance UnalignedAccess (LE Int) where
     writeWord8ArrayAs mba# i# (LE (I# x#)) = writeWord8ArrayAs mba# i# (LE (I32# x#))
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, LE (I32# w#) #) = readWord8ArrayAs mba# i# s0 in (# s1, LE (I# w#) #)
+        let (# s1, LE (I32# x#) #) = readWord8ArrayAs mba# i# s0 in (# s1, LE (I# x#) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# = case (indexWord8ArrayAs ba# i#) of (LE (I32# x#)) -> LE (I# x#)
 #else
@@ -623,7 +623,7 @@ instance UnalignedAccess (LE Int) where
     writeWord8ArrayAs mba# i# (LE (I# x#)) = writeWord8ArrayAs mba# i# (LE (I64# x#))
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, LE (I64# w#) #) = readWord8ArrayAs mba# i# s0 in (# s1, LE (I# w#) #)
+        let (# s1, LE (I64# x#) #) = readWord8ArrayAs mba# i# s0 in (# s1, LE (I# x#) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# = case (indexWord8ArrayAs ba# i#) of (LE (I64# x#)) -> LE (I# x#)
 #endif
@@ -636,7 +636,7 @@ instance UnalignedAccess (BE Int) where
     writeWord8ArrayAs mba# i# (BE (I# x#)) = writeWord8ArrayAs mba# i# (BE (I32# x#))
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, BE (I32# w#) #) = readWord8ArrayAs mba# i# s0 in (# s1, BE (I# w#) #)
+        let (# s1, BE (I32# x#) #) = readWord8ArrayAs mba# i# s0 in (# s1, BE (I# x#) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# = case (indexWord8ArrayAs ba# i#) of (BE (I32# x#)) -> BE (I# x#)
 #else
@@ -646,7 +646,7 @@ instance UnalignedAccess (BE Int) where
     writeWord8ArrayAs mba# i# (BE (I# x#)) = writeWord8ArrayAs mba# i# (BE (I64# x#))
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, BE (I64# w#) #) = readWord8ArrayAs mba# i# s0 in (# s1, BE (I# w#) #)
+        let (# s1, BE (I64# x#) #) = readWord8ArrayAs mba# i# s0 in (# s1, BE (I# x#) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# = case (indexWord8ArrayAs ba# i#) of (BE (I64# x#)) -> BE (I# x#)
 #endif
@@ -673,12 +673,12 @@ instance UnalignedAccess (LE Float) where
         writeWord8ArrayAs mba# i# (LE (W32# (stgFloatToWord32 x#)))
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, LE (W32# w#) #) = readWord8ArrayAs mba# i# s0
-        in (# s1, LE (F# (stgWord32ToFloat w#)) #)
+        let (# s1, LE (W32# x#) #) = readWord8ArrayAs mba# i# s0
+        in (# s1, LE (F# (stgWord32ToFloat x#)) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# =
-        let LE (W32# w#) = indexWord8ArrayAs ba# i#
-        in LE (F# (stgWord32ToFloat w#))
+        let LE (W32# x#) = indexWord8ArrayAs ba# i#
+        in LE (F# (stgWord32ToFloat x#))
 #else
     USE_HOST_IMPL(LE)
 #endif
@@ -694,12 +694,12 @@ instance UnalignedAccess (BE Float) where
         writeWord8ArrayAs mba# i# (BE (W32# (stgFloatToWord32 x#)))
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, BE (W32# w#) #) = readWord8ArrayAs mba# i# s0
-        in (# s1, BE (F# (stgWord32ToFloat w#)) #)
+        let (# s1, BE (W32# x#) #) = readWord8ArrayAs mba# i# s0
+        in (# s1, BE (F# (stgWord32ToFloat x#)) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# =
-        let BE (W32# w#) = indexWord8ArrayAs ba# i#
-        in BE (F# (stgWord32ToFloat w#))
+        let BE (W32# x#) = indexWord8ArrayAs ba# i#
+        in BE (F# (stgWord32ToFloat x#))
 #endif
 
 --------------------------------------------------------------------------------
@@ -724,12 +724,12 @@ instance UnalignedAccess (LE Double) where
         writeWord8ArrayAs mba# i# (LE (W64# (stgDoubleToWord64 x#)))
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, LE (W64# w#) #) = readWord8ArrayAs mba# i# s0
-        in (# s1, LE (D# (stgWord64ToDouble w#)) #)
+        let (# s1, LE (W64# x#) #) = readWord8ArrayAs mba# i# s0
+        in (# s1, LE (D# (stgWord64ToDouble x#)) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# =
-        let LE (W64# w#) = indexWord8ArrayAs ba# i#
-        in LE (D# (stgWord64ToDouble w#))
+        let LE (W64# x#) = indexWord8ArrayAs ba# i#
+        in LE (D# (stgWord64ToDouble x#))
 #else
     USE_HOST_IMPL(LE)
 #endif
@@ -745,11 +745,62 @@ instance UnalignedAccess (BE Double) where
         writeWord8ArrayAs mba# i# (BE (W64# (stgDoubleToWord64 x#)))
     {-# INLINE readWord8ArrayAs #-}
     readWord8ArrayAs mba# i# s0 =
-        let (# s1, BE (W64# w#) #) = readWord8ArrayAs mba# i# s0
-        in (# s1, BE (D# (stgWord64ToDouble w#)) #)
+        let (# s1, BE (W64# x#) #) = readWord8ArrayAs mba# i# s0
+        in (# s1, BE (D# (stgWord64ToDouble x#)) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# =
-        let BE (W64# w#) = indexWord8ArrayAs ba# i#
-        in BE (D# (stgWord64ToDouble w#))
+        let BE (W64# x#) = indexWord8ArrayAs ba# i#
+        in BE (D# (stgWord64ToDouble x#))
+#endif
+
+--------------------------------------------------------------------------------
+
+instance UnalignedAccess Char where
+    {-# INLINE unalignedSize #-}
+    unalignedSize = UnalignedSize 4
+    {-# INLINE writeWord8ArrayAs #-}
+    writeWord8ArrayAs mba# i# (C# x#) = writeWord8ArrayAsWideChar# mba# i# x#
+    {-# INLINE readWord8ArrayAs #-}
+    readWord8ArrayAs mba# i# s0 =
+        let (# s1, x# #) = readWord8ArrayAsWideChar# mba# i# s0 in (# s1, C# x# #)
+    {-# INLINE indexWord8ArrayAs #-}
+    indexWord8ArrayAs ba# i# = C# (indexWord8ArrayAsWideChar# ba# i#)
+
+instance UnalignedAccess (LE Char) where
+    {-# INLINE unalignedSize #-}
+    unalignedSize = UnalignedSize 4
+#if defined(WORDS_BIGENDIAN) || defined(USE_SHIFT)
+    {-# INLINE writeWord8ArrayAs #-}
+    writeWord8ArrayAs mba# i# (LE (C# x#)) =
+        writeWord8ArrayAs mba# i# (LE (I32# (ord# x#)))
+    {-# INLINE readWord8ArrayAs #-}
+    readWord8ArrayAs mba# i# s0 =
+        let (# s1, LE (I32# x#) #) = readWord8ArrayAs mba# i# s0
+        in (# s1, LE (C# (chr# x#)) #)
+    {-# INLINE indexWord8ArrayAs #-}
+    indexWord8ArrayAs ba# i# =
+        let LE (I32# x#) = indexWord8ArrayAs ba# i#
+        in LE (C# (chr# x#))
+#else
+    USE_HOST_IMPL(LE)
+#endif
+
+instance UnalignedAccess (BE Char) where
+    {-# INLINE unalignedSize #-}
+    unalignedSize = UnalignedSize 4
+#if defined(WORDS_BIGENDIAN) || defined(USE_SHIFT)
+    USE_HOST_IMPL(BE)
+#else
+    {-# INLINE writeWord8ArrayAs #-}
+    writeWord8ArrayAs mba# i# (BE (C# x#)) =
+        writeWord8ArrayAs mba# i# (BE (I32# (ord# x#)))
+    {-# INLINE readWord8ArrayAs #-}
+    readWord8ArrayAs mba# i# s0 =
+        let (# s1, BE (I32# x#) #) = readWord8ArrayAs mba# i# s0
+        in (# s1, BE (C# (chr# x#)) #)
+    {-# INLINE indexWord8ArrayAs #-}
+    indexWord8ArrayAs ba# i# =
+        let BE (I32# x#) = indexWord8ArrayAs ba# i#
+        in BE (C# (chr# x#))
 #endif
 

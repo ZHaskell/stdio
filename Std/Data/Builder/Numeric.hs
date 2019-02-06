@@ -8,6 +8,19 @@
 {-# LANGUAGE UnboxedTuples       #-}
 {-# LANGUAGE UnliftedFFITypes    #-}
 
+{-|
+Module      : Std.Data.Builder.Numeric
+Description : Textual numeric builders.
+Copyright   : (c) Winterland, 2017-2019
+License     : BSD
+Maintainer  : drkoster@qq.com
+Stability   : experimental
+Portability : non-portable
+
+Textual numeric builders.
+
+-}
+
 module Std.Data.Builder.Numeric (
   -- * Integral type formatting
     IFormat(..)
@@ -475,7 +488,7 @@ hex w = writeN hexSize (go w (hexSize-2))
             let !i = fromIntegral v .&. 0xFF; !j = i + i
             writePrimArray marr off $ indexOffAddr hexDigitTable j
             writePrimArray marr (off + 1) $ indexOffAddr hexDigitTable (j+1)
-        | d < 0  = do         -- ^ for FiniteBits instances which has extra bits
+        | d < 0  = do         -- for FiniteBits instances which has extra bits
             let !i = fromIntegral v .&. 0x0F :: Int
             writePrimArray marr off $ i2wHex i
 
@@ -507,7 +520,7 @@ heX w = writeN hexSize (go w (hexSize-2))
             let !i = fromIntegral v .&. 0xFF; !j = i + i
             writePrimArray marr off $ indexOffAddr hexDigitTableUpper j
             writePrimArray marr (off + 1) $ indexOffAddr hexDigitTableUpper (j+1)
-        | d < 0  = do         -- ^ for FiniteBits instances which has extra bits
+        | d < 0  = do         -- for FiniteBits instances which has extra bits
             let !i = fromIntegral v .&. 0x0F :: Int
             writePrimArray marr off $ i2wHeX i
 
@@ -516,25 +529,23 @@ heX w = writeN hexSize (go w (hexSize-2))
 -- Floating point numbers
 -------------------------
 
- -- | Decimal encoding of an IEEE 'Float'.
+-- | Decimal encoding of an IEEE 'Float'.
+--
 -- Using standard decimal notation for arguments whose absolute value lies
 -- between @0.1@ and @9,999,999@, and scientific notation otherwise.
---
-
 float :: Float -> Builder ()
 {-# INLINE float #-}
 float = floatWith FFGeneric Nothing
 
- -- | Decimal encoding of an IEEE 'Double'.
+-- | Decimal encoding of an IEEE 'Double'.
+--
 -- Using standard decimal notation for arguments whose absolute value lies
 -- between @0.1@ and @9,999,999@, and scientific notation otherwise.
---
 double :: Double -> Builder ()
 {-# INLINE double #-}
 double = doubleWith FFGeneric Nothing
 
- -- | Format single-precision float using drisu3 with dragon4 fallback.
---
+-- | Format single-precision float using drisu3 with dragon4 fallback.
 floatWith :: FFFormat
           -> Maybe Int  -- ^ Number of decimal places to render.
           -> Float
@@ -552,7 +563,6 @@ floatWith fmt decs x
                                    Nothing -> floatToDigits 10 y
 
 -- | Format double-precision float using drisu3 with dragon4 fallback.
---
 doubleWith :: FFFormat
            -> Maybe Int  -- ^ Number of decimal places to render.
            -> Double
@@ -569,7 +579,11 @@ doubleWith fmt decs x
     digits y = case grisu3 y of Just r  -> r
                                 Nothing -> floatToDigits 10 y
 
-doFmt :: FFFormat -> Maybe Int -> ([Int], Int) -> Builder ()
+-- | Worker function to do formatting.
+doFmt :: FFFormat
+      -> Maybe Int -- ^ Number of decimal places to render.
+      -> ([Int], Int) -- ^ List of digits and exponent
+      -> Builder ()
 {-# INLINABLE doFmt #-}
 doFmt format decs (is, e) =
     let ds = map i2cDec is
@@ -658,7 +672,7 @@ foreign import ccall unsafe "static grisu3" c_grisu3
     -> MutableByteArray# RealWorld  -- ^ Int
     -> IO Int
 
- -- | Decimal encoding of a 'Double'.
+-- | Decimal encoding of a 'Double'.
 grisu3 :: Double -> Maybe ([Int], Int)
 {-# INLINE grisu3 #-}
 grisu3 d = unsafePerformIO $
@@ -682,7 +696,7 @@ foreign import ccall unsafe "static grisu3_sp" c_grisu3_sp
     -> MutableByteArray# RealWorld  -- ^ Int
     -> IO Int
 
- -- | Decimal encoding of a 'Float'.
+-- | Decimal encoding of a 'Float'.
 grisu3_sp :: Float -> Maybe ([Int], Int)
 {-# INLINE grisu3_sp #-}
 grisu3_sp d = unsafePerformIO $

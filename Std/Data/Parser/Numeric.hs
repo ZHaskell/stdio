@@ -1,5 +1,18 @@
 {-# LANGUAGE BangPatterns #-}
 
+{-|
+Module      : Std.Data.Parser.Numeric
+Description : Textual numeric parsers.
+Copyright   : (c) Winterland, 2017-2019
+License     : BSD
+Maintainer  : drkoster@qq.com
+Stability   : experimental
+Portability : non-portable
+
+Textual numeric parsers.
+
+-}
+
 module Std.Data.Parser.Numeric
   ( -- * decimal
     uint, int

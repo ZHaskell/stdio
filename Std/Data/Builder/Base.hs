@@ -55,6 +55,10 @@ module Std.Data.Builder.Base
   , ensureN
   , atMost
   , writeN
+   -- * Boundary handling
+  , doubleBuffer
+  , insertChunk
+  , oneShotAction
    -- * Pritimive builders
   , encodePrim
   , encodePrimLE

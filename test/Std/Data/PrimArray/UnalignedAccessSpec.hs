@@ -268,3 +268,27 @@ spec = describe "unaligned acess" . modifyMaxSuccess (*10) . modifyMaxSize (*10)
             (ByteArray ba#) <- unsafeFreezeByteArray mba
             let (BE w'') = indexWord8ArrayAs ba# 7#
             return $ (w === w') .&&. (w === w'')
+
+        prop "roundtrip Char" $ \ (w::Char) -> ioProperty $ do
+            mba@(MutableByteArray mba#) <- newByteArray 128
+            primitive_ (writeWord8ArrayAs mba# 7# w)
+            w' <- primitive (readWord8ArrayAs mba# 7#)
+            (ByteArray ba#) <- unsafeFreezeByteArray mba
+            let w'' = indexWord8ArrayAs ba# 7#
+            return $ (w === w') .&&. (w === w'')
+
+        prop "roundtrip LE Char" $ \ (w::Char) -> ioProperty $ do
+            mba@(MutableByteArray mba#) <- newByteArray 128
+            primitive_ (writeWord8ArrayAs mba# 7# (LE w))
+            (LE w') <- primitive (readWord8ArrayAs mba# 7#)
+            (ByteArray ba#) <- unsafeFreezeByteArray mba
+            let (LE w'') = indexWord8ArrayAs ba# 7#
+            return $ (w === w') .&&. (w === w'')
+
+        prop "roundtrip BE Char" $ \ (w::Char) -> ioProperty $ do
+            mba@(MutableByteArray mba#) <- newByteArray 128
+            primitive_ (writeWord8ArrayAs mba# 7# (BE w))
+            (BE w') <- primitive (readWord8ArrayAs mba# 7#)
+            (ByteArray ba#) <- unsafeFreezeByteArray mba
+            let (BE w'') = indexWord8ArrayAs ba# 7#
+            return $ (w === w') .&&. (w === w'')
