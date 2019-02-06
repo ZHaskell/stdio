@@ -117,12 +117,11 @@ module Std.Data.Vector (
   , headMaybe, tailMayEmpty
   , lastMaybe, initMayEmpty
   , inits, tails
-  , take, drop, takeLast, dropLast
+  , take, drop, takeR, dropR
   , slice
   , splitAt
-  , takeWhile, takeLastWhile, dropWhile, dropLastWhile, dropAround
-  , break, span
-  , breakEnd, spanEnd, breakOn
+  , takeWhile, takeWhileR, dropWhile, dropWhileR, dropAround
+  , break, span, breakR, spanR, breakOn
   , group, groupBy
   , stripPrefix, stripSuffix
   , split, splitWith, splitOn
@@ -143,7 +142,7 @@ module Std.Data.Vector (
   , scanr', scanr1'
   -- * Search
   -- ** element-wise search
-  , find, findLast
+  , find, findR
   , findIndices, elemIndices
   , filter, partition
   -- ** sub-vector search

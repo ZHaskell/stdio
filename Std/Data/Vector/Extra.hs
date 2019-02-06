@@ -24,12 +24,11 @@ module Std.Data.Vector.Extra (
   , headMaybe, tailMayEmpty
   , lastMaybe, initMayEmpty
   , inits, tails
-  , take, drop, takeLast, dropLast
+  , take, drop, takeR, dropR
   , slice
   , splitAt
-  , takeWhile, takeLastWhile, dropWhile, dropLastWhile, dropAround
-  , break, span
-  , breakEnd, spanEnd, breakOn
+  , takeWhile, takeWhileR, dropWhile, dropWhileR, dropAround
+  , break, span, breakR, spanR, breakOn
   , group, groupBy
   , stripPrefix, stripSuffix
   , split, splitWith, splitOn
@@ -170,11 +169,11 @@ take n v@(Vec arr s l)
     | n >= l    = v
     | otherwise = fromArr arr s n
 
--- | /O(1)/ 'takeLast' @n@, applied to a vector @xs@, returns the suffix
+-- | /O(1)/ 'takeR' @n@, applied to a vector @xs@, returns the suffix
 -- of @xs@ of length @n@, or @xs@ itself if @n > 'length' xs@.
-takeLast :: Vec v a => Int -> v a -> v a
-{-# INLINE takeLast #-}
-takeLast n v@(Vec arr s l)
+takeR :: Vec v a => Int -> v a -> v a
+{-# INLINE takeR #-}
+takeR n v@(Vec arr s l)
     | n <= 0    = empty
     | n >= l    = v
     | otherwise = fromArr arr (s+l-n) n
@@ -190,9 +189,9 @@ drop n v@(Vec arr s l)
 
 -- | /O(1)/ 'drop' @n xs@ returns the prefix of @xs@ before the last @n@
 -- elements, or @[]@ if @n > 'length' xs@.
-dropLast :: Vec v a => Int -> v a -> v a
-{-# INLINE dropLast #-}
-dropLast n v@(Vec arr s l)
+dropR :: Vec v a => Int -> v a -> v a
+{-# INLINE dropR #-}
+dropR n v@(Vec arr s l)
     | n <= 0    = v
     | n >= l    = empty
     | otherwise = fromArr arr s (l-n)
@@ -230,17 +229,17 @@ splitAt z (Vec arr s l) = let !v1 = fromArr arr s z'
 takeWhile :: Vec v a => (a -> Bool) -> v a -> v a
 {-# INLINE takeWhile #-}
 takeWhile f v@(Vec arr s l) =
-    case findIndexOrEnd (not . f) v of
+    case findIndex (not . f) v of
         0  -> empty
         i  -> Vec arr s i
 
 -- | /O(n)/ Applied to a predicate @p@ and a vector @vs@,
 -- returns the longest suffix (possibly empty) of @vs@ of elements that
 -- satisfy @p@.
-takeLastWhile :: Vec v a => (a -> Bool) -> v a -> v a
-{-# INLINE takeLastWhile #-}
-takeLastWhile f v@(Vec arr s l) =
-    case findLastIndexOrStart (not . f) v of
+takeWhileR :: Vec v a => (a -> Bool) -> v a -> v a
+{-# INLINE takeWhileR #-}
+takeWhileR f v@(Vec arr s l) =
+    case findIndexR (not . f) v of
         -1 -> v
         i  -> Vec arr (s+i+1) (l-i-1)
 
@@ -249,28 +248,28 @@ takeLastWhile f v@(Vec arr s l) =
 dropWhile :: Vec v a => (a -> Bool) -> v a -> v a
 {-# INLINE dropWhile #-}
 dropWhile f v@(Vec arr s l) =
-    case findIndexOrEnd (not . f) v of
+    case findIndex (not . f) v of
         i | i == l     -> empty
           | otherwise  -> Vec arr (s+i) (l-i)
 
 -- | /O(n)/ Applied to a predicate @p@ and a vector @vs@,
--- returns the prefix (possibly empty) remaining before 'takeLastWhile' @p vs@.
-dropLastWhile :: Vec v a => (a -> Bool) -> v a -> v a
-{-# INLINE dropLastWhile #-}
-dropLastWhile f v@(Vec arr s l) =
-    case findLastIndexOrStart (not . f) v of
+-- returns the prefix (possibly empty) remaining before 'takeWhileR' @p vs@.
+dropWhileR :: Vec v a => (a -> Bool) -> v a -> v a
+{-# INLINE dropWhileR #-}
+dropWhileR f v@(Vec arr s l) =
+    case findIndexR (not . f) v of
         -1 -> empty
         i  -> Vec arr s (i+1)
 
--- | /O(n)/ @dropAround f = dropWhile f . dropLastWhile f@
+-- | /O(n)/ @dropAround f = dropWhile f . dropWhileR f@
 dropAround :: Vec v a => (a -> Bool) -> v a -> v a
 {-# INLINE dropAround #-}
-dropAround f = dropWhile f . dropLastWhile f
+dropAround f = dropWhile f . dropWhileR f
 
 break :: Vec v a => (a -> Bool) -> v a -> (v a, v a)
 {-# INLINE break #-}
 break f vs@(Vec arr s l) =
-    let !n =  findIndexOrEnd f vs
+    let !n =  findIndex f vs
         !v1 = Vec arr s n
         !v2 = Vec arr (s+n) (l-n)
     in (v1, v2)
@@ -279,17 +278,17 @@ span :: Vec v a => (a -> Bool) -> v a -> (v a, v a)
 {-# INLINE span #-}
 span f = break (not . f)
 
-breakEnd :: Vec v a => (a -> Bool) -> v a -> (v a, v a)
-{-# INLINE breakEnd #-}
-breakEnd f vs@(Vec arr s l) =
-    let !n = findLastIndexOrStart f vs
+breakR :: Vec v a => (a -> Bool) -> v a -> (v a, v a)
+{-# INLINE breakR #-}
+breakR f vs@(Vec arr s l) =
+    let !n = findIndexR f vs
         !v1 = Vec arr s (n+1)
         !v2 = Vec arr (s+n+1) (l-1-n)
     in (v1, v2)
 
-spanEnd :: Vec v a => (a -> Bool) -> v a -> (v a, v a)
-{-# INLINE spanEnd #-}
-spanEnd f = breakEnd (not . f)
+spanR :: Vec v a => (a -> Bool) -> v a -> (v a, v a)
+{-# INLINE spanR #-}
+spanR f = breakR (not . f)
 
 -- | Break a string on a substring, returning a pair of the part of the
 -- string prior to the match, and the rest of the string, e.g.
@@ -317,7 +316,7 @@ groupBy f vs@(Vec arr s l)
     | otherwise = Vec arr s n : groupBy f (Vec arr (s+n) (l-n))
   where
     n = case indexArr' arr s of
-        (# x #) -> 1 + findIndexOrEnd (not . f x) (Vec arr (s+1) (l-1))
+        (# x #) -> 1 + findIndex (not . f x) (Vec arr (s+1) (l-1))
 
 -- | /O(n)/ The 'stripPrefix' function takes two vectors and returns 'Just'
 -- the remainder of the second iff the first is its prefix, and otherwise

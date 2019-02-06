@@ -101,33 +101,23 @@ spec = describe "parsers" . modifyMaxSuccess (*10) . modifyMaxSize (*10)  $ do
         prop "bytesCI" $ \ s t ->
             parse'' (P.bytesCI . V.pack $ t) (L.map toLower t ++ s) === Just (V.pack s, ())
 
-
         prop "endOfInput" $ \ s ->
             parse' P.endOfInput s ===
                 case s of [] -> Just True
                           _  -> Just False
 
-{-
+        prop "scan" $ \ s l ->
+            let go l  _ | l <= 0    = Nothing
+                        | otherwise = Just (l-1)
+            in parse' (P.scan l go) s === Just (V.pack $ L.take l s)
 
+        prop "endOfLine" $ \ s ->
+            let r = fromIntegral (fromEnum '\r')
+                n =  fromIntegral (fromEnum '\n')
+            in parse'' (P.skipWhile (\w -> w `L.notElem` [r, n]) >> P.endOfLine) s ===
+                    case break (\w -> w `L.elem` [r, n]) s of
+                        (_, bs) -> case bs of
+                            (b:bs') | b == n -> Just (V.pack bs', ())
+                            (b:c:bs') | b == r && c == n -> Just (V.pack bs', ())
+                            _ -> Nothing
 
-            endOfLine :: L.ByteString -> Property
-            endOfLine s =
-              case (parse' P8.endOfLine s, L8.uncons s) of
-                (Nothing, mcs) -> maybe (property True) (expectFailure . eol) mcs
-                (Just _,  mcs) -> maybe (property False) eol mcs
-              where eol (c,s') = c === '\n' .||.
-                                 (c, fst <$> L8.uncons s') === ('\r', Just '\n')
-
-            scan :: L.ByteString -> Positive Int64 -> Property
-            scan s (Positive k) = parse' p s === Just (toStrictBS $ L.take k s)
-              where p = P.scan k $ \ n _ ->
-                        if n > 0 then let !n' = n - 1 in Just n' else Nothing
-
-            members :: [Word8] -> Property
-            members s = property $ all (`S.memberWord8` set) s
-                where set = S.fromList s
-
-            nonmembers :: [Word8] -> [Word8] -> Property
-            nonmembers s s' = property . not . any (`S.memberWord8` set) $ filter (not . (`elem` s)) s'
-                where set = S.fromList s
--}

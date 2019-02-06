@@ -23,27 +23,27 @@ spec = describe "vector-search" $ do
         prop "snd . vector find = List.find" $ \ (Fun _ y) x ->
             (snd . V.find y . V.pack @V.PrimVector @Word8 $ x)  === (List.find y $ x)
 
-    describe "vector findIndexOrEnd == maybe List.length List.findIndexOrEnd" $ do
-        prop "vector findIndexOrEnd = maybe List.length List.findIndexOrEnd" $ \ (Fun _ y) x ->
-            (V.findIndexOrEnd y . V.pack @V.Vector @Integer $ x)  ===
+    describe "vector findIndex == maybe List.length List.findIndex" $ do
+        prop "vector findIndex = maybe List.length List.findIndex" $ \ (Fun _ y) x ->
+            (V.findIndex y . V.pack @V.Vector @Integer $ x)  ===
                 (maybe (List.length x) id $ List.findIndex y x)
-        prop "vector findIndexOrEnd = maybe List.length List.findIndexOrEnd" $ \ (Fun _ y) x ->
-            (V.findIndexOrEnd y . V.pack @V.PrimVector @Int $ x)  ===
+        prop "vector findIndex = maybe List.length List.findIndex" $ \ (Fun _ y) x ->
+            (V.findIndex y . V.pack @V.PrimVector @Int $ x)  ===
                 (maybe (List.length x) id $ List.findIndex y x)
-        prop "vector findIndexOrEnd = maybe List.length List.findIndexOrEnd" $ \ (Fun _ y) x ->
-            (V.findIndexOrEnd y . V.pack @V.PrimVector @Word8 $ x)  ===
+        prop "vector findIndex = maybe List.length List.findIndex" $ \ (Fun _ y) x ->
+            (V.findIndex y . V.pack @V.PrimVector @Word8 $ x)  ===
                 (maybe (List.length x) id $ List.findIndex y x)
 
-    describe "vector findIndexOrEnd ==  length - findLastIndexOrStart . reverse - 1" $ do
-        prop "vector findIndexOrEnd = length - findLastIndexOrStart . reverse - 1" $ \ (Fun _ y) x ->
-            (V.findIndexOrEnd y . V.pack @V.Vector @Integer $ x)  ===
-                (List.length x - 1 - (V.findLastIndexOrStart y . V.reverse . V.pack @V.Vector @Integer $ x))
-        prop "vector findIndexOrEnd = length - findLastIndexOrStart . reverse - 1" $ \ (Fun _ y) x ->
-            (V.findIndexOrEnd y . V.pack @V.PrimVector @Int $ x)  ===
-                (List.length x - 1 - (V.findLastIndexOrStart y . V.reverse . V.pack @V.PrimVector @Int $ x))
-        prop "vector findIndexOrEnd = length - findLastIndexOrStart . reverse - 1" $ \ (Fun _ y) x ->
-            (V.findIndexOrEnd y . V.pack @V.PrimVector @Word8 $ x)  ===
-                (List.length x - 1 - (V.findLastIndexOrStart y . V.reverse . V.pack @V.PrimVector @Word8 $ x))
+    describe "vector findIndex ==  length - findIndexR . reverse - 1" $ do
+        prop "vector findIndex = length - findIndexR . reverse - 1" $ \ (Fun _ y) x ->
+            (V.findIndex y . V.pack @V.Vector @Integer $ x)  ===
+                (List.length x - 1 - (V.findIndexR y . V.reverse . V.pack @V.Vector @Integer $ x))
+        prop "vector findIndex = length - findIndexR . reverse - 1" $ \ (Fun _ y) x ->
+            (V.findIndex y . V.pack @V.PrimVector @Int $ x)  ===
+                (List.length x - 1 - (V.findIndexR y . V.reverse . V.pack @V.PrimVector @Int $ x))
+        prop "vector findIndex = length - findIndexR . reverse - 1" $ \ (Fun _ y) x ->
+            (V.findIndex y . V.pack @V.PrimVector @Word8 $ x)  ===
+                (List.length x - 1 - (V.findIndexR y . V.reverse . V.pack @V.PrimVector @Word8 $ x))
 
     describe "vector elemIndices == List.elemIndices" $ do
         prop "vector elemIndices = List.elemIndices" $ \ y x ->

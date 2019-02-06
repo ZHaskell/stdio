@@ -275,7 +275,7 @@ scan :: s -> (s -> Word8 -> Maybe s) -> Parser V.Bytes
 scan s0 f = scanChunks s0 f'
   where
     f' st (V.Vec arr s l) = go f st arr s s (s+l)
-    go f st arr off !i !end
+    go f !st arr off !i !end
         | i < end = do
             let !w = A.indexPrimArray arr i
             case f st w of
@@ -300,9 +300,19 @@ scanChunks s0 consume = Parser (go s0 [])
         case consume s inp of
             Left s' -> do
                 let acc' = inp : acc
-                Partial (go s' acc' k)
+                Partial (go' s' acc' k)
             Right (want,rest) ->
                 k (V.concat (reverse (want:acc))) rest
+    go' s acc k inp
+        | V.null inp = k (V.concat (reverse acc)) inp
+        | otherwise =
+            case consume s inp of
+                Left s' -> do
+                    let acc' = inp : acc
+                    Partial (go' s' acc' k)
+                Right (want,rest) ->
+                    k (V.concat (reverse (want:acc))) rest
+
 
 --------------------------------------------------------------------------------
 
@@ -547,7 +557,7 @@ bytesCI bs = do
                     then k () (V.unsafeDrop n inp)
                     else Failure inp "Std.Data.Parser.Base.bytesCI"
             else
-                if CI.foldCase inp == (V.unsafeTake l bs')
+                if CI.foldCase inp == V.unsafeTake l bs'
                     then Partial (go k (n-l) (V.unsafeDrop l bs'))
                     else Failure inp "Std.Data.Parser.Base.bytesCI")
   where
@@ -562,7 +572,7 @@ bytesCI bs = do
             else if l == 0
                 then Failure inp "Std.Data.Parser.Base.bytesCI: Not enough bytes"
                 else
-                    if CI.foldCase inp == (V.unsafeTake l bs)
+                    if CI.foldCase inp == V.unsafeTake l bs
                         then Partial (go k (n-l) (V.unsafeDrop l bs))
                         else Failure inp "Std.Data.Parser.Base.bytesCI"
 

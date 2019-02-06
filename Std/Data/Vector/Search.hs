@@ -4,7 +4,6 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-
 {-|
 Module      : Std.Data.Vector.Search
 Description : Searching vectors
@@ -14,20 +13,31 @@ Maintainer  : drkoster@qq.com
 Stability   : experimental
 Portability : non-portable
 
+This module provides:
+
+  * Element-wise searching within vectors
+
+  * Fast sub-vector searching algorithm based on KMP string searching.
+
+  * A hybrid sub-vector searching algorithm for 'Bytes'.
+
+  * Rewrite rules to use 'Bytes' specialized version if possible.
+
 -}
 
 module Std.Data.Vector.Search (
-  -- * Search in vectors
-  -- ** element-wise search
+  -- * Element-wise search
     findIndices, elemIndices
-  , find, findLast
-  , findIndexOrEnd, findLastIndexOrStart
+  , find, findR
+  , findIndex, findIndexR
   , filter, partition
-  -- ** sub-vector search
+  -- * Sub-vector search
   , indicesOverlapping
-  , indicesOverlappingBytes
   , indices
-  , indicesBytes
+  -- * 'Bytes' specialized combinators
+  , elemIndicesBytes, findByte, findByteR
+  , indicesOverlappingBytes, indicesBytes
+  -- * Helpers
   , kmpNextTable
   , sundayBloom
   , elemSundayBloom
@@ -61,11 +71,6 @@ elemIndices w (Vec arr s l) = go s
 -- | The 'findIndex' function takes a predicate and a vector and
 -- returns the index of the first element in the vector
 -- satisfying the predicate.
---
--- To leverage @memchr(3)@, following rewrite rules are included:
---
---   * @findIndices (w `eqWord8`) = elemIndicesBytes@
---   * @findIndices (`eqWord8` w) = elemIndicesBytes@
 findIndices :: Vec v a => (a -> Bool) -> v a -> [Int]
 {-# INLINE [1] findIndices #-}
 {-# RULES "findIndices/Bytes" forall w. findIndices (w `eqWord8`) = elemIndicesBytes w #-}
@@ -91,16 +96,19 @@ elemIndicesBytes w (PrimVector (PrimArray ba#) s l) = go s
                 -1 -> []
                 r  -> let !i' = (i+r) in i': go (i'+1)
 
-findIndexOrEnd :: Vec v a => (a -> Bool) -> v a -> Int
-{-# INLINE findIndexOrEnd #-}
-findIndexOrEnd f v = fst (find f v)
+-- | @findIndex f v = fst (find f v)@
+findIndex :: Vec v a => (a -> Bool) -> v a -> Int
+{-# INLINE findIndex #-}
+findIndex f v = fst (find f v)
 
-findLastIndexOrStart :: Vec v a => (a -> Bool) -> v a -> Int
-{-# INLINE findLastIndexOrStart #-}
-findLastIndexOrStart f v = fst (findLast f v)
+-- | @findIndexR f v = fst (findR f v)@
+findIndexR :: Vec v a => (a -> Bool) -> v a -> Int
+{-# INLINE findIndexR #-}
+findIndexR f v = fst (findR f v)
 
 -- | /O(n)/ find the first index and element matching the predicate in a vector
 -- from left to right, if there isn't one, return (length of the vector, Nothing).
+--
 find :: Vec v a => (a -> Bool) -> v a -> (Int, Maybe a)
 {-# INLINE [1] find #-}
 {-# RULES "find/Bytes" forall w. find (w `eqWord8`) = findByte w #-}
@@ -114,8 +122,6 @@ find f (Vec arr s l) = go s
         where (# x #) = indexArr' arr p
 
 -- | /O(n)/ Special 'findByte' for 'Word8' using @memchr(3)@
---
---  return l (then length of the vector) if not find target.
 findByte :: Word8 -> Bytes -> (Int, Maybe Word8)
 {-# INLINE findByte #-}
 findByte w (PrimVector (PrimArray ba#) s l) =
@@ -126,23 +132,21 @@ findByte w (PrimVector (PrimArray ba#) s l) =
 
 -- | /O(n)/ find the first index and element matching the predicate
 -- in a vector from right to left, if there isn't one, return '(-1, Nothing)'.
---
-findLast :: Vec v a => (a -> Bool) -> v a -> (Int, Maybe a)
-{-# INLINE [1] findLast #-}
-{-# RULES "findLast/Bytes" forall w. findLast (w `eqWord8`) = findByteLast w #-}
-{-# RULES "findLast/Bytes" forall w. findLast (`eqWord8` w) = findByteLast w #-}
-findLast f (Vec arr s l) = go (s+l-1)
+findR :: Vec v a => (a -> Bool) -> v a -> (Int, Maybe a)
+{-# INLINE [1] findR #-}
+{-# RULES "findR/Bytes" forall w. findR (w `eqWord8`) = findByteR w #-}
+{-# RULES "findR/Bytes" forall w. findR (`eqWord8` w) = findByteR w #-}
+findR f (Vec arr s l) = go (s+l-1)
   where
     go !p | p < s     = (-1, Nothing)
           | f x       = let !i = p-s in (i, Just x)
           | otherwise = go (p-1)
         where (# x #) = indexArr' arr p
 
--- | /O(n)/ Special 'findByteLast' for 'Bytes' with handle roll
--- bit twiddling.
-findByteLast :: Word8 -> Bytes -> (Int, Maybe Word8)
-{-# INLINE findByteLast #-}
-findByteLast w (PrimVector ba s l) =
+-- | /O(n)/ Special 'findR' for 'Bytes' with handle roll bit twiddling.
+findByteR :: Word8 -> Bytes -> (Int, Maybe Word8)
+{-# INLINE findByteR #-}
+findByteR w (PrimVector ba s l) =
     case memchrReverse ba w (s+l-1) l of
         -1 -> (-1, Nothing)
         r  -> (r, Just w)
@@ -246,9 +250,6 @@ indicesOverlapping needle@(Vec narr noff nlen) = search
 -- and a bad character bloom filter in /O(m)/ time and /O(1)/ space, the worst case
 -- time complexity is /O(n+m)/.
 --
--- A rewrite rule to rewrite 'indicesOverlapping' to 'indicesOverlappingBytes' is
--- also included.
---
 -- References:
 --
 -- * Frantisek FranekChristopher G. JenningsWilliam F. Smyth A Simple Fast Hybrid Pattern-Matching Algorithm (2005)
@@ -259,11 +260,30 @@ indicesOverlappingBytes :: Bytes -- ^ bytes to search for (@needle@)
                         -> Bool -- ^ report partial match at the end of haystack
                         -> [Int]
 {-# INLINABLE indicesOverlappingBytes #-}
-indicesOverlappingBytes needle@(Vec narr noff nlen) = search
+indicesOverlappingBytes needle@(Vec narr noff nlen) | popCount bloom > 48 = search
+                                                    | otherwise = search'
   where
     next = kmpNextTable needle
     bloom = sundayBloom needle
     search haystack@(Vec harr hoff hlen) reportPartial
+        | nlen <= 0 = [0..hlen-1]
+        | nlen == 1 = case indexArr' narr 0 of
+                       (# x #) -> elemIndices x haystack
+        | otherwise = kmp 0 0
+      where
+        kmp !i !j | i >= hlen = if reportPartial && j /= 0 then [-j] else []
+                  | narr `indexArr` (j+noff) == harr `indexArr` (i+hoff) =
+                        let !j' = j+1
+                        in if j' >= nlen
+                        then let !i' = i-j
+                            in case next `indexArr` j' of
+                                -1 -> i' : kmp (i+1) 0
+                                j'' -> i' : kmp (i+1) j''
+                        else kmp (i+1) j'
+                  | otherwise = case next `indexArr` j of
+                                    -1 -> kmp (i+1) 0
+                                    j' -> kmp i j'
+    search' haystack@(Vec harr hoff hlen) reportPartial
         | nlen <= 0 = [0..hlen-1]
         | nlen == 1 = elemIndices (indexArr narr 0) haystack
         | otherwise = sunday 0 0
@@ -332,19 +352,32 @@ indices needle@(Vec narr noff nlen) = search
 -- | /O(n\/m)/ Find the offsets of all non-overlapping indices of @needle@
 -- within @haystack@ using KMP algorithm, combined with simplified sunday's
 -- rule to obtain /O(m\/n)/ complexity in average use case.
---
--- A rewrite rule to rewrite 'indices' to 'indicesBytes' is
--- also included.
 indicesBytes :: Bytes -- ^ bytes to search for (@needle@)
              -> Bytes -- ^ bytes to search in (@haystack@)
              -> Bool -- ^ report partial match at the end of haystack
              -> [Int]
 {-# INLINABLE indicesBytes #-}
-indicesBytes needle@(Vec narr noff nlen) = search
+indicesBytes needle@(Vec narr noff nlen) | popCount bloom > 48 = search
+                                         | otherwise = search'
   where
     next = kmpNextTable needle
     bloom = sundayBloom needle
     search haystack@(Vec harr hoff hlen) reportPartial
+        | nlen <= 0 = [0..hlen-1]
+        | nlen == 1 = case indexArr' narr 0 of
+                       (# x #) -> elemIndices x haystack
+        | otherwise = kmp 0 0
+      where
+        kmp !i !j | i >= hlen = if reportPartial && j /= 0 then [-j] else []
+                  | narr `indexArr` (j+noff) == harr `indexArr` (i+hoff) =
+                        let !j' = j+1
+                        in if j' >= nlen
+                            then let !i' = i-j in i' : kmp (i+1) 0
+                            else kmp (i+1) j'
+                  | otherwise = case next `indexArr` j of
+                                    -1 -> kmp (i+1) 0
+                                    j' -> kmp i j'
+    search' haystack@(Vec harr hoff hlen) reportPartial
         | nlen <= 0 = [0..hlen-1]
         | nlen == 1 = elemIndices (indexArr narr 0) haystack
         | otherwise = sunday 0 0
@@ -413,14 +446,14 @@ kmpNextTable (Vec arr s l) = runST (do
 -- of a beginning byte is usually the same.
 sundayBloom :: Bytes -> Word64
 {-# INLINE sundayBloom #-}
-sundayBloom (Vec arr s l) = go 0x00 s
+sundayBloom (Vec arr s l) = go 0x00000000 s
   where
     !end = s+l
     go !b !i
         | i >= end  = b
         | otherwise =
             let !w = indexArr arr i
-                !b' = b .|. (0x01 `unsafeShiftL` (fromIntegral w .&. 0x3f))
+                !b' = b .|. (0x00000001 `unsafeShiftL` (fromIntegral w .&. 0x3f))
             in go b' (i+1)
 
 -- | O(1) Test if a bloom filter contain a certain 'Word8'.
