@@ -113,8 +113,8 @@ module Std.Data.Text.Base (
   , categoryIsdigit
   , categoryIsxdigit
   -- * Misc
-  , utf8_validate
-  , utf8_validate_addr
+  , c_utf8_validate_ba
+  , c_utf8_validate_addr
  ) where
 
 import           Control.DeepSeq
@@ -187,7 +187,7 @@ packStringAddr :: Addr# -> Text
 packStringAddr addr# = validateAndCopy addr#
   where
     len = fromIntegral . unsafeDupablePerformIO $ c_strlen addr#
-    valid = unsafeDupablePerformIO $ utf8_validate_addr addr# 0 len
+    valid = unsafeDupablePerformIO $ c_utf8_validate_addr addr# len
     validateAndCopy addr#
         | valid == 0 = pack (unpackCString# addr#)
         | otherwise  = runST $ do
@@ -267,18 +267,20 @@ validate :: HasCallStack => Bytes -> Text
 {-# INLINE validate #-}
 validate bs@(V.PrimVector (PrimArray ba#) (I# s#) l@(I# l#))
     | l == 0 = Text bs
-    | utf8_validate ba# s# l# > 0 = Text bs
+    | c_utf8_validate_ba ba# s# l# > 0 = Text bs
     | otherwise = error "invalid UTF8 bytes"
 
 validateMaybe :: Bytes -> Maybe Text
 {-# INLINE validateMaybe #-}
 validateMaybe bs@(V.PrimVector (PrimArray ba#) (I# s#) l@(I# l#))
     | l == 0 = Just (Text bs)
-    | utf8_validate ba# s# l# > 0 = Just (Text bs)
+    | c_utf8_validate_ba ba# s# l# > 0 = Just (Text bs)
     | otherwise = Nothing
 
-foreign import ccall unsafe utf8_validate :: ByteArray# -> Int# -> Int# -> Int
-foreign import ccall unsafe utf8_validate_addr :: Addr# -> Int -> Int -> IO Int
+foreign import ccall unsafe "text.h utf8_validate"
+    c_utf8_validate_ba :: ByteArray# -> Int# -> Int# -> Int
+foreign import ccall unsafe "text.h utf8_validate_addr"
+    c_utf8_validate_addr :: Addr# -> Int -> IO Int
 
 --------------------------------------------------------------------------------
 

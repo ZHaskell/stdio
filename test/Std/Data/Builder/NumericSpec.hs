@@ -16,6 +16,7 @@ import qualified Data.Scientific as Sci
 import           Test.QuickCheck
 import           Test.QuickCheck.Function
 import           Test.QuickCheck.Property
+import           Test.QuickCheck.Instances.Scientific
 import           Test.Hspec
 import           Test.Hspec.QuickCheck
 
@@ -82,29 +83,29 @@ spec = describe "builder numeric" . modifyMaxSuccess (*50) . modifyMaxSize (*50)
                 (read . T.unpack . T.validate . B.buildBytes . B.scientific $ Sci.scientific c e)
         prop "scientificWith roundtrip" $ \ c e ->
             Sci.scientific c e ===
-                (read . T.unpack . T.validate . B.buildBytes . B.scientificWith B.FFExponent Nothing $
+                (read . T.unpack . T.validate . B.buildBytes . B.scientificWith B.Exponent Nothing $
                     Sci.scientific c e)
-        {- FFExponent doesn't roundtrip, i.e. B.scientificWith B.FFExponent (Just 0) 101 ===> 1e2
+        {- B.Exponent doesn't roundtrip, i.e. B.scientificWith B.Exponent (Just 0) 101 ===> 1e2
         prop "scientificWith roundtrip" $ \ c e ->
             Sci.scientific c e ===
-                (read . T.unpack . T.validate . B.buildBytes . B.scientificWith B.FFExponent (Just (abs e)) $
+                (read . T.unpack . T.validate . B.buildBytes . B.scientificWith B.Exponent (Just (abs e)) $
                     Sci.scientific c e)
         -}
         prop "scientificWith roundtrip" $ \ c e ->
             Sci.scientific c e ===
-                (read . T.unpack . T.validate . B.buildBytes . B.scientificWith B.FFGeneric Nothing $
+                (read . T.unpack . T.validate . B.buildBytes . B.scientificWith B.Generic Nothing $
                     Sci.scientific c e)
         prop "scientificWith roundtrip" $ \ c e ->
             Sci.scientific c e ===
-                (read . T.unpack . T.validate . B.buildBytes . B.scientificWith B.FFGeneric (Just (abs e)) $
+                (read . T.unpack . T.validate . B.buildBytes . B.scientificWith B.Generic (Just (abs e)) $
                     Sci.scientific c e)
         prop "scientificWith roundtrip" $ \ c e ->
             Sci.scientific c e ===
-                (read . T.unpack . T.validate . B.buildBytes . B.scientificWith B.FFFixed Nothing $
+                (read . T.unpack . T.validate . B.buildBytes . B.scientificWith B.Fixed Nothing $
                     Sci.scientific c e)
         prop "scientificWith roundtrip" $ \ c e ->
             Sci.scientific c e ===
-                (read . T.unpack . T.validate . B.buildBytes . B.scientificWith B.FFFixed (Just (abs e)) $
+                (read . T.unpack . T.validate . B.buildBytes . B.scientificWith B.Fixed (Just (abs e)) $
                     Sci.scientific c e)
 
     describe "hex roundtrip" $ do
@@ -205,23 +206,25 @@ spec = describe "builder numeric" . modifyMaxSuccess (*50) . modifyMaxSize (*50)
             show i === (T.unpack . T.validate . B.buildBytes  $ B.float i)
         prop "double === show" $ \ i ->
             show i === (T.unpack . T.validate . B.buildBytes  $ B.double i)
+        prop "scientific === show" $ \ i ->
+            show i === (T.unpack . T.validate . B.buildBytes  $ B.scientific i)
 
     describe "floatWith, doubleWith === formatRealFloat" $ do
         prop "floatWith === formatRealFloat" $ \ i l ->
             formatRealFloat FFGeneric l i ===
-                (T.unpack . T.validate . B.buildBytes  $ B.floatWith FFGeneric l i)
+                (T.unpack . T.validate . B.buildBytes  $ B.floatWith B.Generic l i)
         prop "doubleWith === formatRealFloat" $ \ i l ->
             formatRealFloat FFGeneric l i ===
-                (T.unpack . T.validate . B.buildBytes  $ B.doubleWith  FFGeneric l i)
+                (T.unpack . T.validate . B.buildBytes  $ B.doubleWith  B.Generic l i)
         prop "floatWith === formatRealFloat" $ \ i l ->
             formatRealFloat FFFixed  l  i ===
-                (T.unpack . T.validate . B.buildBytes  $ B.floatWith FFFixed  l i)
+                (T.unpack . T.validate . B.buildBytes  $ B.floatWith B.Fixed  l i)
         prop "doubleWith === formatRealFloat" $ \ i l ->
             formatRealFloat FFFixed  l  i ===
-                (T.unpack . T.validate . B.buildBytes  $ B.doubleWith  FFFixed  l i)
+                (T.unpack . T.validate . B.buildBytes  $ B.doubleWith  B.Fixed  l i)
         prop "floatWith === formatRealFloat" $ \ i l ->
             formatRealFloat FFExponent l i ===
-                (T.unpack . T.validate . B.buildBytes  $ B.floatWith FFExponent l i)
+                (T.unpack . T.validate . B.buildBytes  $ B.floatWith B.Exponent l i)
         prop "doubleWith === formatRealFloat" $ \ i l ->
             formatRealFloat FFExponent l i ===
-                (T.unpack . T.validate . B.buildBytes  $ B.doubleWith  FFExponent l i)
+                (T.unpack . T.validate . B.buildBytes  $ B.doubleWith B.Exponent l i)

@@ -32,7 +32,7 @@ module Std.Data.Builder.Numeric (
   -- * Fixded size hexidecimal formatting
   , hex, heX
   -- * IEEE float formating
-  , FFFormat(..)
+  , FFormat(..)
   , double
   , doubleWith
   , float
@@ -69,7 +69,7 @@ import           System.IO.Unsafe
 #ifdef INTEGER_GMP
 import           GHC.Integer.GMP.Internals
 #endif
-import           GHC.Float                           (FFFormat (..))
+import           GHC.Float                           (roundTo)
 
 --------------------------------------------------------------------------------
 
@@ -91,8 +91,7 @@ data Padding = NoPadding | ZeroPadding | LeftSpacePadding | RightSpacePadding de
 int :: (Integral a, Bounded a) => a -> Builder ()
 int = intWith defaultIFormat
 
--- | Format a 'Bounded' 'Integral' type like @Int@ or @Word16@ into ascii digits.
---
+-- | Format a 'Bounded' 'Integral' type like @Int@ or @Word16@ into decimal ASCII digits.
 intWith :: (Integral a, Bounded a)
         => IFormat
         -> a
@@ -333,6 +332,7 @@ writePositiveDec marr off0 ds = go (off0 + ds - 1)
 -- BASE should be 10^DIGITS.
 #endif
 
+-- | Format a 'Integer' into decimal ASCII digits.
 integer :: Integer -> Builder ()
 #ifdef INTEGER_GMP
 integer (S# i#) = int (I# i#)
@@ -402,6 +402,7 @@ integer n0
 
 --------------------------------------------------------------------------------
 
+-- | Count how many decimal digits an integer has.
 countDigits :: (Integral a) => a -> Int
 {-# INLINE countDigits #-}
 countDigits v0
@@ -439,20 +440,24 @@ minus = 45
 zero = 48
 space = 32
 
+-- | Decimal digit to ASCII digit.
 i2wDec :: (Integral a) => a -> Word8
 {-# INLINE i2wDec #-}
 i2wDec v = zero + fromIntegral v
 
+-- | Decimal digit to ASCII char.
 i2cDec :: (Integral a) => a -> Char
 {-# INLINE i2cDec #-}
 i2cDec v = chr . fromIntegral $ zero + fromIntegral v
 
+-- | Hexadecimal digit to ASCII char.
 i2wHex :: (Integral a) => a -> Word8
 {-# INLINE i2wHex #-}
 i2wHex v
     | v <= 9    = zero + fromIntegral v
     | otherwise = 87 + fromIntegral v       -- fromEnum 'a' - 10
 
+-- | Hexadecimal digit to UPPERCASED ASCII char.
 i2wHeX :: (Integral a) => a -> Word8
 {-# INLINE i2wHeX #-}
 i2wHeX v
@@ -462,7 +467,6 @@ i2wHeX v
 --------------------------------------------------------------------------------
 
 -- | Format a 'FiniteBits' 'Integral' type into hex nibbles.
---
 hex :: forall a. (FiniteBits a, Integral a) => a -> Builder ()
 {-# SPECIALIZE INLINE hex :: Int    -> Builder () #-}
 {-# SPECIALIZE INLINE hex :: Int8   -> Builder () #-}
@@ -493,8 +497,7 @@ hex w = writeN hexSize (go w (hexSize-2))
             writePrimArray marr off $ i2wHex i
 
 
--- | The uppercase version of 'hex'.
---
+-- | The UPPERCASED version of 'hex'.
 heX :: forall a. (FiniteBits a, Integral a) => a -> Builder ()
 {-# SPECIALIZE INLINE heX :: Int    -> Builder () #-}
 {-# SPECIALIZE INLINE heX :: Int8   -> Builder () #-}
@@ -529,13 +532,20 @@ heX w = writeN hexSize (go w (hexSize-2))
 -- Floating point numbers
 -------------------------
 
+-- | Control the rendering of floating point numbers.
+data FFormat = Exponent -- ^ Scientific notation (e.g. @2.3e123@).
+             | Fixed    -- ^ Standard decimal notation.
+             | Generic  -- ^ Use decimal notation for values between @0.1@ and
+                        -- @9,999,999@, and scientific notation otherwise.
+           deriving (Enum, Read, Show)
+
 -- | Decimal encoding of an IEEE 'Float'.
 --
 -- Using standard decimal notation for arguments whose absolute value lies
 -- between @0.1@ and @9,999,999@, and scientific notation otherwise.
 float :: Float -> Builder ()
 {-# INLINE float #-}
-float = floatWith FFGeneric Nothing
+float = floatWith Generic Nothing
 
 -- | Decimal encoding of an IEEE 'Double'.
 --
@@ -543,10 +553,10 @@ float = floatWith FFGeneric Nothing
 -- between @0.1@ and @9,999,999@, and scientific notation otherwise.
 double :: Double -> Builder ()
 {-# INLINE double #-}
-double = doubleWith FFGeneric Nothing
+double = doubleWith Generic Nothing
 
 -- | Format single-precision float using drisu3 with dragon4 fallback.
-floatWith :: FFFormat
+floatWith :: FFormat
           -> Maybe Int  -- ^ Number of decimal places to render.
           -> Float
           -> Builder ()
@@ -563,7 +573,7 @@ floatWith fmt decs x
                                    Nothing -> floatToDigits 10 y
 
 -- | Format double-precision float using drisu3 with dragon4 fallback.
-doubleWith :: FFFormat
+doubleWith :: FFormat
            -> Maybe Int  -- ^ Number of decimal places to render.
            -> Double
            -> Builder ()
@@ -580,7 +590,7 @@ doubleWith fmt decs x
                                 Nothing -> floatToDigits 10 y
 
 -- | Worker function to do formatting.
-doFmt :: FFFormat
+doFmt :: FFormat
       -> Maybe Int -- ^ Number of decimal places to render.
       -> ([Int], Int) -- ^ List of digits and exponent
       -> Builder ()
@@ -588,9 +598,9 @@ doFmt :: FFFormat
 doFmt format decs (is, e) =
     let ds = map i2cDec is
     in case format of
-        FFGeneric ->
-            doFmt (if e < 0 || e > 7 then FFExponent else FFFixed) decs (is,e)
-        FFExponent ->
+        Generic ->
+            doFmt (if e < 0 || e > 7 then Exponent else Fixed) decs (is,e)
+        Exponent ->
             case decs of
                 Nothing ->
                     let show_e' = int (e-1)
@@ -630,7 +640,7 @@ doFmt format decs (is, e) =
                             string8 ds'
                             char8 'e'
                             int (e-1+ei)
-        FFFixed ->
+        Fixed ->
             let mk0 ls = case ls of { "" -> char8 '0' ; _ -> string8 ls}
             in case decs of
                 Nothing
@@ -721,10 +731,10 @@ grisu3_sp d = unsafePerformIO $
 -- notation otherwise.
 scientific :: Sci.Scientific -> Builder ()
 {-# INLINE scientific #-}
-scientific = scientificWith FFGeneric Nothing
+scientific = scientificWith Generic Nothing
 
 -- | Like 'scientific' but provides rendering options.
-scientificWith :: FFFormat
+scientificWith :: FFormat
                -> Maybe Int  -- ^ Number of decimal places to render.
                -> Sci.Scientific
                -> Builder ()

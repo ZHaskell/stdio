@@ -32,7 +32,7 @@
 
 HsInt ascii_validate(const char* p, HsInt off, HsInt len);
 HsInt utf8_validate(const char* p, HsInt off, HsInt len);
-HsInt utf8_validate_addr(const char* p, HsInt off, HsInt len);
+HsInt utf8_validate_addr(const char* p, HsInt len);
 
 HsInt utf8_isnormalized(const char* p, HsInt off, HsInt len, size_t flag);
 HsInt utf8_normalize(const char* p, HsInt off, HsInt len, const char* q, HsInt len2, size_t flag);

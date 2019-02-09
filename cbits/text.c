@@ -35,15 +35,14 @@ HsInt utf8_validate(const char* p, HsInt off, HsInt len){
 }
 // for some reason unknown, on windows we have to supply a seperated version of utf8_validate
 // otherwise we got segfault if we import the same FFI with different type (Addr# vs ByteArray#)
-HsInt utf8_validate_addr(const char* p, HsInt off, HsInt len){
-    const char* q = p + off;
+HsInt utf8_validate_addr(const char* p, HsInt len){
 #ifdef __AVX2__
-    return (HsInt)validate_utf8_fast_avx(q, (size_t)len);
+    return (HsInt)validate_utf8_fast_avx(p, (size_t)len);
 #else
 #ifdef __SSE2__
-    return (HsInt)validate_utf8_fast(q, (size_t)len);
+    return (HsInt)validate_utf8_fast(p, (size_t)len);
 #else
-    return utf8_validate_slow(q, (size_t)len);
+    return utf8_validate_slow(p, (size_t)len);
 #endif
 #endif
 }

@@ -122,11 +122,11 @@ library
 
                             Std.Data.Text
                             Std.Data.Text.Base
-                            Std.Data.Text.Builder
                             Std.Data.Text.Extra
                             Std.Data.Text.Search
                             Std.Data.Text.UTF8Codec
                             Std.Data.Text.UTF8Rewind
+                            Std.Data.TextBuilder
 
                             Std.Data.Builder
                             Std.Data.Builder.Base
@@ -273,6 +273,7 @@ test-suite test
                   , hspec >= 2.5.4
                   , HUnit
                   , QuickCheck >= 2.10
+                  , quickcheck-instances
                   , unboxed-ref
                   , word8
                   , scientific

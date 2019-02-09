@@ -53,7 +53,7 @@ module Std.Data.Builder
   -- ** Fixded size hexidecimal formatting
   , hex, heX
   -- ** IEEE float formating
-  , FFFormat(..)
+  , FFormat(..)
   , double
   , doubleWith
   , float

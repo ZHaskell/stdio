@@ -111,6 +111,15 @@ type BuildStep s = Buffer s -> ST s [V.Bytes]
 -- | @Builder@ is a monoid to help compose @BuilderStep@. With next @BuilderStep@ continuation,
 -- We can do interesting things like perform some action, or interleave the build process.
 --
+-- Notes on 'IsString' instance: It's recommended to use 'IsString' instance instead of 'stringUTF8'
+-- or 'string7' since there's a rewrite rule to turn encoding loop into a memcpy, which is much faster.
+--
+-- The 'IsString' instance also gives desired UTF8 guarantees:
+--
+-- * "\NUL" will be written directly as @\x00@.
+--
+-- * @\xD800@ ~ @\xDFFF@ will be replaced by replacement char.
+--
 newtype Builder a = Builder
     { runBuilder :: forall s. AllocateStrategy s -> (a -> BuildStep s) -> BuildStep s}
 
@@ -163,7 +172,7 @@ addrLiteral :: Addr# -> Builder ()
 addrLiteral addr# = validateAndCopy addr#
   where
     len = fromIntegral . unsafeDupablePerformIO $ V.c_strlen addr#
-    valid = unsafeDupablePerformIO $ T.utf8_validate_addr addr# 0 len
+    valid = unsafeDupablePerformIO $ T.c_utf8_validate_addr addr# len
     validateAndCopy addr#
         | valid == 0 = stringLiteral (unpackCString# addr#)
         | otherwise = do
@@ -179,6 +188,7 @@ append (Builder f) (Builder g) = Builder (\ al k -> f al ( \ _ ->  g al k))
 
 --------------------------------------------------------------------------------
 
+-- | Write a 'V.Bytes'.
 bytes :: V.Bytes -> Builder ()
 {-# INLINE bytes #-}
 bytes bs@(V.PrimVector arr s l) = Builder (\ strategy k buffer@(Buffer buf offset) ->
@@ -224,8 +234,8 @@ ensureN !n = Builder $ \ strategy k buffer@(Buffer buf offset) -> do
 
 --------------------------------------------------------------------------------
 --
--- | Handle chunk boundary
---
+-- Handle chunk boundary
+
 doubleBuffer :: Int -> BuildStep s -> BuildStep s
 doubleBuffer !wantSiz k buffer@(Buffer buf offset) = do
     !siz <- A.sizeofMutableArr buf
@@ -406,8 +416,8 @@ encodePrimBE = encodePrim . BE
 --
 -- Note, if you're trying to write string literals builders,
 -- please open 'OverloadedStrings' and use 'Builder's 'IsString' instance,
--- it will use 'stringLiteral' and will be rewritten into a memcpy,
--- instead of encoding 'Char's in a loop like what 'stringUTF8' do.
+-- it will be rewritten into a memcpy, instead of encoding 'Char's in a
+-- loop like what 'stringUTF8' do.
 stringUTF8 :: String -> Builder ()
 {-# INLINE stringUTF8 #-}
 stringUTF8 = mapM_ charUTF8
@@ -470,7 +480,7 @@ char8 chr = do
 --
 -- Note, if you're trying to write string literals builders,
 -- please open 'OverloadedStrings' and use 'Builder's 'IsString' instance,
--- it will use 'stringLiteral' and will be rewritten into a memcpy.
+-- it will be rewritten into a memcpy.
 text :: T.Text -> Builder ()
 {-# INLINE text #-}
 text (T.Text bs) = bytes bs
