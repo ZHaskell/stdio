@@ -18,10 +18,7 @@ This module provides an API for opening tty as 'UVStream'. In most case, it will
 -}
 
 module Std.IO.TTY(
-    UVStream
-  , stdin
-  , stdout
-  , stderr
+    initTTYStream
   ) where
 
 import           Std.IO.Exception
