@@ -29,6 +29,7 @@ This benchmark will start a server on your localhost's 8888 port(or use PORT env
 You should adjust your system's fd limit before running benchmark in case of running out of fd.
 
 ```
+# You should install stdio first, either into global or into tcp's sandbox
 cabal build
 
 # Adding a proper heap size hint is important for haskell programs because
