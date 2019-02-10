@@ -3,6 +3,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MagicHash                  #-}
 {-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE PatternSynonyms            #-}
 {-# LANGUAGE UnliftedFFITypes           #-}
 
 {-|
@@ -46,12 +47,13 @@ type UVFD = Int32
 
 --------------------------------------------------------------------------------
 -- CONSTANT
-aCCEPT_BUFFER_SIZE :: Int
-aCCEPT_BUFFER_SIZE = #const ACCEPT_BUFFER_SIZE
-sO_REUSEPORT_LOAD_BALANCE :: Int
-sO_REUSEPORT_LOAD_BALANCE = #const SO_REUSEPORT_LOAD_BALANCE
-iNIT_LOOP_SIZE :: Int
-iNIT_LOOP_SIZE = #const INIT_LOOP_SIZE
+
+pattern ACCEPT_BUFFER_SIZE :: Int
+pattern ACCEPT_BUFFER_SIZE = #const ACCEPT_BUFFER_SIZE
+pattern SO_REUSEPORT_LOAD_BALANCE :: Int
+pattern SO_REUSEPORT_LOAD_BALANCE = #const SO_REUSEPORT_LOAD_BALANCE
+pattern INIT_LOOP_SIZE :: Int
+pattern INIT_LOOP_SIZE = #const INIT_LOOP_SIZE
 
 --------------------------------------------------------------------------------
 -- loop
@@ -75,10 +77,12 @@ peekUVBufferTable p = (,)
 newtype UVRunMode = UVRunMode CInt 
     deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable)
 
-#{enum UVRunMode, UVRunMode, 
-  uV_RUN_DEFAULT = UV_RUN_DEFAULT,
-  uV_RUN_ONCE    = UV_RUN_ONCE,
-  uV_RUN_NOWAIT  = UV_RUN_NOWAIT}
+pattern UV_RUN_DEFAULT :: UVRunMode
+pattern UV_RUN_DEFAULT = UVRunMode #{const UV_RUN_DEFAULT}
+pattern UV_RUN_ONCE :: UVRunMode
+pattern UV_RUN_ONCE    = UVRunMode #{const UV_RUN_ONCE}
+pattern UV_RUN_NOWAIT :: UVRunMode
+pattern UV_RUN_NOWAIT  = UVRunMode #{const UV_RUN_NOWAIT}
 
 -- | Peek loop data pointer from uv loop  pointer.
 peekUVLoopData :: Ptr UVLoop -> IO (Ptr UVLoopData)
@@ -154,10 +158,12 @@ foreign import ccall unsafe uv_pipe_init :: Ptr UVLoop -> Ptr UVHandle -> CInt -
 newtype UVTTYMode = UVTTYMode CInt
     deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable)
 
-#{enum UVTTYMode, UVTTYMode,
-    uV_TTY_MODE_NORMAL      = UV_TTY_MODE_NORMAL,
-    uV_TTY_MODE_RAW         = UV_TTY_MODE_RAW,
-    uV_TTY_MODE_IO          = UV_TTY_MODE_IO }
+pattern UV_TTY_MODE_NORMAL :: UVTTYMode
+pattern UV_TTY_MODE_NORMAL = UVTTYMode #{const UV_TTY_MODE_NORMAL}
+pattern UV_TTY_MODE_RAW :: UVTTYMode
+pattern UV_TTY_MODE_RAW = UVTTYMode #{const UV_TTY_MODE_RAW}
+pattern UV_TTY_MODE_IO :: UVTTYMode
+pattern UV_TTY_MODE_IO = UVTTYMode #{const UV_TTY_MODE_IO}
 
 foreign import ccall unsafe uv_tty_init :: Ptr UVLoop -> Ptr UVHandle -> CInt -> IO CInt
 
@@ -168,45 +174,56 @@ newtype UVFileMode = UVFileMode CInt
     deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable)
 
 -- | 00700 user (file owner) has read, write and execute permission
-#{enum UVFileMode, UVFileMode, s_IRWXU = S_IRWXU}
+pattern S_IRWXU :: UVFileMode
+pattern S_IRWXU = UVFileMode #{const S_IRWXU}
 
 -- | 00400 user has read permission
-#{enum UVFileMode, UVFileMode, s_IRUSR = S_IRUSR}
+pattern S_IRUSR :: UVFileMode
+pattern S_IRUSR = UVFileMode #{const S_IRUSR}
 
 -- | 00200 user has write permission
-#{enum UVFileMode, UVFileMode, s_IWUSR = S_IWUSR}
+pattern S_IWUSR :: UVFileMode
+pattern S_IWUSR = UVFileMode #{const S_IWUSR}
 
 -- | 00100 user has execute permission
-#{enum UVFileMode, UVFileMode, s_IXUSR = S_IXUSR}
+pattern S_IXUSR :: UVFileMode
+pattern S_IXUSR = UVFileMode #{const S_IXUSR}
 
 -- | 00070 group has read, write and execute permission
-#{enum UVFileMode, UVFileMode, s_IRWXG = S_IRWXG}
+pattern S_IRWXG :: UVFileMode
+pattern S_IRWXG = UVFileMode #{const S_IRWXG}
 
 -- | 00040 group has read permission
-#{enum UVFileMode, UVFileMode, s_IRGRP = S_IRGRP}
+pattern S_IRGRP :: UVFileMode
+pattern S_IRGRP = UVFileMode #{const S_IRGRP}
 
 -- | 00020 group has write permission
-#{enum UVFileMode, UVFileMode, s_IWGRP = S_IWGRP}
+pattern S_IWGRP :: UVFileMode
+pattern S_IWGRP = UVFileMode #{const S_IWGRP}
 
 -- | 00010 group has execute permission
-#{enum UVFileMode, UVFileMode, s_IXGRP = S_IXGRP}
+pattern S_IXGRP :: UVFileMode
+pattern S_IXGRP = UVFileMode #{const S_IXGRP}
 
 -- | 00007 others have read, write and execute permission
-#{enum UVFileMode, UVFileMode, s_IRWXO = S_IRWXO}
+pattern S_IRWXO :: UVFileMode
+pattern S_IRWXO = UVFileMode #{const S_IRWXO}
 
 -- | 00004 others have read permission
-#{enum UVFileMode, UVFileMode, s_IROTH = S_IROTH}
+pattern S_IROTH :: UVFileMode
+pattern S_IROTH = UVFileMode #{const S_IROTH}
 
 -- | 00002 others have write permission
-#{enum UVFileMode, UVFileMode, s_IWOTH = S_IWOTH}
+pattern S_IWOTH :: UVFileMode
+pattern S_IWOTH = UVFileMode #{const S_IWOTH}
 
 -- | 00001 others have execute permission
-#{enum UVFileMode, UVFileMode, s_IXOTH = S_IXOTH}
-
+pattern S_IXOTH :: UVFileMode
+pattern S_IXOTH = UVFileMode #{const S_IXOTH}
 
 -- | Default mode for open, 0o666(readable and writable).
-defaultMode :: UVFileMode
-defaultMode = UVFileMode 0o666
+pattern DEFAULT_MODE :: UVFileMode
+pattern DEFAULT_MODE = UVFileMode 0o666
 
 -- non-threaded functions
 foreign import ccall unsafe hs_uv_fs_open    :: CString -> UVFileFlag -> UVFileMode -> IO UVFD
@@ -240,97 +257,118 @@ newtype UVFileFlag = UVFileFlag CInt
     deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable)
 
 -- | The file is opened in append mode. Before each write, the file offset is positioned at the end of the file.
-#{enum UVFileFlag, UVFileFlag, o_APPEND       = UV_FS_O_APPEND}
+pattern O_APPEND :: UVFileFlag
+pattern O_APPEND = UVFileFlag #{const UV_FS_O_APPEND}
 
 -- | The file is created if it does not already exist.
-#{enum UVFileFlag, UVFileFlag, o_CREAT        = UV_FS_O_CREAT}
+pattern O_CREAT :: UVFileFlag
+pattern O_CREAT = UVFileFlag #{const UV_FS_O_CREAT}
 
 -- | File I/O is done directly to and from user-space buffers, which must be aligned. Buffer size and address should be a multiple of the physical sector size of the block device, (DO NOT USE WITH stdio's @BufferedIO@)
-#{enum UVFileFlag, UVFileFlag, o_DIRECT       = UV_FS_O_DIRECT}
+pattern O_DIRECT :: UVFileFlag
+pattern O_DIRECT = UVFileFlag #{const UV_FS_O_DIRECT}
 
 -- | If the path is not a directory, fail the open. (Not useful on regular file)
 --
 -- Note 'o_DIRECTORY' is not supported on Windows.
-#{enum UVFileFlag, UVFileFlag, o_DIRECTORY    = UV_FS_O_DIRECTORY}
+pattern O_DIRECTORY :: UVFileFlag
+pattern O_DIRECTORY = UVFileFlag #{const UV_FS_O_DIRECTORY}
 
 -- |The file is opened for synchronous I/O. Write operations will complete once all data and a minimum of metadata are flushed to disk.
 --
 -- Note 'o_DSYNC' is supported on Windows via @FILE_FLAG_WRITE_THROUGH@.
-#{enum UVFileFlag, UVFileFlag, o_DSYNC        = UV_FS_O_DSYNC}
+pattern O_DSYNC :: UVFileFlag
+pattern O_DSYNC = UVFileFlag #{const UV_FS_O_DSYNC}
 
 -- | If the 'o_CREAT' flag is set and the file already exists, fail the open.
 --
 -- Note In general, the behavior of 'o_EXCL' is undefined if it is used without 'o_CREAT'. There is one exception: on 
 -- Linux 2.6 and later, 'o_EXCL' can be used without 'o_CREAT' if pathname refers to a block device. If the block 
 -- device is in use by the system (e.g., mounted), the open will fail with the error @EBUSY@.
-#{enum UVFileFlag, UVFileFlag, o_EXCL         = UV_FS_O_EXCL}
+pattern O_EXCL :: UVFileFlag
+pattern O_EXCL = UVFileFlag #{const UV_FS_O_EXCL}
 
 -- | Atomically obtain an exclusive lock.
 --
 -- Note UV_FS_O_EXLOCK is only supported on macOS and Windows.
 -- (libuv: Changed in version 1.17.0: support is added for Windows.)
-#{enum UVFileFlag, UVFileFlag, o_EXLOCK       = UV_FS_O_EXLOCK}
+pattern O_EXLOCK :: UVFileFlag
+pattern O_EXLOCK = UVFileFlag #{const UV_FS_O_EXLOCK}
 
 -- | Do not update the file access time when the file is read.
 -- 
 -- Note 'o_NOATIME' is not supported on Windows.
-#{enum UVFileFlag, UVFileFlag, o_NOATIME      = UV_FS_O_NOATIME}
+pattern O_NOATIME :: UVFileFlag
+pattern O_NOATIME = UVFileFlag #{const UV_FS_O_NOATIME}
 
 -- | If the path identifies a terminal device, opening the path will not cause that terminal to become the controlling terminal for the process (if the process does not already have one). (Not sure if this flag is useful)
 --
 -- Note 'o_NOCTTY' is not supported on Windows.
-#{enum UVFileFlag, UVFileFlag, o_NOCTTY       = UV_FS_O_NOCTTY}
+pattern O_NOCTTY :: UVFileFlag
+pattern O_NOCTTY = UVFileFlag #{const UV_FS_O_NOCTTY}
 
 -- | If the path is a symbolic link, fail the open.
 --
 -- Note 'o_NOFOLLOW' is not supported on Windows.
-#{enum UVFileFlag, UVFileFlag, o_NOFOLLOW     = UV_FS_O_NOFOLLOW}
+pattern O_NOFOLLOW :: UVFileFlag
+pattern O_NOFOLLOW = UVFileFlag #{const UV_FS_O_NOFOLLOW}
 
 -- | Open the file in nonblocking mode if possible. (Definitely not useful with stdio)
 --
 -- Note 'o_NONBLOCK' is not supported on Windows. (Not useful on regular file anyway)
-#{enum UVFileFlag, UVFileFlag, o_NONBLOCK     = UV_FS_O_NONBLOCK}
+pattern O_NONBLOCK :: UVFileFlag
+pattern O_NONBLOCK = UVFileFlag #{const UV_FS_O_NONBLOCK}
 
 -- | Access is intended to be random. The system can use this as a hint to optimize file caching.
 -- 
 -- Note 'o_RANDOM' is only supported on Windows via @FILE_FLAG_RANDOM_ACCESS@.
-#{enum UVFileFlag, UVFileFlag, o_RANDOM       = UV_FS_O_RANDOM}
+pattern O_RANDOM :: UVFileFlag
+pattern O_RANDOM = UVFileFlag #{const UV_FS_O_RANDOM}
 
 -- | Open the file for read-only access.
-#{enum UVFileFlag, UVFileFlag, o_RDONLY       = UV_FS_O_RDONLY}
+pattern O_RDONLY :: UVFileFlag
+pattern O_RDONLY = UVFileFlag #{const UV_FS_O_RDONLY}
 
 -- | Open the file for read-write access.
-#{enum UVFileFlag, UVFileFlag, o_RDWR         = UV_FS_O_RDWR}
+pattern O_RDWR :: UVFileFlag
+pattern O_RDWR = UVFileFlag #{const UV_FS_O_RDWR}
 
 
 -- | Access is intended to be sequential from beginning to end. The system can use this as a hint to optimize file caching.
 -- 
 -- Note 'o_SEQUENTIAL' is only supported on Windows via @FILE_FLAG_SEQUENTIAL_SCAN@.
-#{enum UVFileFlag, UVFileFlag, o_SEQUENTIAL   = UV_FS_O_SEQUENTIAL}
+pattern O_SEQUENTIAL :: UVFileFlag
+pattern O_SEQUENTIAL = UVFileFlag #{const UV_FS_O_SEQUENTIAL}
 
 -- | The file is temporary and should not be flushed to disk if possible.
 --
 -- Note 'o_SHORT_LIVED' is only supported on Windows via @FILE_ATTRIBUTE_TEMPORARY@.
-#{enum UVFileFlag, UVFileFlag, o_SHORT_LIVED  = UV_FS_O_SHORT_LIVED}
+pattern O_SHORT_LIVED :: UVFileFlag
+pattern O_SHORT_LIVED = UVFileFlag #{const UV_FS_O_SHORT_LIVED}
 
 -- | Open the symbolic link itself rather than the resource it points to.
-#{enum UVFileFlag, UVFileFlag, o_SYMLINK      = UV_FS_O_SYMLINK}
+pattern O_SYMLINK :: UVFileFlag
+pattern O_SYMLINK = UVFileFlag #{const UV_FS_O_SYMLINK}
 
 -- | The file is opened for synchronous I/O. Write operations will complete once all data and all metadata are flushed to disk.
 --
 -- Note 'o_SYNC' is supported on Windows via @FILE_FLAG_WRITE_THROUGH@.
-#{enum UVFileFlag, UVFileFlag, o_SYNC         = UV_FS_O_SYNC}
+pattern O_SYNC :: UVFileFlag
+pattern O_SYNC = UVFileFlag #{const UV_FS_O_SYNC}
 
 -- | The file is temporary and should not be flushed to disk if possible.
 --
 -- Note 'o_TEMPORARY' is only supported on Windows via @FILE_ATTRIBUTE_TEMPORARY@.
-#{enum UVFileFlag, UVFileFlag, o_TEMPORARY    = UV_FS_O_TEMPORARY}
+pattern O_TEMPORARY :: UVFileFlag
+pattern O_TEMPORARY = UVFileFlag #{const UV_FS_O_TEMPORARY}
 
 -- | If the file exists and is a regular file, and the file is opened successfully for write access, its length shall be truncated to zero.
-#{enum UVFileFlag, UVFileFlag, o_TRUNC        = UV_FS_O_TRUNC}
+pattern O_TRUNC :: UVFileFlag
+pattern O_TRUNC = UVFileFlag #{const UV_FS_O_TRUNC}
 
 -- | Open the file for write-only access.
-#{enum UVFileFlag, UVFileFlag, o_WRONLY       = UV_FS_O_WRONLY}
+pattern O_WRONLY :: UVFileFlag
+pattern O_WRONLY = UVFileFlag #{const UV_FS_O_WRONLY}
 
 #if defined(_WIN32)
 newtype UVDirEntType = UVDirEntType CInt
@@ -468,39 +506,23 @@ foreign import ccall unsafe hs_uv_fs_ftruncate_threaded
 
 -- | Flags control copying.
 -- 
---   * 'uV_FS_COPYFILE_EXCL': If present, uv_fs_copyfile() will fail with UV_EEXIST if the destination path already exists. The default behavior is to overwrite the destination if it exists.
---   * 'uV_FS_COPYFILE_FICLONE': If present, uv_fs_copyfile() will attempt to create a copy-on-write reflink. If the underlying platform does not support copy-on-write, then a fallback copy mechanism is used.
---   * 'uV_FS_COPYFILE_FICLONE_FORCE': If present, uv_fs_copyfile() will attempt to create a copy-on-write reflink. If the underlying platform does not support copy-on-write, then an error is returned.
---
--- Warning: If the destination path is created, but an error occurs while copying the data, then the destination path is removed. There is a brief window of time between closing and removing the file where another process could access the file.
+--   * 'COPYFILE_EXCL': If present, uv_fs_copyfile() will fail with UV_EEXIST if the destination path already exists. The default behavior is to overwrite the destination if it exists.
+--   * 'COPYFILE_FICLONE': If present, uv_fs_copyfile() will attempt to create a copy-on-write reflink. If the underlying platform does not support copy-on-write, then a fallback copy mechanism is used.
 -- 
--- Note, 'uV_FS_COPYFILE_EXCL' and 'uV_FS_COPYFILE_FICLONE_FORCE' will throw exception on platform not supported, 'uV_FS_COPYFILE_FICLONE' will sliently fallback to normal copy.
---
 newtype UVCopyFileFlag = UVCopyFileFlag CInt
     deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable)
 
-uV_FS_COPYFILE_DEFAULT :: UVCopyFileFlag
-uV_FS_COPYFILE_DEFAULT = UVCopyFileFlag 0
+pattern COPYFILE_DEFAULT :: UVCopyFileFlag
+pattern COPYFILE_DEFAULT = UVCopyFileFlag 0
 
-#ifdef UV_FS_COPYFILE_EXCL
-#{enum UVCopyFileFlag, UVCopyFileFlag, uV_FS_COPYFILE_EXCL          = UV_FS_COPYFILE_EXCL}
-#else
-uV_FS_COPYFILE_EXCL :: UVCopyFileFlag
-uV_FS_COPYFILE_EXCL = error "Std.IO.UV.FFI.uV_FS_COPYFILE_EXCL: unsupported UVCopyFileFlag, please update libuv"
-#endif
+pattern COPYFILE_EXCL :: UVCopyFileFlag
+pattern COPYFILE_EXCL = UVCopyFileFlag #{const UV_FS_COPYFILE_EXCL}
 
+pattern COPYFILE_FICLONE :: UVCopyFileFlag
 #ifdef UV_FS_COPYFILE_FICLONE
-#{enum UVCopyFileFlag, UVCopyFileFlag, uV_FS_COPYFILE_FICLONE       = UV_FS_COPYFILE_FICLONE}
+pattern COPYFILE_FICLONE = UVCopyFileFlag #{const UV_FS_COPYFILE_FICLONE}
 #else
-uV_FS_COPYFILE_FICLONE :: UVCopyFileFlag
-uV_FS_COPYFILE_FICLONE = UVCopyFileFlag 0   -- fallback to normal copy.
-#endif
-
-#ifdef UV_FS_COPYFILE_FICLONE_FORCE
-#{enum UVCopyFileFlag, UVCopyFileFlag, uV_FS_COPYFILE_FICLONE_FORCE = UV_FS_COPYFILE_FICLONE_FORCE}
-#else
-uV_FS_COPYFILE_FICLONE_FORCE:: UVCopyFileFlag
-uV_FS_COPYFILE_FICLONE_FORCE = error "Std.IO.UV.FFI.uV_FS_COPYFILE_FICLONE_FORCE: unsupported UVCopyFileFlag, please update libuv"
+pattern COPYFILE_FICLONE = UVCopyFileFlag 0   -- fallback to normal copy.
 #endif
 
 foreign import ccall unsafe hs_uv_fs_copyfile :: CString -> CString -> UVCopyFileFlag -> IO Int
@@ -510,11 +532,14 @@ foreign import ccall unsafe hs_uv_fs_copyfile_threaded
 newtype UVAccessMode = UVAccessMode CInt
     deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable)
 
-#{enum UVAccessMode, UVAccessMode, 
-    f_OK = F_OK,
-    r_OK = R_OK,
-    w_OK = W_OK,
-    x_OK = X_OK}
+pattern F_OK :: UVAccessMode
+pattern F_OK = UVAccessMode #{const F_OK}
+pattern R_OK :: UVAccessMode
+pattern R_OK = UVAccessMode #{const R_OK}
+pattern W_OK :: UVAccessMode
+pattern W_OK = UVAccessMode #{const W_OK}
+pattern X_OK :: UVAccessMode
+pattern X_OK = UVAccessMode #{const X_OK}
 
 data AccessResult = NoExistence | NoPermission | AccessOK deriving (Show, Eq, Ord)
 
@@ -538,21 +563,17 @@ foreign import ccall unsafe hs_uv_fs_futime :: UVFD -> Double -> Double -> IO In
 foreign import ccall unsafe hs_uv_fs_futime_threaded
     :: UVFD -> Double -> Double -> Ptr UVLoop -> IO UVSlotUnSafe
 
--- | Note On Windows the flags parameter can be specified to control how the symlink will be created.
---
---   * 'uV_FS_SYMLINK_DIR': indicates that path points to a directory.
---   * 'uV_FS_SYMLINK_JUNCTION': request that the symlink is created using junction points.
---
--- On other platforms these flags are ignored.
 newtype UVSymlinkFlag = UVSymlinkFlag CInt
     deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable)
 
-uV_FS_SYMLINK_DEFAULT :: UVSymlinkFlag
-uV_FS_SYMLINK_DEFAULT = UVSymlinkFlag 0
+pattern SYMLINK_DEFAULT :: UVSymlinkFlag
+pattern SYMLINK_DEFAULT = UVSymlinkFlag 0
 
-#{enum UVSymlinkFlag, UVSymlinkFlag, 
-    uV_FS_SYMLINK_DIR = UV_FS_SYMLINK_DIR,
-    uV_FS_SYMLINK_JUNCTION = UV_FS_SYMLINK_JUNCTION}
+pattern SYMLINK_DIR :: UVSymlinkFlag
+pattern SYMLINK_DIR = UVSymlinkFlag #{const UV_FS_SYMLINK_DIR}
+
+pattern SYMLINK_JUNCTION :: UVSymlinkFlag
+pattern SYMLINK_JUNCTION = UVSymlinkFlag #{const UV_FS_SYMLINK_JUNCTION}
 
 foreign import ccall unsafe hs_uv_fs_link :: CString -> CString -> IO Int
 foreign import ccall unsafe hs_uv_fs_link_threaded

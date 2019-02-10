@@ -25,37 +25,13 @@ module Std.IO.FileSystem
   , UVFileWriter, newUVFileWriter, peekUVFileWriter
   , initUVFile
     -- * opening constant
-  , UVFileMode
-  , defaultMode
-  , s_IRWXU
-  , s_IRUSR
-  , s_IWUSR
-  , s_IXUSR
-  , s_IRWXG
-  , s_IRGRP
-  , s_IWGRP
-  , s_IXGRP
-  , s_IRWXO
-  , s_IROTH
-  , UVFileFlag
-  , o_APPEND
-  , o_CREAT
-  , o_DIRECT
-  , o_DSYNC
-  , o_EXCL
-  , o_EXLOCK
-  , o_NOATIME
-  , o_NOFOLLOW
-  , o_RDONLY
-  , o_RDWR
-  , o_SYMLINK
-  , o_SYNC
-  , o_TRUNC
-  , o_WRONLY
-  , o_RANDOM
-  , o_SHORT_LIVED
-  , o_SEQUENTIAL
-  , o_TEMPORARY
+  , UVFileMode(DEFAULT_MODE, S_IRWXU, S_IRUSR, S_IWUSR
+      , S_IXUSR, S_IRWXG, S_IRGRP, S_IWGRP, S_IXGRP, S_IRWXO, S_IROTH
+      )
+  , UVFileFlag(O_APPEND, O_CREAT, O_DIRECT, O_DSYNC, O_EXCL
+      , O_EXLOCK, O_NOATIME, O_NOFOLLOW, O_RDONLY, O_RDWR, O_SYMLINK
+      , O_SYNC, O_TRUNC, O_WRONLY, O_RANDOM, O_SHORT_LIVED, O_SEQUENTIAL, O_TEMPORARY
+      )
   -- * filesystem operations
   , mkdir
   , unlink
@@ -67,20 +43,14 @@ module Std.IO.FileSystem
   , rename
   , fsync, fdatasync
   , ftruncate
-  , UVCopyFileFlag
-  , uV_FS_COPYFILE_DEFAULT
-  , uV_FS_COPYFILE_EXCL
-  , uV_FS_COPYFILE_FICLONE
-  , uV_FS_COPYFILE_FICLONE_FORCE
+  , UVCopyFileFlag(COPYFILE_DEFAULT, COPYFILE_EXCL, COPYFILE_FICLONE)
   , copyfile
-  , UVAccessMode
+  , UVAccessMode(F_OK, R_OK, W_OK, X_OK)
   , AccessResult(..)
-  , f_OK, r_OK, w_OK, x_OK
   , access
   , chmod, fchmod
   , utime, futime
-  , UVSymlinkFlag
-  , uV_FS_SYMLINK_DEFAULT, uV_FS_SYMLINK_DIR, uV_FS_SYMLINK_JUNCTION
+  , UVSymlinkFlag(SYMLINK_DEFAULT, SYMLINK_DIR, SYMLINK_JUNCTION)
   , link, symlink
   , readlink, realpath
   ) where
@@ -122,7 +92,7 @@ data UVFile = UVFile
     }
 
 instance Show UVFile where
-    show (UVFile fd _) = "UVFile" ++ show fd
+    show (UVFile fd _) = "Std.IO.FileSystem: UVFile" ++ show fd
 
 instance Input UVFile where
     -- readInput :: HasCallStack => UVFile -> Ptr Word8 -> Int -> IO Int
@@ -247,10 +217,14 @@ initUVFile path flags mode =
 
 --------------------------------------------------------------------------------
 
+-- | Equivalent to <http://linux.die.net/man/2/mkdir mkdir(2)>.
+--
+-- Note mode is currently not implemented on Windows.
 mkdir :: HasCallStack => CBytes -> UVFileMode -> IO ()
 mkdir path mode = throwUVIfMinus_ . withCBytes path $ \ p ->
      hs_uv_fs_mkdir p mode
 
+-- | Equivalent to <http://linux.die.net/man/2/unlink unlink(2)>.
 unlink :: HasCallStack => CBytes -> IO ()
 unlink path = throwUVIfMinus_ (withCBytes path hs_uv_fs_unlink)
 
@@ -274,9 +248,15 @@ mkdtemp path = do
             throwUVIfMinus_ (hs_uv_fs_mkdtemp p size p')
             return (size+6)
 
+-- | Equivalent to <http://linux.die.net/man/2/rmdir rmdir(2)>.
 rmdir :: HasCallStack => CBytes -> IO ()
 rmdir path = throwUVIfMinus_ (withCBytes path hs_uv_fs_rmdir)
 
+-- | Equivalent to <http://linux.die.net/man/3/scandir scandir(3)>.
+--
+-- Note Unlike scandir(3), this function does not return the “.” and “..” entries.
+--
+-- Note On Linux, getting the type of an entry is only supported by some file systems (btrfs, ext2, ext3 and ext4 at the time of this writing), check the <http://linux.die.net/man/2/getdents getdents(2)> man page.
 scandir :: HasCallStack => CBytes -> IO [(CBytes, DirEntType)]
 scandir path = do
     uvm <- getUVManager
@@ -294,6 +274,7 @@ scandir path = do
 
 --------------------------------------------------------------------------------
 
+-- | Equivalent to <http://linux.die.net/man/2/stat stat(2)>
 stat :: HasCallStack => CBytes -> IO UVStat
 stat path = do
     withCBytes path $ \ p ->
@@ -301,6 +282,7 @@ stat path = do
             throwUVIfMinus_ (hs_uv_fs_stat p stat)
             peekUVStat stat
 
+-- | Equivalent to <http://linux.die.net/man/2/lstat lstat(2)>
 lstat :: HasCallStack => CBytes -> IO UVStat
 lstat path = do
     withCBytes path $ \ p ->
@@ -308,6 +290,7 @@ lstat path = do
             throwUVIfMinus_ (hs_uv_fs_lstat p stat)
             peekUVStat stat
 
+-- | Equivalent to <http://linux.die.net/man/2/fstat fstat(2)>
 fstat :: HasCallStack => UVFile -> IO UVStat
 fstat (UVFile fd counter) =
     bracket_ (atomically $ do
@@ -321,10 +304,14 @@ fstat (UVFile fd counter) =
 
 --------------------------------------------------------------------------------
 
+-- | Equivalent to <http://linux.die.net/man/2/rename rename(2)>.
+--
+-- Note On Windows if this function fails with UV_EBUSY, UV_EPERM or UV_EACCES, it will retry to rename the file up to four times with 250ms wait between attempts before giving up. If both path and new_path are existing directories this function will work only if target directory is empty.
 rename :: HasCallStack => CBytes -> CBytes -> IO ()
 rename path path' = throwUVIfMinus_ . withCBytes path $ \ p ->
     withCBytes path' (hs_uv_fs_rename p)
 
+-- | Equivalent to <http://linux.die.net/man/2/fsync fsync(2)>.
 fsync :: HasCallStack => UVFile -> IO ()
 fsync (UVFile fd counter) =
     bracket_ (atomically $ do
@@ -334,6 +321,7 @@ fsync (UVFile fd counter) =
              (atomically $ modifyTVar' counter (subtract 1))
              (throwUVIfMinus_ (hs_uv_fs_fsync fd))
 
+-- | Equivalent to <http://linux.die.net/man/2/fdatasync fdatasync(2)>.
 fdatasync :: HasCallStack => UVFile -> IO ()
 fdatasync (UVFile fd counter) =
     bracket_ (atomically $ do
@@ -343,6 +331,7 @@ fdatasync (UVFile fd counter) =
              (atomically $ modifyTVar' counter (subtract 1))
              (throwUVIfMinus_ (hs_uv_fs_fdatasync fd))
 
+-- | Equivalent to <http://linux.die.net/man/2/ftruncate ftruncate(2)>.
 ftruncate :: HasCallStack => UVFile -> Int64 -> IO ()
 ftruncate (UVFile fd counter) off =
     bracket_ (atomically $ do
@@ -352,24 +341,31 @@ ftruncate (UVFile fd counter) off =
              (atomically $ modifyTVar' counter (subtract 1))
              (throwUVIfMinus_ (hs_uv_fs_ftruncate fd off))
 
+-- | Copies a file from path to new_path.
+--
+-- Warning: If the destination path is created, but an error occurs while copying the data, then the destination path is removed. There is a brief window of time between closing and removing the file where another process could access the file.
 copyfile :: HasCallStack => CBytes -> CBytes -> UVCopyFileFlag -> IO ()
 copyfile path path' flag = throwUVIfMinus_ . withCBytes path $ \ p ->
     withCBytes path' $ \ p' -> hs_uv_fs_copyfile p p' flag
 
+-- | Equivalent to <http://linux.die.net/man/2/access access(2)> on Unix.
+-- Windows uses GetFileAttributesW().
 access :: HasCallStack => CBytes -> UVAccessMode -> IO AccessResult
 access path mode = do
      r <- withCBytes path $ \ p -> fromIntegral <$> hs_uv_fs_access p mode
      if | r == 0           -> return AccessOK
-        | r == uV_ENOENT   -> return NoExistence
-        | r == uV_EACCES   -> return NoPermission
+        | r == UV_ENOENT   -> return NoExistence
+        | r == UV_EACCES   -> return NoPermission
         | otherwise        -> do
             name <- uvErrName r
             desc <- uvStdError r
             throwUVError r (IOEInfo name desc callStack)
 
+-- | Equivalent to <http://linux.die.net/man/2/chmod chmod(2)>.
 chmod :: HasCallStack => CBytes -> UVFileMode -> IO ()
 chmod path mode = throwUVIfMinus_ . withCBytes path $ \ p -> hs_uv_fs_chmod p mode
 
+-- | Equivalent to <http://linux.die.net/man/2/fchmod fchmod(2)>.
 fchmod :: HasCallStack => UVFile -> UVFileMode -> IO ()
 fchmod (UVFile fd counter) mode =
     bracket_ (atomically $ do
@@ -379,9 +375,11 @@ fchmod (UVFile fd counter) mode =
              (atomically $ modifyTVar' counter (subtract 1))
              (throwUVIfMinus_ (hs_uv_fs_fchmod fd mode))
 
+-- | Equivalent to <http://linux.die.net/man/2/utime utime(2)>.
 utime :: HasCallStack => CBytes -> Double -> Double -> IO ()
 utime path atime mtime = throwUVIfMinus_ . withCBytes path $ \ p -> hs_uv_fs_utime p atime mtime
 
+-- | Equivalent to <http://linux.die.net/man/2/futime futime(2)>.
 futime :: HasCallStack => UVFile -> Double -> Double -> IO ()
 futime (UVFile fd counter) atime mtime =
     bracket_ (atomically $ do
@@ -391,14 +389,24 @@ futime (UVFile fd counter) atime mtime =
              (atomically $ modifyTVar' counter (subtract 1))
              (throwUVIfMinus_ (hs_uv_fs_futime fd atime mtime))
 
+-- | Equivalent to <http://linux.die.net/man/2/link link(2)>.
 link :: HasCallStack => CBytes -> CBytes -> IO ()
 link path path' = throwUVIfMinus_ . withCBytes path $ \ p ->
     withCBytes path' $ hs_uv_fs_link p
 
+-- | Equivalent to <http://linux.die.net/man/2/symlink symlink(2)>.
+--
+-- | Note On Windows the flags parameter can be specified to control how the symlink will be created.
+--
+--   * 'SYMLINK_DIR': indicates that path points to a directory.
+--   * 'SYMLINK_JUNCTION': request that the symlink is created using junction points.
+--
+-- On other platforms these flags are ignored.
 symlink :: HasCallStack => CBytes -> CBytes -> UVSymlinkFlag -> IO ()
 symlink path path' flag = throwUVIfMinus_ . withCBytes path $ \ p ->
     withCBytes path' $ \ p' -> hs_uv_fs_symlink p p' flag
 
+-- | Equivalent to <http://linux.die.net/man/2/readlink readlink(2)>.
 readlink :: HasCallStack => CBytes -> IO CBytes
 readlink path = do
     uvm <- getUVManager

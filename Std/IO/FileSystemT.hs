@@ -24,37 +24,13 @@ module Std.IO.FileSystemT
   , UVFileWriter, newUVFileWriter, peekUVFileWriter
   , initUVFile
     -- * opening constant
-  , UVFileMode
-  , defaultMode
-  , s_IRWXU
-  , s_IRUSR
-  , s_IWUSR
-  , s_IXUSR
-  , s_IRWXG
-  , s_IRGRP
-  , s_IWGRP
-  , s_IXGRP
-  , s_IRWXO
-  , s_IROTH
-  , UVFileFlag
-  , o_APPEND
-  , o_CREAT
-  , o_DIRECT
-  , o_DSYNC
-  , o_EXCL
-  , o_EXLOCK
-  , o_NOATIME
-  , o_NOFOLLOW
-  , o_RDONLY
-  , o_RDWR
-  , o_SYMLINK
-  , o_SYNC
-  , o_TRUNC
-  , o_WRONLY
-  , o_RANDOM
-  , o_SHORT_LIVED
-  , o_SEQUENTIAL
-  , o_TEMPORARY
+  , UVFileMode(DEFAULT_MODE, S_IRWXU, S_IRUSR, S_IWUSR
+      , S_IXUSR, S_IRWXG, S_IRGRP, S_IWGRP, S_IXGRP, S_IRWXO, S_IROTH
+      )
+  , UVFileFlag(O_APPEND, O_CREAT, O_DIRECT, O_DSYNC, O_EXCL
+      , O_EXLOCK, O_NOATIME, O_NOFOLLOW, O_RDONLY, O_RDWR, O_SYMLINK
+      , O_SYNC, O_TRUNC, O_WRONLY, O_RANDOM, O_SHORT_LIVED, O_SEQUENTIAL, O_TEMPORARY
+      )
   -- * filesystem operations
   , mkdir
   , unlink
@@ -66,20 +42,14 @@ module Std.IO.FileSystemT
   , rename
   , fsync, fdatasync
   , ftruncate
-  , UVCopyFileFlag
-  , uV_FS_COPYFILE_DEFAULT
-  , uV_FS_COPYFILE_EXCL
-  , uV_FS_COPYFILE_FICLONE
-  , uV_FS_COPYFILE_FICLONE_FORCE
+  , UVCopyFileFlag(COPYFILE_DEFAULT, COPYFILE_EXCL, COPYFILE_FICLONE)
   , copyfile
-  , UVAccessMode
-  , f_OK, r_OK, w_OK, x_OK
+  , UVAccessMode(F_OK, R_OK, W_OK, X_OK)
   , AccessResult(..)
   , access
   , chmod, fchmod
   , utime, futime
-  , UVSymlinkFlag
-  , uV_FS_SYMLINK_DEFAULT, uV_FS_SYMLINK_DIR, uV_FS_SYMLINK_JUNCTION
+  , UVSymlinkFlag(SYMLINK_DEFAULT, SYMLINK_DIR, SYMLINK_JUNCTION)
   , link, symlink
   , readlink, realpath
   ) where
@@ -112,7 +82,7 @@ import           Std.IO.UV.Manager
 -- Note this is a differet data type from "Std.IO.FileSystem" 's one, the 'Input'
 -- and 'Output' instance use thread pool version functions.
 --
--- libuv implements read and write method with both implict and explict offset capable.
+-- libuv implements read and write method with both implict and explict offset capability.
 -- (negative offset result in @read/write@ system call otherwise @pread/pwrite@), we provide
 -- implict offset interface with 'UVFile', which is NOT thread safe.
 --
@@ -122,6 +92,9 @@ data UVFile = UVFile
     { uvfFD      :: {-# UNPACK #-} !UVFD
     , uvfCounter :: {-# UNPACK #-} !(TVar Int)
     }
+
+instance Show UVFile where
+    show (UVFile fd _) = "Std.IO.FileSystemT: UVFile" ++ show fd
 
 instance Input UVFile where
     readInput f buf bufSiz = readUVFile f buf bufSiz (-1)
@@ -247,12 +220,16 @@ initUVFile path flags mode = do
 
 --------------------------------------------------------------------------------
 
+-- | Equivalent to <http://linux.die.net/man/2/mkdir mkdir(2)>.
+--
+-- Note mode is currently not implemented on Windows.
 mkdir :: HasCallStack => CBytes -> UVFileMode -> IO ()
 mkdir path mode = do
     uvm <- getUVManager
     withCBytes path $ \ p ->
         withUVRequest_ uvm (hs_uv_fs_mkdir_threaded p mode)
 
+-- | Equivalent to <http://linux.die.net/man/2/unlink unlink(2)>.
 unlink :: HasCallStack => CBytes -> IO ()
 unlink path = do
     uvm <- getUVManager
@@ -278,6 +255,7 @@ mkdtemp path = do
             withUVRequest_ uvm (hs_uv_fs_mkdtemp_threaded p size p')
             return (size+6)
 
+-- | Equivalent to <http://linux.die.net/man/2/rmdir rmdir(2)>.
 rmdir :: HasCallStack => CBytes -> IO ()
 rmdir path = do
     uvm <- getUVManager
@@ -285,6 +263,11 @@ rmdir path = do
 
 --------------------------------------------------------------------------------
 
+-- | Equivalent to <http://linux.die.net/man/3/scandir scandir(3)>.
+--
+-- Note Unlike scandir(3), this function does not return the “.” and “..” entries.
+--
+-- Note On Linux, getting the type of an entry is only supported by some file systems (btrfs, ext2, ext3 and ext4 at the time of this writing), check the <http://linux.die.net/man/2/getdents getdents(2)> man page.
 scandir :: HasCallStack => CBytes -> IO [(CBytes, DirEntType)]
 scandir path = do
     uvm <- getUVManager
@@ -304,6 +287,7 @@ scandir path = do
 
 --------------------------------------------------------------------------------
 
+-- | Equivalent to <http://linux.die.net/man/2/stat stat(2)>
 stat :: HasCallStack => CBytes -> IO UVStat
 stat path = do
     withCBytes path $ \ p ->
@@ -312,6 +296,7 @@ stat path = do
             withUVRequest_ uvm (hs_uv_fs_stat_threaded p stat)
             peekUVStat stat
 
+-- | Equivalent to <http://linux.die.net/man/2/lstat lstat(2)>
 lstat :: HasCallStack => CBytes -> IO UVStat
 lstat path = do
     withCBytes path $ \ p ->
@@ -320,6 +305,7 @@ lstat path = do
             withUVRequest_ uvm (hs_uv_fs_lstat_threaded p stat)
             peekUVStat stat
 
+-- | Equivalent to <http://linux.die.net/man/2/fstat fstat(2)>
 fstat :: HasCallStack => UVFile -> IO UVStat
 fstat (UVFile fd counter) = do
     bracket_ (atomically $ do
@@ -334,6 +320,9 @@ fstat (UVFile fd counter) = do
 
 --------------------------------------------------------------------------------
 
+-- | Equivalent to <http://linux.die.net/man/2/rename rename(2)>.
+--
+-- Note On Windows if this function fails with UV_EBUSY, UV_EPERM or UV_EACCES, it will retry to rename the file up to four times with 250ms wait between attempts before giving up. If both path and new_path are existing directories this function will work only if target directory is empty.
 rename :: HasCallStack => CBytes -> CBytes -> IO ()
 rename path path' = do
     uvm <- getUVManager
@@ -341,6 +330,7 @@ rename path path' = do
         withCBytes path' $ \ p' ->
             withUVRequest_ uvm (hs_uv_fs_rename_threaded p p')
 
+-- | Equivalent to <http://linux.die.net/man/2/fsync fsync(2)>.
 fsync :: HasCallStack => UVFile -> IO ()
 fsync (UVFile fd counter) =
     bracket_ (atomically $ do
@@ -351,6 +341,7 @@ fsync (UVFile fd counter) =
              (do uvm <- getUVManager
                  withUVRequest_ uvm (hs_uv_fs_fsync_threaded fd))
 
+-- | Equivalent to <http://linux.die.net/man/2/fdatasync fdatasync(2)>.
 fdatasync :: HasCallStack => UVFile -> IO ()
 fdatasync (UVFile fd counter) =
     bracket_ (atomically $ do
@@ -361,6 +352,7 @@ fdatasync (UVFile fd counter) =
              (do uvm <- getUVManager
                  withUVRequest_ uvm (hs_uv_fs_fdatasync_threaded fd))
 
+-- | Equivalent to <http://linux.die.net/man/2/ftruncate ftruncate(2)>.
 ftruncate :: HasCallStack => UVFile -> Int64 -> IO ()
 ftruncate (UVFile fd counter) off =
     bracket_ (atomically $ do
@@ -371,6 +363,9 @@ ftruncate (UVFile fd counter) off =
              (do uvm <- getUVManager
                  withUVRequest_ uvm (hs_uv_fs_ftruncate_threaded fd off))
 
+-- | Copies a file from path to new_path.
+--
+-- Warning: If the destination path is created, but an error occurs while copying the data, then the destination path is removed. There is a brief window of time between closing and removing the file where another process could access the file.
 copyfile :: HasCallStack => CBytes -> CBytes -> UVCopyFileFlag -> IO ()
 copyfile path path' flag = do
     uvm <- getUVManager
@@ -378,6 +373,8 @@ copyfile path path' flag = do
         withCBytes path' $ \ p' ->
             withUVRequest_ uvm (hs_uv_fs_copyfile_threaded p p' flag)
 
+-- | Equivalent to <http://linux.die.net/man/2/access access(2)> on Unix.
+-- Windows uses GetFileAttributesW().
 access :: HasCallStack => CBytes -> UVAccessMode -> IO AccessResult
 access path mode = do
     uvm <- getUVManager
@@ -386,19 +383,21 @@ access path mode = do
   where
     handleResult r
         | r == 0           = return AccessOK
-        | r == uV_ENOENT   = return NoExistence
-        | r == uV_EACCES   = return NoPermission
+        | r == UV_ENOENT   = return NoExistence
+        | r == UV_EACCES   = return NoPermission
         | otherwise        = do
             name <- uvErrName r
             desc <- uvStdError r
             throwUVError r (IOEInfo name desc callStack)
 
+-- | Equivalent to <http://linux.die.net/man/2/chmod chmod(2)>.
 chmod :: HasCallStack => CBytes -> UVFileMode -> IO ()
 chmod path mode = do
     uvm <- getUVManager
     withCBytes path $ \ p ->
         withUVRequest_ uvm (hs_uv_fs_chmod_threaded p mode)
 
+-- | Equivalent to <http://linux.die.net/man/2/fchmod fchmod(2)>.
 fchmod :: HasCallStack => UVFile -> UVFileMode -> IO ()
 fchmod (UVFile fd counter) mode =
     bracket_ (atomically $ do
@@ -409,12 +408,14 @@ fchmod (UVFile fd counter) mode =
              (do uvm <- getUVManager
                  withUVRequest_ uvm (hs_uv_fs_fchmod_threaded fd mode))
 
+-- | Equivalent to <http://linux.die.net/man/2/utime utime(2)>.
 utime :: HasCallStack => CBytes -> Double -> Double -> IO ()
 utime path atime mtime = do
     uvm <- getUVManager
     withCBytes path $ \ p ->
         withUVRequest_ uvm (hs_uv_fs_utime_threaded p atime mtime)
 
+-- | Equivalent to <http://linux.die.net/man/2/futime futime(2)>.
 futime :: HasCallStack => UVFile -> Double -> Double -> IO ()
 futime (UVFile fd counter) atime mtime =
     bracket_ (atomically $ do
@@ -425,6 +426,7 @@ futime (UVFile fd counter) atime mtime =
              (do uvm <- getUVManager
                  withUVRequest_ uvm (hs_uv_fs_futime_threaded fd atime mtime))
 
+-- | Equivalent to <http://linux.die.net/man/2/link link(2)>.
 link :: HasCallStack => CBytes -> CBytes -> IO ()
 link path path' = do
     uvm <- getUVManager
@@ -432,6 +434,14 @@ link path path' = do
         withCBytes path' $ \ p' ->
             withUVRequest_ uvm (hs_uv_fs_link_threaded p p')
 
+-- | Equivalent to <http://linux.die.net/man/2/symlink symlink(2)>.
+--
+-- | Note On Windows the flags parameter can be specified to control how the symlink will be created.
+--
+--   * 'SYMLINK_DIR': indicates that path points to a directory.
+--   * 'SYMLINK_JUNCTION': request that the symlink is created using junction points.
+--
+-- On other platforms these flags are ignored.
 symlink :: HasCallStack => CBytes -> CBytes -> UVSymlinkFlag -> IO ()
 symlink path path' flag = do
     uvm <- getUVManager
@@ -439,6 +449,7 @@ symlink path path' flag = do
         withCBytes path' $ \ p' ->
             withUVRequest_ uvm (hs_uv_fs_symlink_threaded p p' flag)
 
+-- | Equivalent to <http://linux.die.net/man/2/readlink readlink(2)>.
 readlink :: HasCallStack => CBytes -> IO CBytes
 readlink path = do
     uvm <- getUVManager
@@ -453,6 +464,23 @@ readlink path = do
             !path' <- fromCString path
             return path')
 
+-- | Equivalent to <http://linux.die.net/man/3/realpath realpath(3)> on Unix. Windows uses <https://msdn.microsoft.com/en-us/library/windows/desktop/aa364962(v=vs.85).aspx GetFinalPathNameByHandle>.
+--
+-- Warning This function has certain platform-specific caveats that were discovered when used in Node.
+--
+--  * macOS and other BSDs: this function will fail with UV_ELOOP if more than 32 symlinks are found while
+--    resolving the given path. This limit is hardcoded and cannot be sidestepped.
+--
+--  * Windows: while this function works in the common case, there are a number of corner cases where it doesn’t:
+--
+--      * Paths in ramdisk volumes created by tools which sidestep the Volume Manager (such as ImDisk) cannot be resolved.
+--      * Inconsistent casing when using drive letters.
+--      * Resolved path bypasses subst’d drives.
+--
+-- While this function can still be used, it’s not recommended if scenarios such as the above need to be supported.
+-- The background story and some more details on these issues can be checked <https://github.com/nodejs/node/issues/7726 here>.
+--
+-- Note This function is not implemented on Windows XP and Windows Server 2003. On these systems, UV_ENOSYS is returned.
 realpath :: HasCallStack => CBytes -> IO CBytes
 realpath path = do
     uvm <- getUVManager

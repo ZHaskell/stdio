@@ -102,7 +102,7 @@ uvManagerArray = unsafePerformIO $ do
     s <- newQSemN 0
     forM_ [0..numCaps-1] $ \ i -> do
         -- fork uv manager thread
-        forkOn i . withResource (initUVManager iNIT_LOOP_SIZE i) $ \ m -> do
+        forkOn i . withResource (initUVManager INIT_LOOP_SIZE i) $ \ m -> do
             myThreadId >>= (`labelThread` ("uv manager on " ++ show i))
             writeArr uvmArray i m
             signalQSemN s 1
@@ -232,12 +232,12 @@ startUVManager uvm@(UVManager _ _ _ running _) = loop -- use a closure capture u
 
             if block
             then if rtsSupportsBoundThreads
-                then throwUVIfMinus_ $ uv_run_safe loop uV_RUN_ONCE
+                then throwUVIfMinus_ $ uv_run_safe loop UV_RUN_ONCE
                 else do
                     -- use a 1ms timeout blocking poll on non-threaded rts
                     throwUVIfMinus_ (hs_uv_wake_up_timer loopData)
-                    throwUVIfMinus_ (uv_run loop uV_RUN_ONCE)
-            else throwUVIfMinus_ (uv_run loop uV_RUN_NOWAIT)
+                    throwUVIfMinus_ (uv_run loop UV_RUN_ONCE)
+            else throwUVIfMinus_ (uv_run loop UV_RUN_NOWAIT)
 
             (c, q) <- peekUVEventQueue loopData
             forM_ [0..c-1] $ \ i -> do
@@ -334,7 +334,7 @@ instance Input UVStream where
         r <- takeMVar m `onException` closeUVStream uvs
         if  | r > 0  -> return r
             -- r == 0 should be impossible, since we guard this situation in c side
-            | r == fromIntegral uV_EOF -> return 0
+            | r == fromIntegral UV_EOF -> return 0
             | r < 0 ->  throwUVIfMinus (return r)
 
 

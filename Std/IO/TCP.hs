@@ -121,7 +121,7 @@ startServer ServerConfig{..} = do
                 throwUVIfMinus_ $ hs_uv_accept_check_init check
                 withSockAddr serverAddr $ \ addrPtr -> do
                     m <- getBlockMVar serverManager serverSlot
-                    acceptBuf <- newPinnedPrimArray (fromIntegral aCCEPT_BUFFER_SIZE)
+                    acceptBuf <- newPinnedPrimArray ACCEPT_BUFFER_SIZE
                     let acceptBufPtr = (coerce (mutablePrimArrayContents acceptBuf :: Ptr UVFD))
 
                     withUVManager_ serverManager $ do
@@ -159,5 +159,5 @@ startServer ServerConfig{..} = do
                                         uv_tcp_nodelay (uvsHandle client) 1
                                     serverWorker client
 
-                        when (accepted == fromIntegral aCCEPT_BUFFER_SIZE) $
+                        when (accepted == ACCEPT_BUFFER_SIZE) $
                             withUVManager_ serverManager (hs_uv_listen_resume serverHandle)

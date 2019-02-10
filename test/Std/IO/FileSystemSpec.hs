@@ -20,8 +20,8 @@ spec :: Spec
 spec = describe "filesystem operations" $ do
     it "Opens and writes a file" $ do
 
-        let flags = o_RDWR .|. o_CREAT
-            mode = defaultMode
+        let flags = O_RDWR .|. O_CREAT
+            mode = DEFAULT_MODE
             filename = "stdio-unit"
 
             content = "Hello world!"

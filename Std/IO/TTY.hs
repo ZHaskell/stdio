@@ -34,23 +34,4 @@ initTTYStream :: HasCallStack => UVFD -> UVManager -> Resource UVStream
 initTTYStream fd = initUVStream (\ loop handle ->
     throwUVIfMinus_ (uv_tty_init loop handle (fromIntegral fd)))
 
-stdin :: UVStream
-{-# NOINLINE stdin #-}
-stdin = unsafePerformIO $ do
-    uvm <- getUVManager
-    (stdin, _ ) <- acquire (initTTYStream 0 uvm)    -- well, stdin live across whole program
-    return stdin                                    -- so we give up resource management
-
-stdout :: UVStream
-{-# NOINLINE stdout #-}
-stdout = unsafePerformIO $ do
-    uvm <- getUVManager
-    (stdin, _ ) <- acquire (initTTYStream 1 uvm)
-    return stdin
-
-stderr :: UVStream
-{-# NOINLINE stderr #-}
-stderr = unsafePerformIO $ do
-    uvm <- getUVManager
-    (stdin, _ ) <- acquire (initTTYStream 2 uvm)
-    return stdin
+-- TODO: Add TTY related functions

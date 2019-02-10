@@ -266,7 +266,7 @@ peekSockAddr p = do
             scope <- (#peek struct sockaddr_in6, sin6_scope_id) p
             return (SockAddrInet6 (PortNum port) flow addr scope)
 
-        _ -> do let errno = uV_EAI_ADDRFAMILY
+        _ -> do let errno = UV_EAI_ADDRFAMILY
                 name <- uvErrName errno
                 desc <- uvStdError errno
                 throwUVError errno (IOEInfo name desc callStack)

@@ -31,7 +31,19 @@ brew install libuv
 ...
 ```
 
-You can also build libuv from source following the guide [here](https://github.com/libuv/libuv#build-instructions), and modify your `LIBRARY_PATH/CPATH` if necessary. After libuv is in place, installing stdio is as easy as any other haskell packages.
+Currently **the minimum version requirement for libuv is v1.14**. If your package manager's libuv doesn't meet this requirement, you can also build libuv from source following the guide [here](https://github.com/libuv/libuv#build-instructions), e.g.
+
+```
+git clone https://github.com/libuv/libuv.git 
+cd libuv 
+git checkout tags/v1.18.0   # depend on your own need, any version >= 1.14 will work.
+sh autogen.sh 
+./configure 
+make 
+sudo make install 
+```
+
+After manually building and installing, you may need to modify your `LIBRARY_PATH/CPATH` if necessary. Now installing stdio is as easy as any other haskell packages.  
 
 ```
 cabal install stdio

@@ -1,3 +1,4 @@
+{-# LANGUAGE PatternSynonyms #-}
 {-|
 Module      : Std.IO.UVErrno
 Description : Errno provided by libuv
@@ -29,152 +30,227 @@ uvErrName errno = peekCString =<< uv_err_name errno
 foreign import ccall unsafe uv_err_name :: CInt -> IO CString
 
 -- | argument list too long
-#{enum CInt, CInt, uV_E2BIG          = UV_E2BIG          }
+pattern UV_E2BIG           :: CInt
+pattern UV_E2BIG           = #{const UV_E2BIG          }
 -- | permission denied
-#{enum CInt, CInt, uV_EACCES         = UV_EACCES         }
+pattern UV_EACCES          :: CInt
+pattern UV_EACCES          = #{const UV_EACCES         }
 -- | address already in use
-#{enum CInt, CInt, uV_EADDRINUSE     = UV_EADDRINUSE     }
+pattern UV_EADDRINUSE      :: CInt
+pattern UV_EADDRINUSE      = #{const UV_EADDRINUSE     }
 -- | address not available
-#{enum CInt, CInt, uV_EADDRNOTAVAIL  = UV_EADDRNOTAVAIL  }
+pattern UV_EADDRNOTAVAIL   :: CInt
+pattern UV_EADDRNOTAVAIL   = #{const UV_EADDRNOTAVAIL  }
 -- | address family not supported
-#{enum CInt, CInt, uV_EAFNOSUPPORT   = UV_EAFNOSUPPORT   }
+pattern UV_EAFNOSUPPORT    :: CInt
+pattern UV_EAFNOSUPPORT    = #{const UV_EAFNOSUPPORT   }
 -- | resource temporarily unavailable
-#{enum CInt, CInt, uV_EAGAIN         = UV_EAGAIN         }
+pattern UV_EAGAIN          :: CInt
+pattern UV_EAGAIN          = #{const UV_EAGAIN         }
 -- | address family not supported
-#{enum CInt, CInt, uV_EAI_ADDRFAMILY = UV_EAI_ADDRFAMILY }
+pattern UV_EAI_ADDRFAMILY  :: CInt
+pattern UV_EAI_ADDRFAMILY  = #{const UV_EAI_ADDRFAMILY }
 -- | temporary failure
-#{enum CInt, CInt, uV_EAI_AGAIN      = UV_EAI_AGAIN      }
+pattern UV_EAI_AGAIN       :: CInt
+pattern UV_EAI_AGAIN       = #{const UV_EAI_AGAIN      }
 -- | bad ai_flags value
-#{enum CInt, CInt, uV_EAI_BADFLAGS   = UV_EAI_BADFLAGS   }
+pattern UV_EAI_BADFLAGS    :: CInt
+pattern UV_EAI_BADFLAGS    = #{const UV_EAI_BADFLAGS   }
 -- | invalid value for hints
-#{enum CInt, CInt, uV_EAI_BADHINTS   = UV_EAI_BADHINTS   }
+pattern UV_EAI_BADHINTS    :: CInt
+pattern UV_EAI_BADHINTS    = #{const UV_EAI_BADHINTS   }
 -- | request canceled
-#{enum CInt, CInt, uV_EAI_CANCELED   = UV_EAI_CANCELED   }
+pattern UV_EAI_CANCELED    :: CInt
+pattern UV_EAI_CANCELED    = #{const UV_EAI_CANCELED   }
 -- | permanent failure
-#{enum CInt, CInt, uV_EAI_FAIL       = UV_EAI_FAIL       }
+pattern UV_EAI_FAIL        :: CInt
+pattern UV_EAI_FAIL        = #{const UV_EAI_FAIL       }
 -- | ai_family not supported
-#{enum CInt, CInt, uV_EAI_FAMILY     = UV_EAI_FAMILY     }
+pattern UV_EAI_FAMILY      :: CInt
+pattern UV_EAI_FAMILY      = #{const UV_EAI_FAMILY     }
 -- | out of memory
-#{enum CInt, CInt, uV_EAI_MEMORY     = UV_EAI_MEMORY     }
+pattern UV_EAI_MEMORY      :: CInt
+pattern UV_EAI_MEMORY      = #{const UV_EAI_MEMORY     }
 -- | no address
-#{enum CInt, CInt, uV_EAI_NODATA     = UV_EAI_NODATA     }
+pattern UV_EAI_NODATA      :: CInt
+pattern UV_EAI_NODATA      = #{const UV_EAI_NODATA     }
 -- | unknown node or service
-#{enum CInt, CInt, uV_EAI_NONAME     = UV_EAI_NONAME     }
+pattern UV_EAI_NONAME      :: CInt
+pattern UV_EAI_NONAME      = #{const UV_EAI_NONAME     }
 -- | argument buffer overflow
-#{enum CInt, CInt, uV_EAI_OVERFLOW   = UV_EAI_OVERFLOW   }
+pattern UV_EAI_OVERFLOW    :: CInt
+pattern UV_EAI_OVERFLOW    = #{const UV_EAI_OVERFLOW   }
 -- | resolved protocol is unknown
-#{enum CInt, CInt, uV_EAI_PROTOCOL   = UV_EAI_PROTOCOL   }
+pattern UV_EAI_PROTOCOL    :: CInt
+pattern UV_EAI_PROTOCOL    = #{const UV_EAI_PROTOCOL   }
 -- | service not available for socket type
-#{enum CInt, CInt, uV_EAI_SERVICE    = UV_EAI_SERVICE    }
+pattern UV_EAI_SERVICE     :: CInt
+pattern UV_EAI_SERVICE     = #{const UV_EAI_SERVICE    }
 -- | socket type not supported
-#{enum CInt, CInt, uV_EAI_SOCKTYPE   = UV_EAI_SOCKTYPE   }
+pattern UV_EAI_SOCKTYPE    :: CInt
+pattern UV_EAI_SOCKTYPE    = #{const UV_EAI_SOCKTYPE   }
 -- | connection already in progress
-#{enum CInt, CInt, uV_EALREADY       = UV_EALREADY       }
+pattern UV_EALREADY        :: CInt
+pattern UV_EALREADY        = #{const UV_EALREADY       }
 -- | bad file descriptor
-#{enum CInt, CInt, uV_EBADF          = UV_EBADF          }
+pattern UV_EBADF           :: CInt
+pattern UV_EBADF           = #{const UV_EBADF          }
 -- | resource busy or locked
-#{enum CInt, CInt, uV_EBUSY          = UV_EBUSY          }
+pattern UV_EBUSY           :: CInt
+pattern UV_EBUSY           = #{const UV_EBUSY          }
 -- | operation canceled
-#{enum CInt, CInt, uV_ECANCELED      = UV_ECANCELED      }
+pattern UV_ECANCELED       :: CInt
+pattern UV_ECANCELED       = #{const UV_ECANCELED      }
 -- | invalid Unicode character
-#{enum CInt, CInt, uV_ECHARSET       = UV_ECHARSET       }
+pattern UV_ECHARSET        :: CInt
+pattern UV_ECHARSET        = #{const UV_ECHARSET       }
 -- | software caused connection abort
-#{enum CInt, CInt, uV_ECONNABORTED   = UV_ECONNABORTED   }
+pattern UV_ECONNABORTED    :: CInt
+pattern UV_ECONNABORTED    = #{const UV_ECONNABORTED   }
 -- | connection refused
-#{enum CInt, CInt, uV_ECONNREFUSED   = UV_ECONNREFUSED   }
+pattern UV_ECONNREFUSED    :: CInt
+pattern UV_ECONNREFUSED    = #{const UV_ECONNREFUSED   }
 -- | connection reset by peer
-#{enum CInt, CInt, uV_ECONNRESET     = UV_ECONNRESET     }
+pattern UV_ECONNRESET      :: CInt
+pattern UV_ECONNRESET      = #{const UV_ECONNRESET     }
 -- | destination address required
-#{enum CInt, CInt, uV_EDESTADDRREQ   = UV_EDESTADDRREQ   }
+pattern UV_EDESTADDRREQ    :: CInt
+pattern UV_EDESTADDRREQ    = #{const UV_EDESTADDRREQ   }
 -- | file already exists
-#{enum CInt, CInt, uV_EEXIST         = UV_EEXIST         }
+pattern UV_EEXIST          :: CInt
+pattern UV_EEXIST          = #{const UV_EEXIST         }
 -- | bad address in system call argument
-#{enum CInt, CInt, uV_EFAULT         = UV_EFAULT         }
+pattern UV_EFAULT          :: CInt
+pattern UV_EFAULT          = #{const UV_EFAULT         }
 -- | file too large
-#{enum CInt, CInt, uV_EFBIG          = UV_EFBIG          }
+pattern UV_EFBIG           :: CInt
+pattern UV_EFBIG           = #{const UV_EFBIG          }
 -- | host is unreachable
-#{enum CInt, CInt, uV_EHOSTUNREACH   = UV_EHOSTUNREACH   }
+pattern UV_EHOSTUNREACH    :: CInt
+pattern UV_EHOSTUNREACH    = #{const UV_EHOSTUNREACH   }
 -- | interrupted system call
-#{enum CInt, CInt, uV_EINTR          = UV_EINTR          }
+pattern UV_EINTR           :: CInt
+pattern UV_EINTR           = #{const UV_EINTR          }
 -- | invalid argument
-#{enum CInt, CInt, uV_EINVAL         = UV_EINVAL         }
+pattern UV_EINVAL          :: CInt
+pattern UV_EINVAL          = #{const UV_EINVAL         }
 -- | i/o error
-#{enum CInt, CInt, uV_EIO            = UV_EIO            }
+pattern UV_EIO             :: CInt
+pattern UV_EIO             = #{const UV_EIO            }
 -- | socket is already connected
-#{enum CInt, CInt, uV_EISCONN        = UV_EISCONN        }
+pattern UV_EISCONN         :: CInt
+pattern UV_EISCONN         = #{const UV_EISCONN        }
 -- | illegal operation on a directory
-#{enum CInt, CInt, uV_EISDIR         = UV_EISDIR         }
+pattern UV_EISDIR          :: CInt
+pattern UV_EISDIR          = #{const UV_EISDIR         }
 -- | too many symbolic links encountered
-#{enum CInt, CInt, uV_ELOOP          = UV_ELOOP          }
+pattern UV_ELOOP           :: CInt
+pattern UV_ELOOP           = #{const UV_ELOOP          }
 -- | too many open files
-#{enum CInt, CInt, uV_EMFILE         = UV_EMFILE         }
+pattern UV_EMFILE          :: CInt
+pattern UV_EMFILE          = #{const UV_EMFILE         }
 -- | message too long
-#{enum CInt, CInt, uV_EMSGSIZE       = UV_EMSGSIZE       }
+pattern UV_EMSGSIZE        :: CInt
+pattern UV_EMSGSIZE        = #{const UV_EMSGSIZE       }
 -- | name too long
-#{enum CInt, CInt, uV_ENAMETOOLONG   = UV_ENAMETOOLONG   }
+pattern UV_ENAMETOOLONG    :: CInt
+pattern UV_ENAMETOOLONG    = #{const UV_ENAMETOOLONG   }
 -- | network is down
-#{enum CInt, CInt, uV_ENETDOWN       = UV_ENETDOWN       }
+pattern UV_ENETDOWN        :: CInt
+pattern UV_ENETDOWN        = #{const UV_ENETDOWN       }
 -- | network is unreachable
-#{enum CInt, CInt, uV_ENETUNREACH    = UV_ENETUNREACH    }
+pattern UV_ENETUNREACH     :: CInt
+pattern UV_ENETUNREACH     = #{const UV_ENETUNREACH    }
 -- | file table overflow
-#{enum CInt, CInt, uV_ENFILE         = UV_ENFILE         }
+pattern UV_ENFILE          :: CInt
+pattern UV_ENFILE          = #{const UV_ENFILE         }
 -- | no buffer space available
-#{enum CInt, CInt, uV_ENOBUFS        = UV_ENOBUFS        }
+pattern UV_ENOBUFS         :: CInt
+pattern UV_ENOBUFS         = #{const UV_ENOBUFS        }
 -- | no such device
-#{enum CInt, CInt, uV_ENODEV         = UV_ENODEV         }
+pattern UV_ENODEV          :: CInt
+pattern UV_ENODEV          = #{const UV_ENODEV         }
 -- | no such file or directory
-#{enum CInt, CInt, uV_ENOENT         = UV_ENOENT         }
+pattern UV_ENOENT          :: CInt
+pattern UV_ENOENT          = #{const UV_ENOENT         }
 -- | not enough memory
-#{enum CInt, CInt, uV_ENOMEM         = UV_ENOMEM         }
+pattern UV_ENOMEM          :: CInt
+pattern UV_ENOMEM          = #{const UV_ENOMEM         }
 -- | machine is not on the network
-#{enum CInt, CInt, uV_ENONET         = UV_ENONET         }
+pattern UV_ENONET          :: CInt
+pattern UV_ENONET          = #{const UV_ENONET         }
 -- | protocol not available
-#{enum CInt, CInt, uV_ENOPROTOOPT    = UV_ENOPROTOOPT    }
+pattern UV_ENOPROTOOPT     :: CInt
+pattern UV_ENOPROTOOPT     = #{const UV_ENOPROTOOPT    }
 -- | no space left on device
-#{enum CInt, CInt, uV_ENOSPC         = UV_ENOSPC         }
+pattern UV_ENOSPC          :: CInt
+pattern UV_ENOSPC          = #{const UV_ENOSPC         }
 -- | function not implemented
-#{enum CInt, CInt, uV_ENOSYS         = UV_ENOSYS         }
+pattern UV_ENOSYS          :: CInt
+pattern UV_ENOSYS          = #{const UV_ENOSYS         }
 -- | socket is not connected
-#{enum CInt, CInt, uV_ENOTCONN       = UV_ENOTCONN       }
+pattern UV_ENOTCONN        :: CInt
+pattern UV_ENOTCONN        = #{const UV_ENOTCONN       }
 -- | not a directory
-#{enum CInt, CInt, uV_ENOTDIR        = UV_ENOTDIR        }
+pattern UV_ENOTDIR         :: CInt
+pattern UV_ENOTDIR         = #{const UV_ENOTDIR        }
 -- | directory not empty
-#{enum CInt, CInt, uV_ENOTEMPTY      = UV_ENOTEMPTY      }
+pattern UV_ENOTEMPTY       :: CInt
+pattern UV_ENOTEMPTY       = #{const UV_ENOTEMPTY      }
 -- | socket operation on non-socket
-#{enum CInt, CInt, uV_ENOTSOCK       = UV_ENOTSOCK       }
+pattern UV_ENOTSOCK        :: CInt
+pattern UV_ENOTSOCK        = #{const UV_ENOTSOCK       }
 -- | operation not supported on socket
-#{enum CInt, CInt, uV_ENOTSUP        = UV_ENOTSUP        }
+pattern UV_ENOTSUP         :: CInt
+pattern UV_ENOTSUP         = #{const UV_ENOTSUP        }
 -- | operation not permitted
-#{enum CInt, CInt, uV_EPERM          = UV_EPERM          }
+pattern UV_EPERM           :: CInt
+pattern UV_EPERM           = #{const UV_EPERM          }
 -- | broken pipe
-#{enum CInt, CInt, uV_EPIPE          = UV_EPIPE          }
+pattern UV_EPIPE           :: CInt
+pattern UV_EPIPE           = #{const UV_EPIPE          }
 -- | protocol error
-#{enum CInt, CInt, uV_EPROTO         = UV_EPROTO         }
+pattern UV_EPROTO          :: CInt
+pattern UV_EPROTO          = #{const UV_EPROTO         }
 -- | protocol not supported
-#{enum CInt, CInt, uV_EPROTONOSUPPORT= UV_EPROTONOSUPPORT}
+pattern UV_EPROTONOSUPPORT :: CInt
+pattern UV_EPROTONOSUPPORT = #{const UV_EPROTONOSUPPORT}
 -- | protocol wrong type for socket
-#{enum CInt, CInt, uV_EPROTOTYPE     = UV_EPROTOTYPE     }
+pattern UV_EPROTOTYPE      :: CInt
+pattern UV_EPROTOTYPE      = #{const UV_EPROTOTYPE     }
 -- | result too large
-#{enum CInt, CInt, uV_ERANGE         = UV_ERANGE         }
+pattern UV_ERANGE          :: CInt
+pattern UV_ERANGE          = #{const UV_ERANGE         }
 -- | read-only file system
-#{enum CInt, CInt, uV_EROFS          = UV_EROFS          }
+pattern UV_EROFS           :: CInt
+pattern UV_EROFS           = #{const UV_EROFS          }
 -- | cannot send after transport endpoint shutdown
-#{enum CInt, CInt, uV_ESHUTDOWN      = UV_ESHUTDOWN      }
+pattern UV_ESHUTDOWN       :: CInt
+pattern UV_ESHUTDOWN       = #{const UV_ESHUTDOWN      }
 -- | invalid seek
-#{enum CInt, CInt, uV_ESPIPE         = UV_ESPIPE         }
+pattern UV_ESPIPE          :: CInt
+pattern UV_ESPIPE          = #{const UV_ESPIPE         }
 -- | no such process
-#{enum CInt, CInt, uV_ESRCH          = UV_ESRCH          }
+pattern UV_ESRCH           :: CInt
+pattern UV_ESRCH           = #{const UV_ESRCH          }
 -- | connection timed out
-#{enum CInt, CInt, uV_ETIMEDOUT      = UV_ETIMEDOUT      }
+pattern UV_ETIMEDOUT       :: CInt
+pattern UV_ETIMEDOUT       = #{const UV_ETIMEDOUT      }
 -- | text file is busy
-#{enum CInt, CInt, uV_ETXTBSY        = UV_ETXTBSY        }
+pattern UV_ETXTBSY         :: CInt
+pattern UV_ETXTBSY         = #{const UV_ETXTBSY        }
 -- | cross-device link not permitted
-#{enum CInt, CInt, uV_EXDEV          = UV_EXDEV          }
+pattern UV_EXDEV           :: CInt
+pattern UV_EXDEV           = #{const UV_EXDEV          }
 -- | unknown error
-#{enum CInt, CInt, uV_UNKNOWN        = UV_UNKNOWN        }
+pattern UV_UNKNOWN         :: CInt
+pattern UV_UNKNOWN         = #{const UV_UNKNOWN        }
 -- | end of file
-#{enum CInt, CInt, uV_EOF            = UV_EOF            }
+pattern UV_EOF             :: CInt
+pattern UV_EOF             = #{const UV_EOF            }
 -- | no such device or address
-#{enum CInt, CInt, uV_ENXIO          = UV_ENXIO          }
+pattern UV_ENXIO           :: CInt
+pattern UV_ENXIO           = #{const UV_ENXIO          }
 -- | too many links
-#{enum CInt, CInt, uV_EMLINK         = UV_EMLINK         }
+pattern UV_EMLINK          :: CInt
+pattern UV_EMLINK          = #{const UV_EMLINK         }
