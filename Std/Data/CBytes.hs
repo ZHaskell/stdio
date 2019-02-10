@@ -45,7 +45,7 @@ module Std.Data.CBytes
   , null , length
   , empty, append, concat
   , toBytes, fromBytes
-  , fromCStringMaybe, fromCString
+  , fromCStringMaybe, fromCString, fromCStringN
   , withCBytes
   ) where
 
@@ -303,7 +303,7 @@ fromCStringMaybe cstring =
         return (Just (CBytesOnHeap pa))
 
 
--- | Same with 'fromCString', but throw 'InvalidArgument' when meet a null pointer.
+-- | Same with 'fromCStringMaybe', but throw 'InvalidArgument' when meet a null pointer.
 --
 fromCString :: HasCallStack
             => CString
@@ -315,6 +315,24 @@ fromCString cstring =
         (IOEInfo "" "unexpected null pointer" callStack))
     else do
         len <- fromIntegral <$> c_strlen cstring
+        mpa <- newPinnedPrimArray (len+1)
+        copyPtrToMutablePrimArray mpa 0 (castPtr cstring) len
+        writePrimArray mpa len 0     -- the \NUL terminator
+        pa <- unsafeFreezePrimArray mpa
+        return (CBytesOnHeap pa)
+
+-- | Same with 'fromCString', but only take N bytes (and append a null byte as terminator).
+--
+fromCStringN :: HasCallStack
+            => CString
+            -> Int
+            -> IO CBytes
+{-# INLINABLE fromCStringN #-}
+fromCStringN cstring len =
+    if cstring == nullPtr
+    then throwIO (InvalidArgument
+        (IOEInfo "" "unexpected null pointer" callStack))
+    else do
         mpa <- newPinnedPrimArray (len+1)
         copyPtrToMutablePrimArray mpa 0 (castPtr cstring) len
         writePrimArray mpa len 0     -- the \NUL terminator

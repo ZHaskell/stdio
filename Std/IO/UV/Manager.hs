@@ -37,6 +37,7 @@ module Std.IO.UV.Manager
   , withUVManager_
   , withUVRequest
   , withUVRequest_
+  , withUVRequest'
   , withUVRequestEx
   -- * handle/request resources
   , initUVStream
@@ -388,6 +389,25 @@ withUVRequest uvm f = do
 withUVRequest_ :: HasCallStack
                => UVManager -> (Ptr UVLoop -> IO UVSlotUnSafe) -> IO ()
 withUVRequest_ uvm f = void (withUVRequest uvm f)
+
+-- | Same with 'withUVRequest' but apply an convert function to result.
+--
+-- The convert function have all access to the returned value including
+-- negative ones, it's convert funtions's responsiblity to throw an exception
+-- if appropriate.
+withUVRequest' :: HasCallStack
+               => UVManager
+               -> (Ptr UVLoop -> IO UVSlotUnSafe)
+               -> (Int -> IO b)     -- ^ convert function
+               -> IO b
+withUVRequest' uvm f g = do
+    (slot, m) <- withUVManager uvm $ \ loop -> mask_ $ do
+        slot <- getUVSlot uvm (f loop)
+        m <- getBlockMVar uvm slot
+        tryTakeMVar m
+        return (slot, m)
+    (g =<< takeMVar m) `onException` cancelUVReq uvm slot no_extra_cleanup
+  where no_extra_cleanup = const $ return ()
 
 -- | Same with 'withUVRequest', but will also run an extra cleanup function
 -- if async exception hit this thread but the async action is already successfully performed,

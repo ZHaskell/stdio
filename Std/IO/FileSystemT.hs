@@ -26,28 +26,35 @@ module Std.IO.FileSystemT
     -- * opening constant
   , UVFileMode
   , defaultMode
+  , s_IRWXU
+  , s_IRUSR
+  , s_IWUSR
+  , s_IXUSR
+  , s_IRWXG
+  , s_IRGRP
+  , s_IWGRP
+  , s_IXGRP
+  , s_IRWXO
+  , s_IROTH
   , UVFileFlag
-  , uV_FS_O_APPEND
-  , uV_FS_O_CREAT
-  , uV_FS_O_DIRECT
-  , uV_FS_O_DIRECTORY
-  , uV_FS_O_DSYNC
-  , uV_FS_O_EXCL
-  , uV_FS_O_EXLOCK
-  , uV_FS_O_NOATIME
-  , uV_FS_O_NOCTTY
-  , uV_FS_O_NOFOLLOW
-  , uV_FS_O_NONBLOCK
-  , uV_FS_O_RDONLY
-  , uV_FS_O_RDWR
-  , uV_FS_O_SYMLINK
-  , uV_FS_O_SYNC
-  , uV_FS_O_TRUNC
-  , uV_FS_O_WRONLY
-  , uV_FS_O_RANDOM
-  , uV_FS_O_SHORT_LIVED
-  , uV_FS_O_SEQUENTIAL
-  , uV_FS_O_TEMPORARY
+  , o_APPEND
+  , o_CREAT
+  , o_DIRECT
+  , o_DSYNC
+  , o_EXCL
+  , o_EXLOCK
+  , o_NOATIME
+  , o_NOFOLLOW
+  , o_RDONLY
+  , o_RDWR
+  , o_SYMLINK
+  , o_SYNC
+  , o_TRUNC
+  , o_WRONLY
+  , o_RANDOM
+  , o_SHORT_LIVED
+  , o_SEQUENTIAL
+  , o_TEMPORARY
   -- * filesystem operations
   , mkdir
   , unlink
@@ -55,12 +62,9 @@ module Std.IO.FileSystemT
   , rmdir
   , DirEntType(..)
   , scandir
-  , stat
-  , lstat
-  , fstat
+  , stat, lstat, fstat
   , rename
-  , fsync
-  , fdatasync
+  , fsync, fdatasync
   , ftruncate
   , UVCopyFileFlag
   , uV_FS_COPYFILE_DEFAULT
@@ -68,6 +72,16 @@ module Std.IO.FileSystemT
   , uV_FS_COPYFILE_FICLONE
   , uV_FS_COPYFILE_FICLONE_FORCE
   , copyfile
+  , UVAccessMode
+  , f_OK, r_OK, w_OK, x_OK
+  , AccessResult(..)
+  , access
+  , chmod, fchmod
+  , utime, futime
+  , UVSymlinkFlag
+  , uV_FS_SYMLINK_DEFAULT, uV_FS_SYMLINK_DIR, uV_FS_SYMLINK_JUNCTION
+  , link, symlink
+  , readlink, realpath
   ) where
 
 import           Control.Concurrent.STM.TVar
@@ -86,6 +100,7 @@ import           Std.Foreign.PrimArray          (withPrimSafe', withPrimUnsafe')
 import           Std.IO.Buffered
 import           Std.IO.Exception
 import           Std.IO.Resource
+import           Std.IO.UV.Errno
 import           Std.IO.UV.FFI
 import           Std.IO.UV.Manager
 
@@ -362,3 +377,92 @@ copyfile path path' flag = do
     withCBytes path $ \ p ->
         withCBytes path' $ \ p' ->
             withUVRequest_ uvm (hs_uv_fs_copyfile_threaded p p' flag)
+
+access :: HasCallStack => CBytes -> UVAccessMode -> IO AccessResult
+access path mode = do
+    uvm <- getUVManager
+    withCBytes path $ \ p ->
+        withUVRequest' uvm (hs_uv_fs_access_threaded p mode) (handleResult . fromIntegral)
+  where
+    handleResult r
+        | r == 0           = return AccessOK
+        | r == uV_ENOENT   = return NoExistence
+        | r == uV_EACCES   = return NoPermission
+        | otherwise        = do
+            name <- uvErrName r
+            desc <- uvStdError r
+            throwUVError r (IOEInfo name desc callStack)
+
+chmod :: HasCallStack => CBytes -> UVFileMode -> IO ()
+chmod path mode = do
+    uvm <- getUVManager
+    withCBytes path $ \ p ->
+        withUVRequest_ uvm (hs_uv_fs_chmod_threaded p mode)
+
+fchmod :: HasCallStack => UVFile -> UVFileMode -> IO ()
+fchmod (UVFile fd counter) mode =
+    bracket_ (atomically $ do
+                s <- readTVar counter
+                if s >= 0 then modifyTVar' counter (+1)
+                          else throwECLOSEDSTM)
+             (atomically $ modifyTVar' counter (subtract 1))
+             (do uvm <- getUVManager
+                 withUVRequest_ uvm (hs_uv_fs_fchmod_threaded fd mode))
+
+utime :: HasCallStack => CBytes -> Double -> Double -> IO ()
+utime path atime mtime = do
+    uvm <- getUVManager
+    withCBytes path $ \ p ->
+        withUVRequest_ uvm (hs_uv_fs_utime_threaded p atime mtime)
+
+futime :: HasCallStack => UVFile -> Double -> Double -> IO ()
+futime (UVFile fd counter) atime mtime =
+    bracket_ (atomically $ do
+                s <- readTVar counter
+                if s >= 0 then modifyTVar' counter (+1)
+                          else throwECLOSEDSTM)
+             (atomically $ modifyTVar' counter (subtract 1))
+             (do uvm <- getUVManager
+                 withUVRequest_ uvm (hs_uv_fs_futime_threaded fd atime mtime))
+
+link :: HasCallStack => CBytes -> CBytes -> IO ()
+link path path' = do
+    uvm <- getUVManager
+    withCBytes path $ \ p ->
+        withCBytes path' $ \ p' ->
+            withUVRequest_ uvm (hs_uv_fs_link_threaded p p')
+
+symlink :: HasCallStack => CBytes -> CBytes -> UVSymlinkFlag -> IO ()
+symlink path path' flag = do
+    uvm <- getUVManager
+    withCBytes path $ \ p ->
+        withCBytes path' $ \ p' ->
+            withUVRequest_ uvm (hs_uv_fs_symlink_threaded p p' flag)
+
+readlink :: HasCallStack => CBytes -> IO CBytes
+readlink path = do
+    uvm <- getUVManager
+    bracket
+        (withCBytes path $ \ p ->
+            withPrimSafe' $ \ p' ->
+                withUVRequestEx uvm
+                    (hs_uv_fs_readlink_threaded p p')
+                    (\ _ -> hs_uv_fs_readlink_extra_cleanup p'))
+        (\ (path, _) -> hs_uv_fs_readlink_cleanup path)
+        (\ (path, _) -> do
+            !path' <- fromCString path
+            return path')
+
+realpath :: HasCallStack => CBytes -> IO CBytes
+realpath path = do
+    uvm <- getUVManager
+    bracket
+        (withCBytes path $ \ p ->
+            withPrimSafe' $ \ p' ->
+                withUVRequestEx uvm
+                    (hs_uv_fs_realpath_threaded p p')
+                    (\ _ -> hs_uv_fs_readlink_extra_cleanup p'))
+        (\ (path, _) -> hs_uv_fs_readlink_cleanup path)
+        (\ (path, _) -> do
+            !path' <- fromCString path
+            return path')

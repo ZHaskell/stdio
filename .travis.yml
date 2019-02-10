@@ -19,7 +19,7 @@ before_install:
     - travis_retry sudo apt-get update
     - travis_retry sudo apt-get install --allow-unauthenticated cabal-install-$CABALVER ghc-$GHCVER 
     - export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:$PATH
-    - git clone https://github.com/libuv/libuv.git && cd libuv && git checkout tags/v1.11.0 && sh autogen.sh && ./configure && make && sudo make install && cd ..
+    - git clone https://github.com/libuv/libuv.git && cd libuv && git checkout tags/v1.18.0 && sh autogen.sh && ./configure && make && sudo make install && cd ..
     - export PATH="$HOME/.cabal/bin:/usr/local/lib:$PATH"   # for build-tools
     - export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
     - export EXTRA_OPT="--extra-lib-dirs=/usr/local/include --extra-lib-dirs=/usr/local/lib"

@@ -566,6 +566,8 @@ void uv__free(void* p);
 
 void hs_uv_fs_scandir_cleanup(uv_dirent_t** dents, HsInt n);
 void hs_uv_fs_scandir_extra_cleanup(uv_dirent_t*** dents_p, HsInt n);
+void hs_uv_fs_readlink_extra_cleanup(char** path);
+void hs_uv_fs_readlink_cleanup(char* path);
 
 ////////////////////////////////////////////////////////////////////////////////
 // fs, none thread pool version
@@ -586,6 +588,15 @@ HsInt hs_uv_fs_fsync(int32_t file);
 HsInt hs_uv_fs_fdatasync(int32_t file);
 HsInt hs_uv_fs_ftruncate(int32_t file, int64_t off);
 HsInt hs_uv_fs_copyfile(const char* path, const char* path2, int flag);
+HsInt hs_uv_fs_access(const char* path, int mode);
+HsInt hs_uv_fs_chmod(const char* path, int mode);
+HsInt hs_uv_fs_fchmod(int32_t file, int mode);
+HsInt hs_uv_fs_utime(const char* path, double atime, double mtime);
+HsInt hs_uv_fs_futime(int32_t file, double atime, double mtime);
+HsInt hs_uv_fs_link(const char* path, const char* path2);
+HsInt hs_uv_fs_symlink(const char* path, const char* path2, int flag);
+HsInt hs_uv_fs_readlink(const char* path, char** result_path);
+HsInt hs_uv_fs_realpath(const char* path, char** result_path);
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -607,3 +618,12 @@ HsInt hs_uv_fs_fsync_threaded(int32_t file, uv_loop_t* loop);
 HsInt hs_uv_fs_fdatasync_threaded(int32_t file, uv_loop_t* loop);
 HsInt hs_uv_fs_ftruncate_threaded(int32_t file, int64_t off, uv_loop_t* loop);
 HsInt hs_uv_fs_copyfile_threaded(const char* path, const char* path2, int flag, uv_loop_t* loop);
+HsInt hs_uv_fs_access_threaded(const char* path, int mode, uv_loop_t* loop);
+HsInt hs_uv_fs_chmod_threaded(const char* path, int mode, uv_loop_t* loop);
+HsInt hs_uv_fs_fchmod_threaded(int32_t file, int mode, uv_loop_t* loop);
+HsInt hs_uv_fs_utime_threaded(const char* path, double atime, double mtime, uv_loop_t* loop);
+HsInt hs_uv_fs_futime_threaded(int32_t file, double atime, double mtime, uv_loop_t* loop);
+HsInt hs_uv_fs_link_threaded(const char* path, const char* path2, uv_loop_t* loop);
+HsInt hs_uv_fs_symlink_threaded(const char* path, const char* path2, int flag, uv_loop_t* loop);
+HsInt hs_uv_fs_readlink_threaded(const char* path, char** result_path, uv_loop_t* loop);
+HsInt hs_uv_fs_realpath_threaded(const char* path, char** result_path, uv_loop_t* loop);

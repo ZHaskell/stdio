@@ -174,6 +174,79 @@ HsInt hs_uv_fs_copyfile(const char* path, const char* path2, int flag){
     return (HsInt)req.result;
 }
 
+HsInt hs_uv_fs_access(const char* path, int mode){
+    uv_fs_t req;
+    uv_fs_access(NULL, &req, path, mode, NULL);
+    uv_fs_req_cleanup(&req);    // maybe not neccessary
+    return (HsInt)req.result;
+}
+
+HsInt hs_uv_fs_chmod(const char* path, int mode){
+    uv_fs_t req;
+    uv_fs_chmod(NULL, &req, path, mode, NULL);
+    uv_fs_req_cleanup(&req);    // maybe not neccessary
+    return (HsInt)req.result;
+}
+
+HsInt hs_uv_fs_fchmod(int32_t file, int mode){
+    uv_fs_t req;
+    uv_fs_fchmod(NULL, &req, file, mode, NULL);
+    uv_fs_req_cleanup(&req);    // maybe not neccessary
+    return (HsInt)req.result;
+}
+
+HsInt hs_uv_fs_utime(const char* path, double atime, double mtime){
+    uv_fs_t req;
+    uv_fs_utime(NULL, &req, path, atime, mtime, NULL);
+    uv_fs_req_cleanup(&req);    // maybe not neccessary
+    return (HsInt)req.result;
+}
+
+HsInt hs_uv_fs_futime(int32_t file, double atime, double mtime){
+    uv_fs_t req;
+    uv_fs_futime(NULL, &req, file, atime, mtime, NULL);
+    uv_fs_req_cleanup(&req);    // maybe not neccessary
+    return (HsInt)req.result;
+}
+
+HsInt hs_uv_fs_link(const char* path, const char* path2){
+    uv_fs_t req;
+    uv_fs_link(NULL, &req, path, path2, NULL);
+    uv_fs_req_cleanup(&req);    // maybe not neccessary
+    return (HsInt)req.result;
+}
+
+HsInt hs_uv_fs_symlink(const char* path, const char* path2, int flag){
+    uv_fs_t req;
+    uv_fs_symlink(NULL, &req, path, path2, flag, NULL);
+    uv_fs_req_cleanup(&req);    // maybe not neccessary
+    return (HsInt)req.result;
+}
+
+void hs_uv_fs_readlink_cleanup(char* path){
+    if (path != NULL) uv__free(path);
+}
+
+HsInt hs_uv_fs_readlink(const char* path, char** result_path){
+    uv_fs_t req;
+    uv_fs_readlink(NULL, &req, path, NULL);
+    *result_path = req.ptr;
+#if defined(_WIN32)
+    uv__free(req.file.pathw);      //  we clean up result_path later
+#endif
+    return (HsInt)req.result;
+}
+
+HsInt hs_uv_fs_realpath(const char* path, char** result_path){
+    uv_fs_t req;
+    uv_fs_realpath(NULL, &req, path, NULL);
+    *result_path = req.ptr;
+#if defined(_WIN32)
+    uv__free(req.file.pathw);      //  we clean up result_path later
+#endif
+    return (HsInt)req.result;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // fs, thread pool version
 //
@@ -335,8 +408,6 @@ void hs_uv_fs_scandir_callback(uv_fs_t* req){
         loop_data->buffer_size_table[slot] = (HsInt)req->result;
         loop_data->event_queue[loop_data->event_counter] = slot;
         loop_data->event_counter += 1;
-    } else {
-        hs_uv_fs_scandir_extra_cleanup(dents, (HsInt)req->result);
     }
     //  we can't cleanup request here, because doing that will
     //  destory our dents array, which we haven't copied in Haskell yet. 
@@ -505,6 +576,162 @@ HsInt hs_uv_fs_copyfile_threaded(const char* path, const char* path2, int flag, 
         (uv_fs_t*)fetch_uv_struct(loop_data, slot);
     req->data = (void*)slot;
     int r = uv_fs_copyfile(loop, req, path, path2, flag, hs_uv_fs_callback);
+    if (r < 0) {
+        free_slot(loop_data, slot);
+        return (HsInt)r;
+    } else return slot;
+}
+
+HsInt hs_uv_fs_access_threaded(const char* path, int mode, uv_loop_t* loop){
+    hs_loop_data* loop_data = loop->data;
+    HsInt slot = alloc_slot(loop_data);
+    if (slot < 0) return UV_ENOMEM;
+    uv_fs_t* req = 
+        (uv_fs_t*)fetch_uv_struct(loop_data, slot);
+    req->data = (void*)slot;
+    int r = uv_fs_access(loop, req, path, mode, hs_uv_fs_callback);
+    if (r < 0) {
+        free_slot(loop_data, slot);
+        return (HsInt)r;
+    } else return slot;
+}
+
+HsInt hs_uv_fs_chmod_threaded(const char* path, int mode, uv_loop_t* loop){
+    hs_loop_data* loop_data = loop->data;
+    HsInt slot = alloc_slot(loop_data);
+    if (slot < 0) return UV_ENOMEM;
+    uv_fs_t* req = 
+        (uv_fs_t*)fetch_uv_struct(loop_data, slot);
+    req->data = (void*)slot;
+    int r = uv_fs_chmod(loop, req, path, mode, hs_uv_fs_callback);
+    if (r < 0) {
+        free_slot(loop_data, slot);
+        return (HsInt)r;
+    } else return slot;
+}
+
+HsInt hs_uv_fs_fchmod_threaded(int32_t file, int mode, uv_loop_t* loop){
+    hs_loop_data* loop_data = loop->data;
+    HsInt slot = alloc_slot(loop_data);
+    if (slot < 0) return UV_ENOMEM;
+    uv_fs_t* req = 
+        (uv_fs_t*)fetch_uv_struct(loop_data, slot);
+    req->data = (void*)slot;
+    int r = uv_fs_fchmod(loop, req, file, mode, hs_uv_fs_callback);
+    if (r < 0) {
+        free_slot(loop_data, slot);
+        return (HsInt)r;
+    } else return slot;
+}
+
+HsInt hs_uv_fs_utime_threaded(const char* path, double atime, double mtime, uv_loop_t* loop){
+    hs_loop_data* loop_data = loop->data;
+    HsInt slot = alloc_slot(loop_data);
+    if (slot < 0) return UV_ENOMEM;
+    uv_fs_t* req = 
+        (uv_fs_t*)fetch_uv_struct(loop_data, slot);
+    req->data = (void*)slot;
+    int r = uv_fs_utime(loop, req, path, atime, mtime, hs_uv_fs_callback);
+    if (r < 0) {
+        free_slot(loop_data, slot);
+        return (HsInt)r;
+    } else return slot;
+}
+
+HsInt hs_uv_fs_futime_threaded(int32_t file, double atime, double mtime, uv_loop_t* loop){
+    hs_loop_data* loop_data = loop->data;
+    HsInt slot = alloc_slot(loop_data);
+    if (slot < 0) return UV_ENOMEM;
+    uv_fs_t* req = 
+        (uv_fs_t*)fetch_uv_struct(loop_data, slot);
+    req->data = (void*)slot;
+    int r = uv_fs_futime(loop, req, file, atime, mtime, hs_uv_fs_callback);
+    if (r < 0) {
+        free_slot(loop_data, slot);
+        return (HsInt)r;
+    } else return slot;
+}
+
+HsInt hs_uv_fs_link_threaded(const char* path, const char* path2, uv_loop_t* loop){
+    hs_loop_data* loop_data = loop->data;
+    HsInt slot = alloc_slot(loop_data);
+    if (slot < 0) return UV_ENOMEM;
+    uv_fs_t* req = 
+        (uv_fs_t*)fetch_uv_struct(loop_data, slot);
+    req->data = (void*)slot;
+    int r = uv_fs_link(loop, req, path, path2, hs_uv_fs_callback);
+    if (r < 0) {
+        free_slot(loop_data, slot);
+        return (HsInt)r;
+    } else return slot;
+}
+
+HsInt hs_uv_fs_symlink_threaded(const char* path, const char* path2, int flag, uv_loop_t* loop){
+    hs_loop_data* loop_data = loop->data;
+    HsInt slot = alloc_slot(loop_data);
+    if (slot < 0) return UV_ENOMEM;
+    uv_fs_t* req = 
+        (uv_fs_t*)fetch_uv_struct(loop_data, slot);
+    req->data = (void*)slot;
+    int r = uv_fs_symlink(loop, req, path, path2, flag, hs_uv_fs_callback);
+    if (r < 0) {
+        free_slot(loop_data, slot);
+        return (HsInt)r;
+    } else return slot;
+}
+
+void hs_uv_fs_readlink_callback(uv_fs_t* req){
+    uv_loop_t* loop = req->loop;
+    hs_loop_data* loop_data = loop->data;
+    HsInt slot = (HsInt)req->data; 
+    char** path = (char**)loop_data->buffer_table[slot];
+    if (path != NULL) {
+        *path = req->ptr;  // save the result path
+        // push the slot to event queue
+        loop_data->buffer_size_table[slot] = (HsInt)req->result;
+        loop_data->event_queue[loop_data->event_counter] = slot;
+        loop_data->event_counter += 1;
+    }
+    //  for the same reason with 'scandir', we can't cleanup request here
+#if defined(_WIN32)
+    if (req->file.pathw != NULL)
+        uv__free(req->file.pathw);  
+#else
+    if (req->path != NULL)
+        uv__free((void*) req->path);
+#endif
+    free_slot(loop_data, slot);  // free the uv_req_t
+}
+
+void hs_uv_fs_readlink_extra_cleanup(char** path){
+    if (*path != NULL) uv__free(*path);
+}
+
+HsInt hs_uv_fs_readlink_threaded(const char* path, char** result_path, uv_loop_t* loop){
+    hs_loop_data* loop_data = loop->data;
+    HsInt slot = alloc_slot(loop_data);
+    if (slot < 0) return UV_ENOMEM;
+    uv_fs_t* req = 
+        (uv_fs_t*)fetch_uv_struct(loop_data, slot);
+    req->data = (void*)slot;
+    loop_data->buffer_table[slot] = (char*)result_path;
+    int r = uv_fs_readlink(loop, req, path, hs_uv_fs_readlink_callback);
+    if (r < 0) {
+        free_slot(loop_data, slot);
+        return (HsInt)r;
+    } else return slot;
+}
+
+// share cleanup and callback with readlink
+HsInt hs_uv_fs_realpath_threaded(const char* path, char** result_path, uv_loop_t* loop){
+    hs_loop_data* loop_data = loop->data;
+    HsInt slot = alloc_slot(loop_data);
+    if (slot < 0) return UV_ENOMEM;
+    uv_fs_t* req = 
+        (uv_fs_t*)fetch_uv_struct(loop_data, slot);
+    req->data = (void*)slot;
+    loop_data->buffer_table[slot] = (char*)result_path;
+    int r = uv_fs_realpath(loop, req, path, hs_uv_fs_readlink_callback);
     if (r < 0) {
         free_slot(loop_data, slot);
         return (HsInt)r;

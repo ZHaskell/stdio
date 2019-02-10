@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE MultiWayIf   #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveDataTypeable #-}
@@ -26,28 +27,35 @@ module Std.IO.FileSystem
     -- * opening constant
   , UVFileMode
   , defaultMode
+  , s_IRWXU
+  , s_IRUSR
+  , s_IWUSR
+  , s_IXUSR
+  , s_IRWXG
+  , s_IRGRP
+  , s_IWGRP
+  , s_IXGRP
+  , s_IRWXO
+  , s_IROTH
   , UVFileFlag
-  , uV_FS_O_APPEND
-  , uV_FS_O_CREAT
-  , uV_FS_O_DIRECT
-  , uV_FS_O_DIRECTORY
-  , uV_FS_O_DSYNC
-  , uV_FS_O_EXCL
-  , uV_FS_O_EXLOCK
-  , uV_FS_O_NOATIME
-  , uV_FS_O_NOCTTY
-  , uV_FS_O_NOFOLLOW
-  , uV_FS_O_NONBLOCK
-  , uV_FS_O_RDONLY
-  , uV_FS_O_RDWR
-  , uV_FS_O_SYMLINK
-  , uV_FS_O_SYNC
-  , uV_FS_O_TRUNC
-  , uV_FS_O_WRONLY
-  , uV_FS_O_RANDOM
-  , uV_FS_O_SHORT_LIVED
-  , uV_FS_O_SEQUENTIAL
-  , uV_FS_O_TEMPORARY
+  , o_APPEND
+  , o_CREAT
+  , o_DIRECT
+  , o_DSYNC
+  , o_EXCL
+  , o_EXLOCK
+  , o_NOATIME
+  , o_NOFOLLOW
+  , o_RDONLY
+  , o_RDWR
+  , o_SYMLINK
+  , o_SYNC
+  , o_TRUNC
+  , o_WRONLY
+  , o_RANDOM
+  , o_SHORT_LIVED
+  , o_SEQUENTIAL
+  , o_TEMPORARY
   -- * filesystem operations
   , mkdir
   , unlink
@@ -55,12 +63,9 @@ module Std.IO.FileSystem
   , rmdir
   , DirEntType(..)
   , scandir
-  , stat
-  , lstat
-  , fstat
+  , stat, lstat, fstat
   , rename
-  , fsync
-  , fdatasync
+  , fsync, fdatasync
   , ftruncate
   , UVCopyFileFlag
   , uV_FS_COPYFILE_DEFAULT
@@ -68,6 +73,16 @@ module Std.IO.FileSystem
   , uV_FS_COPYFILE_FICLONE
   , uV_FS_COPYFILE_FICLONE_FORCE
   , copyfile
+  , UVAccessMode
+  , AccessResult(..)
+  , f_OK, r_OK, w_OK, x_OK
+  , access
+  , chmod, fchmod
+  , utime, futime
+  , UVSymlinkFlag
+  , uV_FS_SYMLINK_DEFAULT, uV_FS_SYMLINK_DIR, uV_FS_SYMLINK_JUNCTION
+  , link, symlink
+  , readlink, realpath
   ) where
 
 import           Control.Concurrent.STM.TVar
@@ -86,6 +101,7 @@ import           Std.Foreign.PrimArray          (withPrimSafe', withPrimUnsafe')
 import           Std.IO.Buffered
 import           Std.IO.Exception
 import           Std.IO.Resource
+import           Std.IO.UV.Errno
 import           Std.IO.UV.FFI
 import           Std.IO.UV.Manager
 
@@ -265,7 +281,7 @@ scandir :: HasCallStack => CBytes -> IO [(CBytes, DirEntType)]
 scandir path = do
     uvm <- getUVManager
     bracket
-        (withCBytes path $ \ p -> do
+        (withCBytes path $ \ p ->
             withPrimUnsafe' $ \ dents ->
                 throwUVIfMinus (hs_uv_fs_scandir p dents))
         (\ (dents, n) -> hs_uv_fs_scandir_cleanup dents n)
@@ -338,4 +354,89 @@ ftruncate (UVFile fd counter) off =
 
 copyfile :: HasCallStack => CBytes -> CBytes -> UVCopyFileFlag -> IO ()
 copyfile path path' flag = throwUVIfMinus_ . withCBytes path $ \ p ->
-    withCBytes path' $ \ p' -> (hs_uv_fs_copyfile p p' flag)
+    withCBytes path' $ \ p' -> hs_uv_fs_copyfile p p' flag
+
+access :: HasCallStack => CBytes -> UVAccessMode -> IO AccessResult
+access path mode = do
+     r <- withCBytes path $ \ p -> fromIntegral <$> hs_uv_fs_access p mode
+     if | r == 0           -> return AccessOK
+        | r == uV_ENOENT   -> return NoExistence
+        | r == uV_EACCES   -> return NoPermission
+        | otherwise        -> do
+            name <- uvErrName r
+            desc <- uvStdError r
+            throwUVError r (IOEInfo name desc callStack)
+
+chmod :: HasCallStack => CBytes -> UVFileMode -> IO ()
+chmod path mode = throwUVIfMinus_ . withCBytes path $ \ p -> hs_uv_fs_chmod p mode
+
+fchmod :: HasCallStack => UVFile -> UVFileMode -> IO ()
+fchmod (UVFile fd counter) mode =
+    bracket_ (atomically $ do
+                s <- readTVar counter
+                if s >= 0 then modifyTVar' counter (+1)
+                          else throwECLOSEDSTM)
+             (atomically $ modifyTVar' counter (subtract 1))
+             (throwUVIfMinus_ (hs_uv_fs_fchmod fd mode))
+
+utime :: HasCallStack => CBytes -> Double -> Double -> IO ()
+utime path atime mtime = throwUVIfMinus_ . withCBytes path $ \ p -> hs_uv_fs_utime p atime mtime
+
+futime :: HasCallStack => UVFile -> Double -> Double -> IO ()
+futime (UVFile fd counter) atime mtime =
+    bracket_ (atomically $ do
+                s <- readTVar counter
+                if s >= 0 then modifyTVar' counter (+1)
+                          else throwECLOSEDSTM)
+             (atomically $ modifyTVar' counter (subtract 1))
+             (throwUVIfMinus_ (hs_uv_fs_futime fd atime mtime))
+
+link :: HasCallStack => CBytes -> CBytes -> IO ()
+link path path' = throwUVIfMinus_ . withCBytes path $ \ p ->
+    withCBytes path' $ hs_uv_fs_link p
+
+symlink :: HasCallStack => CBytes -> CBytes -> UVSymlinkFlag -> IO ()
+symlink path path' flag = throwUVIfMinus_ . withCBytes path $ \ p ->
+    withCBytes path' $ \ p' -> hs_uv_fs_symlink p p' flag
+
+readlink :: HasCallStack => CBytes -> IO CBytes
+readlink path = do
+    uvm <- getUVManager
+    bracket
+        (withCBytes path $ \ p ->
+            withPrimUnsafe' $ \ p' ->
+                throwUVIfMinus (hs_uv_fs_readlink p p'))
+        (\ (path, _) -> hs_uv_fs_readlink_cleanup path)
+        (\ (path, _) -> do
+            !path' <- fromCString path
+            return path')
+
+
+-- | Equivalent to <http://linux.die.net/man/3/realpath realpath(3)> on Unix. Windows uses <https://msdn.microsoft.com/en-us/library/windows/desktop/aa364962(v=vs.85).aspx GetFinalPathNameByHandle>.
+--
+-- Warning This function has certain platform-specific caveats that were discovered when used in Node.
+--
+--  * macOS and other BSDs: this function will fail with UV_ELOOP if more than 32 symlinks are found while
+--    resolving the given path. This limit is hardcoded and cannot be sidestepped.
+--
+--  * Windows: while this function works in the common case, there are a number of corner cases where it doesn’t:
+--
+--      * Paths in ramdisk volumes created by tools which sidestep the Volume Manager (such as ImDisk) cannot be resolved.
+--      * Inconsistent casing when using drive letters.
+--      * Resolved path bypasses subst’d drives.
+--
+-- While this function can still be used, it’s not recommended if scenarios such as the above need to be supported.
+-- The background story and some more details on these issues can be checked <https://github.com/nodejs/node/issues/7726 here>.
+--
+-- Note This function is not implemented on Windows XP and Windows Server 2003. On these systems, UV_ENOSYS is returned.
+realpath :: HasCallStack => CBytes -> IO CBytes
+realpath path = do
+    uvm <- getUVManager
+    bracket
+        (withCBytes path $ \ p ->
+            withPrimUnsafe' $ \ p' ->
+                throwUVIfMinus (hs_uv_fs_realpath p p'))
+        (\ (path, _) -> hs_uv_fs_readlink_cleanup path)
+        (\ (path, _) -> do
+            !path' <- fromCString path
+            return path')
