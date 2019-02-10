@@ -78,9 +78,9 @@ initClient ClientConfig{..} = do
     liftIO . withSockAddr clientTargetAddr $ \ targetPtr -> do
         forM_ clientLocalAddr $ \ clientLocalAddr' ->
             withSockAddr clientLocalAddr' $ \ localPtr ->
-                -- safe without withUVManager
+                -- bind is safe without withUVManager
                 throwUVIfMinus_ (uv_tcp_bind handle localPtr 0)
-        -- safe without withUVManager
+        -- nodelay is safe without withUVManager
         when clientNoDelay $ throwUVIfMinus_ (uv_tcp_nodelay handle 1)
         withUVRequest uvm $ \ _ -> hs_uv_tcp_connect handle targetPtr
     return client

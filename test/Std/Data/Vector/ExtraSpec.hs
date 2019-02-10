@@ -344,6 +344,15 @@ spec =  describe "vector-extras" $ do
             (V.intercalate (V.pack x) . V.splitOn (V.pack x) . V.pack @V.PrimVector @Word8 $ xs) ===
                 V.pack xs
 
+    describe "vector reverse . pack == packR" . modifyMaxSuccess (*10) . modifyMaxSize (*10) $ do
+        prop "reverse . pack === packR XX" $ \ xs ->
+            (V.reverse $ V.pack @V.Vector @Integer xs) === (V.packR xs)
+        prop "reverse . pack === packR XX" $ \ xs ->
+            (V.reverse $ V.pack @V.PrimVector @Int xs) === (V.packR xs)
+        prop "reverse . pack === packR XX" $ \ xs ->
+            (V.reverse $ V.pack @V.PrimVector @Word8 xs) === (V.packR xs)
+
+
     describe "vector words == List.words" $ do
         prop "vector words === List.words" $ \ xs ->
             (V.words . V.pack @V.PrimVector @Word8 $ xs)  ===

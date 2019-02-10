@@ -147,6 +147,7 @@ library
                             Std.IO.Buffered
                             Std.IO.TTY
                             Std.IO.FileSystem
+                            Std.IO.FileSystemT
                             Std.IO.TCP
                             Std.IO.SockAddr
                             Std.IO.UV.Errno
@@ -288,4 +289,3 @@ test-suite test
 
     ghc-options:         -threaded
     default-language:    Haskell2010 
-

@@ -1,4 +1,5 @@
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Std.Data.Text.BaseSpec where
@@ -41,6 +42,15 @@ spec = describe "text-base" $ do
         prop "packR === packRN XX" $ \ xs d ->
             (T.packR xs) === (T.packRN d xs)
 
+    describe "Text IsString instance property" $ do
+        prop "ASCII string" $
+            "hello world" == T.pack "hello world"
+        prop "UTF8 string" $
+            "你好世界" == T.pack "你好世界"
+        prop "NUL codepoint" $
+            "你好\NUL世界" == T.pack "你好\NUL世界"
+        prop "surrogate codepoint" $
+            "你好\xFFFD世界" == T.pack "你好\xD800世界"
 
     describe "text length == List.length" $ do
         prop "text length === List.length" $ \ xs ->

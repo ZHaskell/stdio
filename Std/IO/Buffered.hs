@@ -89,7 +89,7 @@ data BufferedOutputConfig = BufferedOutputConfig
     }
 
 newBufferedInput :: input
-                 -> Int
+                 -> Int     -- ^ Input buffer size
                  -> IO (BufferedInput input)
 newBufferedInput i bufSiz = do
     pb <- newIORef V.empty

@@ -36,6 +36,7 @@ module Std.IO.UV.Manager
   , withUVManager
   , withUVManager_
   , withUVRequest
+  , withUVRequest_
   , withUVRequestEx
   -- * handle/request resources
   , initUVStream
@@ -252,6 +253,12 @@ startUVManager uvm@(UVManager _ _ _ running _) = loop -- use a closure capture u
                 tryPutMVar lock r
             return c
 
+-- | Run a libuv FFI to get a 'UVSlotUnSafe' (which may exceed block table size),
+-- resize the block table in that case, so that the returned slot always has an
+-- accompanying 'MVar' in block table.
+--
+-- Always use this function to turn an 'UVSlotUnsafe' into 'UVSlot', so that the block
+-- table size synchronize with libuv side's slot table.
 getUVSlot :: HasCallStack => UVManager -> IO UVSlotUnSafe -> IO UVSlot
 {-# INLINE getUVSlot #-}
 getUVSlot (UVManager blockTableRef _ _ _ _) f = do
@@ -270,6 +277,10 @@ getUVSlot (UVManager blockTableRef _ _ _ _) f = do
 
 --------------------------------------------------------------------------------
 
+-- | A haskell data type wrap an @uv_stream_t@ inside
+--
+-- 'UVStream' DO NOT provide thread safety! Use 'UVStream' concurrently in multiple
+-- threads will lead to undefined behavior.
 data UVStream = UVStream
     { uvsHandle :: {-# UNPACK #-} !(Ptr UVHandle)
     , uvsSlot    :: {-# UNPACK #-} !UVSlot
@@ -279,12 +290,12 @@ data UVStream = UVStream
 
 -- | Safely lock an uv manager and perform uv_handle initialization.
 --
--- Initialization an UV handle usually take two step:
+-- Initialization an UV stream usually take two step:
 --
---   * allocate an uv_handle struct with proper size
+--   * allocate an uv_stream struct with proper size
 --   * lock a particular uv_loop from a uv manager, and perform custom initialization, such as @uv_tcp_init@.
 --
--- And this is what 'initUVHandle' do, all you need to do is to provide the manager you want to hook the handle
+-- And this is what 'initUVStream' do, all you need to do is to provide the manager you want to hook the handle
 -- onto(usually the one on the same capability, i.e. the one obtained by 'getUVManager'),
 -- and provide a custom initialization function.
 --
@@ -341,6 +352,8 @@ instance Output UVStream where
 
 --------------------------------------------------------------------------------
 
+-- | Cancel uv async function (actions which can be cancelled with 'uv_cancel') with
+-- best effort, if the action is already performed, run an extra clean up action.
 cancelUVReq :: UVManager -> UVSlot -> (Int -> IO ()) -> IO ()
 cancelUVReq uvm slot extra_cleanup = withUVManager uvm $ \ loop -> do
     m <- getBlockMVar uvm slot
@@ -350,29 +363,45 @@ cancelUVReq uvm slot extra_cleanup = withUVManager uvm $ \ loop -> do
         _ -> do
             pokeBufferTable uvm slot nullPtr 0  -- doing this let libuv side knows that
                                                 -- we won't keep buffer alive in callbacks
-            hs_uv_cancel loop slot              -- on the same time, we cancel the io
-                                                -- with our best efforts
+            hs_uv_cancel loop slot              -- then we cancel the io with best efforts
 
+-- | Exception safe uv request helper
+--
+-- This helper will run a libuv's async function, which will return a
+-- libuv side's slot, then we will accommodate a 'MVar' in block table and
+-- wait on that 'MVar', until the async function finished or an exception
+-- is received, in later case we will call 'cancelUVReq' to cancel the on-going
+-- async function with best efforts,
 withUVRequest :: HasCallStack
-                  => UVManager -> (Ptr UVLoop -> IO UVSlotUnSafe) -> IO Int
+              => UVManager -> (Ptr UVLoop -> IO UVSlotUnSafe) -> IO Int
 withUVRequest uvm f = do
     (slot, m) <- withUVManager uvm $ \ loop -> mask_ $ do
         slot <- getUVSlot uvm (f loop)
         m <- getBlockMVar uvm slot
         tryTakeMVar m
         return (slot, m)
-    throwUVIfMinus (takeMVar m `onException` cancelUVReq uvm slot no_extra_cleanup)
+    throwUVIfMinus $
+        takeMVar m `onException` cancelUVReq uvm slot no_extra_cleanup
   where no_extra_cleanup = const $ return ()
 
+-- | Same with 'withUVRequest' but disgard the result.
+withUVRequest_ :: HasCallStack
+               => UVManager -> (Ptr UVLoop -> IO UVSlotUnSafe) -> IO ()
+withUVRequest_ uvm f = void (withUVRequest uvm f)
+
+-- | Same with 'withUVRequest', but will also run an extra cleanup function
+-- if async exception hit this thread but the async action is already successfully performed,
+-- e.g. release result memory.
 withUVRequestEx :: HasCallStack
-                  => UVManager -> (Ptr UVLoop -> IO UVSlotUnSafe) -> (Int -> IO ()) -> IO Int
+                => UVManager -> (Ptr UVLoop -> IO UVSlotUnSafe) -> (Int -> IO ()) -> IO Int
 withUVRequestEx uvm f extra_cleanup = do
     (slot, m) <- withUVManager uvm $ \ loop -> mask_ $ do
         slot <- getUVSlot uvm (f loop)
         m <- getBlockMVar uvm slot
         tryTakeMVar m
         return (slot, m)
-    throwUVIfMinus (takeMVar m `onException` cancelUVReq uvm slot extra_cleanup)
+    throwUVIfMinus $
+        takeMVar m `onException` cancelUVReq uvm slot extra_cleanup
 
 --------------------------------------------------------------------------------
 
@@ -380,11 +409,10 @@ withUVRequestEx uvm f extra_cleanup = do
 --
 -- Using libuv based I/O solution has a disadvantage that file handlers are bound to certain
 -- uv_loop, thus certain uv mananger/capability. Worker threads that migrate to other capability
--- will face contention since various API here is protected by manager's lock, this makes GHC's
+-- will lead contention since various APIs here is protected by manager's lock, this makes GHC's
 -- work-stealing strategy unsuitable for certain workload, such as a webserver.
 -- we solve this problem with simple round-robin load-balancing: forkBa will automatically
--- distribute your new threads to all capabilities in round-robin manner. Thus its name forkBa(lance).
---
+-- distribute new threads to all capabilities in round-robin manner. Thus its name forkBa(lance).
 forkBa :: IO () -> IO ThreadId
 forkBa io = do
     i <- atomicAddCounter_ counter 1

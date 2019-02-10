@@ -1,8 +1,9 @@
+{-# LANGUAGE CPP                        #-}
+{-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE CPP #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE UnliftedFFITypes #-}
-{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE MagicHash                  #-}
+{-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE UnliftedFFITypes           #-}
 
 {-|
 Module      : Std.IO.UV
@@ -31,6 +32,7 @@ import           Std.Foreign.PrimArray
 import           Std.IO.Exception
 import           Std.IO.SockAddr    (SockAddr, SocketFamily (..))
 import           System.Posix.Types (CSsize (..))
+import           GHC.Generics
 
 #include "hs_uv.h"
 
@@ -71,7 +73,7 @@ peekUVBufferTable p = (,)
     <*> (#{peek hs_loop_data, buffer_size_table     } p)
 
 newtype UVRunMode = UVRunMode CInt 
-    deriving (Bounded, Enum, Eq, Integral, Num, Ord, Read, Real, Show, FiniteBits, Bits, Storable)
+    deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable)
 
 #{enum UVRunMode, UVRunMode, 
   uV_RUN_DEFAULT = UV_RUN_DEFAULT,
@@ -150,7 +152,7 @@ foreign import ccall unsafe uv_pipe_init :: Ptr UVLoop -> Ptr UVHandle -> CInt -
 --------------------------------------------------------------------------------
 -- tty
 newtype UVTTYMode = UVTTYMode CInt
-    deriving (Bounded, Enum, Eq, Integral, Num, Ord, Read, Real, Show, FiniteBits, Bits, Storable)
+    deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable)
 
 #{enum UVTTYMode, UVTTYMode,
     uV_TTY_MODE_NORMAL      = UV_TTY_MODE_NORMAL,
@@ -164,7 +166,11 @@ foreign import ccall unsafe uv_tty_init :: Ptr UVLoop -> Ptr UVHandle -> CInt ->
 
 type UVFileMode = CInt
 newtype UVFileFlag = UVFileFlag CInt
-    deriving (Bounded, Enum, Eq, Integral, Num, Ord, Read, Real, Show, FiniteBits, Bits, Storable)
+    deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable)
+
+-- | Default mode for open, 0o666(readable and writable).
+defaultMode :: UVFileMode
+defaultMode = 0o666
 
 -- non-threaded functions
 foreign import ccall unsafe hs_uv_fs_open    :: CString -> UVFileFlag -> UVFileMode -> IO UVFD
@@ -217,8 +223,30 @@ foreign import ccall unsafe hs_uv_fs_mkdtemp_threaded
     uV_FS_O_SEQUENTIAL   = UV_FS_O_SEQUENTIAL,
     uV_FS_O_TEMPORARY    = UV_FS_O_TEMPORARY}
 
-newtype UVDirEntType = UVDirEntType CChar
-    deriving (Bounded, Enum, Eq, Integral, Num, Ord, Read, Real, Show, FiniteBits, Bits, Storable)
+newtype UVDirEntType = UVDirEntType CInt
+    deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable)
+
+data DirEntType
+    = DirEntUnknown
+    | DirEntFile
+    | DirEntDir
+    | DirEntLink
+    | DirEntFIFO
+    | DirEntSocket
+    | DirEntChar
+    | DirEntBlock
+  deriving (Read, Show, Eq, Ord, Generic)
+
+fromUVDirEntType :: UVDirEntType -> DirEntType
+fromUVDirEntType t
+    | t == uV__DT_FILE   = DirEntFile
+    | t == uV__DT_DIR    = DirEntDir
+    | t == uV__DT_LINK   = DirEntLink
+    | t == uV__DT_FIFO   = DirEntFIFO
+    | t == uV__DT_SOCKET = DirEntSocket
+    | t == uV__DT_CHAR   = DirEntChar
+    | t == uV__DT_BLOCK  = DirEntBlock
+    | otherwise          = DirEntUnknown
 
 #{enum UVDirEntType, UVDirEntType,
     uV__DT_FILE    = UV__DT_FILE,
@@ -250,7 +278,7 @@ foreign import ccall unsafe hs_uv_fs_scandir_threaded
 data UVTimeSpec = UVTimeSpec 
     { uvtSecond     :: {-# UNPACK #-} !CLong
     , uvtNanoSecond :: {-# UNPACK #-} !CLong
-    } deriving (Show, Eq)
+    } deriving (Show, Read, Eq, Ord, Generic)
 
 instance Storable UVTimeSpec where
     sizeOf _  = #{size uv_timespec_t}
@@ -278,7 +306,7 @@ data UVStat = UVStat
     , stMtim     :: {-# UNPACK #-} !UVTimeSpec
     , stCtim     :: {-# UNPACK #-} !UVTimeSpec
     , stBirthtim :: {-# UNPACK #-} !UVTimeSpec
-    } deriving (Show, Eq)
+    } deriving (Show, Read, Eq, Ord, Generic)
 
 uvStatSize :: Int
 uvStatSize = #{size uv_stat_t}
@@ -305,6 +333,10 @@ peekUVStat p = UVStat
 foreign import ccall unsafe hs_uv_fs_stat :: CString -> Ptr UVStat -> IO Int
 foreign import ccall unsafe hs_uv_fs_fstat :: UVFD -> Ptr UVStat -> IO Int
 foreign import ccall unsafe hs_uv_fs_lstat :: CString -> Ptr UVStat -> IO Int
+foreign import ccall unsafe hs_uv_fs_rename :: CString -> CString -> IO Int
+foreign import ccall unsafe hs_uv_fs_fsync :: UVFD -> IO Int
+foreign import ccall unsafe hs_uv_fs_fdatasync :: UVFD -> IO Int
+foreign import ccall unsafe hs_uv_fs_ftruncate :: UVFD -> Int64 -> IO Int
 
 foreign import ccall unsafe hs_uv_fs_stat_threaded
     :: CString -> Ptr UVStat -> Ptr UVLoop -> IO UVSlotUnSafe
@@ -312,3 +344,40 @@ foreign import ccall unsafe hs_uv_fs_fstat_threaded
     :: UVFD -> Ptr UVStat -> Ptr UVLoop -> IO UVSlotUnSafe
 foreign import ccall unsafe hs_uv_fs_lstat_threaded
     :: CString -> Ptr UVStat -> Ptr UVLoop -> IO UVSlotUnSafe
+foreign import ccall unsafe hs_uv_fs_rename_threaded
+    :: CString -> CString -> Ptr UVLoop -> IO UVSlotUnSafe
+foreign import ccall unsafe hs_uv_fs_fsync_threaded
+    :: UVFD -> Ptr UVLoop -> IO UVSlotUnSafe
+foreign import ccall unsafe hs_uv_fs_fdatasync_threaded
+    :: UVFD -> Ptr UVLoop -> IO UVSlotUnSafe
+foreign import ccall unsafe hs_uv_fs_ftruncate_threaded 
+    :: UVFD -> Int64 -> Ptr UVLoop -> IO UVSlotUnSafe
+
+newtype UVCopyFileFlag = UVCopyFileFlag CInt
+    deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable)
+
+uV_FS_COPYFILE_DEFAULT :: UVCopyFileFlag
+uV_FS_COPYFILE_DEFAULT = UVCopyFileFlag 0
+
+#{enum UVCopyFileFlag, UVCopyFileFlag, uV_FS_COPYFILE_EXCL          = UV_FS_COPYFILE_EXCL}
+
+#ifdef UV_FS_COPYFILE_FICLONE
+#{enum UVCopyFileFlag, UVCopyFileFlag, uV_FS_COPYFILE_FICLONE       = UV_FS_COPYFILE_FICLONE}
+#else
+uV_FS_COPYFILE_FICLONE :: UVCopyFileFlag
+uV_FS_COPYFILE_FICLONE = error "Std.IO.UV.FFI.uV_FS_COPYFILE_FICLONE: unsupported UVCopyFileFlag, please update libuv"
+#endif
+
+#ifdef UV_FS_COPYFILE_FICLONE_FORCE
+#{enum UVCopyFileFlag, UVCopyFileFlag, uV_FS_COPYFILE_FICLONE_FORCE = UV_FS_COPYFILE_FICLONE_FORCE}
+#else
+uV_FS_COPYFILE_FICLONE_FORCE:: UVCopyFileFlag
+uV_FS_COPYFILE_FICLONE_FORCE = error "Std.IO.UV.FFI.uV_FS_COPYFILE_FICLONE_FORCE: unsupported UVCopyFileFlag, please update libuv"
+#endif
+
+foreign import ccall unsafe hs_uv_fs_copyfile :: CString -> CString -> UVCopyFileFlag -> IO Int
+
+
+
+foreign import ccall unsafe hs_uv_fs_copyfile_threaded
+    :: CString -> CString -> UVCopyFileFlag -> Ptr UVLoop -> IO UVSlotUnSafe

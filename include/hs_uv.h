@@ -581,6 +581,11 @@ HsInt hs_uv_fs_scandir(const char* path, uv_dirent_t*** dents);
 HsInt hs_uv_fs_stat(const char* path, uv_stat_t* stat);
 HsInt hs_uv_fs_fstat(int32_t file, uv_stat_t* stat);
 HsInt hs_uv_fs_lstat(const char* path, uv_stat_t* stat);
+HsInt hs_uv_fs_rename(const char* path, const char* path2);
+HsInt hs_uv_fs_fsync(int32_t file);
+HsInt hs_uv_fs_fdatasync(int32_t file);
+HsInt hs_uv_fs_ftruncate(int32_t file, int64_t off);
+HsInt hs_uv_fs_copyfile(const char* path, const char* path2, int flag);
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -597,3 +602,8 @@ HsInt hs_uv_fs_scandir_threaded(const char* path, uv_dirent_t*** dents, uv_loop_
 HsInt hs_uv_fs_stat_threaded(const char* path, uv_stat_t* stat, uv_loop_t* loop);
 HsInt hs_uv_fs_fstat_threaded(int32_t file, uv_stat_t* stat, uv_loop_t* loop);
 HsInt hs_uv_fs_lstat_threaded(const char* path, uv_stat_t* stat, uv_loop_t* loop);
+HsInt hs_uv_fs_rename_threaded(const char* path, const char* path2, uv_loop_t* loop);
+HsInt hs_uv_fs_fsync_threaded(int32_t file, uv_loop_t* loop);
+HsInt hs_uv_fs_fdatasync_threaded(int32_t file, uv_loop_t* loop);
+HsInt hs_uv_fs_ftruncate_threaded(int32_t file, int64_t off, uv_loop_t* loop);
+HsInt hs_uv_fs_copyfile_threaded(const char* path, const char* path2, int flag, uv_loop_t* loop);

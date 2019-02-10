@@ -1,11 +1,12 @@
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Std.Data.Vector.BaseSpec where
 
 import qualified Data.List                as List
 import           Data.Word
-import qualified Std.Data.Vector          as V
+import qualified Std.Data.Vector.Base     as V
 import           Test.QuickCheck
 import           Test.QuickCheck.Function
 import           Test.QuickCheck.Property
@@ -59,13 +60,11 @@ spec = describe "vector-base" $ do
         prop "packR === packRN XX" $ \ xs d ->
             (V.packR @V.PrimVector @Word8 xs) === (V.packRN d xs)
 
-    describe "vector reverse . pack == packR" . modifyMaxSuccess (*50) . modifyMaxSize (*50) $ do
-        prop "reverse . pack === packR XX" $ \ xs ->
-            (V.reverse $ V.pack @V.Vector @Integer xs) === (V.packR xs)
-        prop "reverse . pack === packR XX" $ \ xs ->
-            (V.reverse $ V.pack @V.PrimVector @Int xs) === (V.packR xs)
-        prop "reverse . pack === packR XX" $ \ xs ->
-            (V.reverse $ V.pack @V.PrimVector @Word8 xs) === (V.packR xs)
+    describe "Bytes IsString instance property" $ do
+        prop "ASCII string" $
+            "hello world" == V.pack @V.PrimVector (List.map V.c2w "hello world")
+        prop "UTF8 string" $
+            "你好世界" == V.pack @V.PrimVector (List.map V.c2w "你好世界")
 
     describe "vector length == List.length" $ do
         prop "vector length === List.length" $ \ xs ->

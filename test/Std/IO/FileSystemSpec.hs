@@ -1,5 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Std.IO.FileSystemSpec where
@@ -12,6 +10,7 @@ import           Foreign.Ptr
 import           Std.IO.Buffered
 import           Std.IO.Exception
 import           Std.IO.FileSystem       as FS
+import qualified Std.IO.FileSystemT      as FST
 import           Std.IO.Resource
 import           Std.IO.UV.Manager
 import           Test.Hspec
@@ -25,8 +24,8 @@ spec = describe "filesystem operations" $ do
             mode = defaultMode
             filename = "stdio-unit"
 
-            content = [ascii|Hello world!|]
-            content2 = [ascii|quick fox jumps over the lazy dog|]
+            content = "Hello world!"
+            content2 = "quick fox jumps over the lazy dog"
             size = V.length content
             size2 = V.length content2
 
@@ -40,12 +39,12 @@ spec = describe "filesystem operations" $ do
             written <- readExactly size i
             written @=? content
 
-        withResource (initUVFileT filename flags mode) $ \ file -> do
+        withResource (FST.initUVFile filename flags mode) $ \ file -> do
             o <- newBufferedOutput file 4096
             writeBuffer o content2
             flush o
 
-        withResource (initUVFileT filename flags mode) $ \ file -> do
+        withResource (FST.initUVFile filename flags mode) $ \ file -> do
             i <- newBufferedInput file 4096
             written <- readExactly size2 i
             written @=? content2
