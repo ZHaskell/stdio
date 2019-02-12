@@ -230,7 +230,7 @@ library
         -- Note: The c-sources list is taken from libuv's Makefile.mingw, needs to be
         -- updated when we bump up libuv's version.
         third_party/libuv/src/fs-poll.c 
-        third_party/libuv/src/heap-inl.h 
+        -- third_party/libuv/src/heap-inl.h 
         third_party/libuv/src/idna.c 
         third_party/libuv/src/inet.c 
         third_party/libuv/src/queue.h 
@@ -240,7 +240,7 @@ library
         third_party/libuv/src/timer.c 
         third_party/libuv/src/uv-data-getter-setters.c 
         third_party/libuv/src/uv-common.c 
-        third_party/libuv/src/uv-common.h 
+        -- third_party/libuv/src/uv-common.h 
         third_party/libuv/src/version.c
 
         third_party/libuv/src/win/async.c 
