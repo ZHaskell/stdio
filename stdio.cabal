@@ -229,13 +229,14 @@ library
       c-sources:
         -- Note: The c-sources list is taken from libuv's Makefile.mingw, needs to be
         -- updated when we bump up libuv's version.
+        -- header files are ignored here, otherwise will confuse linker 
         third_party/libuv/src/fs-poll.c 
         -- third_party/libuv/src/heap-inl.h 
         third_party/libuv/src/idna.c 
         third_party/libuv/src/inet.c 
-        third_party/libuv/src/queue.h 
+        -- third_party/libuv/src/queue.h 
         third_party/libuv/src/strscpy.c 
-        third_party/libuv/src/strscpy.h 
+        -- third_party/libuv/src/strscpy.h 
         third_party/libuv/src/threadpool.c 
         third_party/libuv/src/timer.c 
         third_party/libuv/src/uv-data-getter-setters.c 
@@ -244,7 +245,7 @@ library
         third_party/libuv/src/version.c
 
         third_party/libuv/src/win/async.c 
-        third_party/libuv/src/win/atomicops-inl.h 
+        -- third_party/libuv/src/win/atomicops-inl.h 
         third_party/libuv/src/win/core.c 
         third_party/libuv/src/win/detect-wakeup.c 
         third_party/libuv/src/win/dl.c 
@@ -254,26 +255,26 @@ library
         third_party/libuv/src/win/getaddrinfo.c 
         third_party/libuv/src/win/getnameinfo.c 
         third_party/libuv/src/win/handle.c 
-        third_party/libuv/src/win/handle-inl.h 
-        third_party/libuv/src/win/internal.h 
+        -- third_party/libuv/src/win/handle-inl.h 
+        -- third_party/libuv/src/win/internal.h 
         third_party/libuv/src/win/loop-watcher.c 
         third_party/libuv/src/win/pipe.c 
         third_party/libuv/src/win/poll.c 
         third_party/libuv/src/win/process-stdio.c 
         third_party/libuv/src/win/process.c 
-        third_party/libuv/src/win/req-inl.h 
+        -- third_party/libuv/src/win/req-inl.h 
         third_party/libuv/src/win/signal.c 
         third_party/libuv/src/win/stream.c 
-        third_party/libuv/src/win/stream-inl.h 
+        -- third_party/libuv/src/win/stream-inl.h 
         third_party/libuv/src/win/tcp.c 
         third_party/libuv/src/win/thread.c 
         third_party/libuv/src/win/tty.c 
         third_party/libuv/src/win/udp.c 
         third_party/libuv/src/win/util.c 
         third_party/libuv/src/win/winapi.c 
-        third_party/libuv/src/win/winapi.h 
+        -- third_party/libuv/src/win/winapi.h 
         third_party/libuv/src/win/winsock.c 
-        third_party/libuv/src/win/winsock.h
+        -- third_party/libuv/src/win/winsock.h
 
       cc-options:        -Wall -Wextra -Wno-unused-parameter -Wstrict-prototypes -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0600 -march=native
       cpp-options:       -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0600 -march=native
