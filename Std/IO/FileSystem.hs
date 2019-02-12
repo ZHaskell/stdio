@@ -384,6 +384,9 @@ fchmod (UVFile fd counter) mode =
 --   * nanosecond = (v * 1000000) % 1000000 * 1000;
 --
 -- second and nanosecond are fields in 'UVTimeSpec' respectively.
+--
+-- Note libuv prior to v1.23.1 have issues which may result in nanosecond not set, 'futime' doesn't have
+-- that issue.
 utime :: HasCallStack
       => CBytes
       -> Double     -- ^ atime, i.e. access time
