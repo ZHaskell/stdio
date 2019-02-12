@@ -38,20 +38,18 @@ encodeCharLength n
     | n <= '\x10FFFF' = 4
     | otherwise = 3
 
--- | Encode a 'Char' into bytes
+-- | Encode a 'Char' into bytes, write 'replacementChar' for invalid unicode codepoint.
 --
--- Write @\U+FFFD@ (encoded as @0xEF 0xBF 0xBD@ 3 bytes) for invalid unicode codepoint.
 -- This function assumed there're enough space for encoded bytes, and return the advanced index.
---
 encodeChar :: MutablePrimArray s Word8 -> Int -> Char -> ST s Int
 {-# INLINE encodeChar #-}
 encodeChar (MutablePrimArray mba#) (I# i#) (C# c#) = ST (\ s# ->
-    let (# s1#, j# #) = encodeChar# mba# i# c# s# in (# s1#, (I# j#) #))
+    let (# s1#, j# #) = encodeChar# mba# i# c# s# in (# s1#, I# j# #))
 
--- | The unboxed version of 'encodeChar'
+-- | The unboxed version of 'encodeChar'.
 --
--- This function is marked as @NOINLINE@ to reduce code size.
---
+-- This function is marked as @NOINLINE@ to reduce code size, and stop messing up simplifier
+-- due to too much branches.
 encodeChar# :: MutableByteArray# s -> Int# -> Char# -> State# s -> (# State# s, Int# #)
 {-# NOINLINE encodeChar# #-} -- codesize vs speed choice here
 encodeChar# mba# i# c# = case (int2Word# (ord# c#)) of
@@ -101,6 +99,7 @@ encodeCBytesChar :: (PrimMonad m) => MutablePrimArray (PrimState m) Word8 -> Int
 encodeCBytesChar (MutablePrimArray mba#) (I# i#) (C# c#) = primitive (\ s# ->
     let (# s1#, j# #) = encodeCBytesChar# mba# i# c# s# in (# s1#, (I# j#) #))
 
+-- | The unboxed version of 'encodeCBytesChar'.
 encodeCBytesChar# :: MutableByteArray# s -> Int# -> Char# -> State# s -> (# State# s, Int# #)
 {-# NOINLINE encodeCBytesChar# #-} -- codesize vs speed choice here
 encodeCBytesChar# mba# i# c# = case (int2Word# (ord# c#)) of
@@ -131,8 +130,8 @@ encodeCBytesChar# mba# i# c# = case (int2Word# (ord# c#)) of
 -- This function assumed all bytes are UTF-8 encoded, and the index param point to the
 -- beginning of a codepoint, the decoded character and the advancing offset are returned.
 --
--- It's annoying to use unboxed tuple here but we really want GHC to optimize it away.
---
+-- It's annoying to use unboxed tuple here but we really don't want allocation even if
+-- GHC can't optimize it away.
 decodeChar :: PrimArray Word8 -> Int -> (# Char, Int #)
 {-# INLINE decodeChar #-}
 decodeChar (PrimArray ba#) (I# idx#) =
@@ -145,8 +144,8 @@ decodeChar_ (PrimArray ba#) (I# idx#) =
 
 -- | The unboxed version of 'decodeChar'
 --
--- This function is marked as @NOINLINE@ to reduce code size.
---
+-- This function is marked as @NOINLINE@ to reduce code size, and stop messing up simplifier
+-- due to too much branches.
 decodeChar# :: ByteArray# -> Int# -> (# Char#, Int# #)
 {-# NOINLINE decodeChar# #-} -- This branchy code make GHC impossible to fuse, DON'T inline
 decodeChar# ba# idx# = case indexWord8Array# ba# idx# of
@@ -177,8 +176,8 @@ decodeCharLen (PrimArray ba#) (I# idx#) =
 
 -- | The unboxed version of 'decodeCharLen'
 --
--- This function is marked as @NOINLINE@ to reduce code size.
---
+-- This function is marked as @NOINLINE@ to reduce code size, and stop messing up simplifier
+-- due to too much branches.
 decodeCharLen# :: ByteArray# -> Int# -> Int#
 {-# INLINE decodeCharLen# #-} -- This branchy code make GHC impossible to fuse, DON'T inline
 decodeCharLen# ba# idx# = case indexWord8Array# ba# idx# of
@@ -205,8 +204,8 @@ decodeCharReverse_ (PrimArray ba#) (I# idx#) =
 
 -- | The unboxed version of 'decodeCharReverse'
 --
--- This function is marked as @NOINLINE@ to reduce code size.
---
+-- This function is marked as @NOINLINE@ to reduce code size, and stop messing up simplifier
+-- due to too much branches.
 decodeCharReverse# :: ByteArray# -> Int# -> (# Char#, Int# #)
 {-# NOINLINE decodeCharReverse# #-} -- This branchy code make GHC impossible to fuse, DON'T inline
 decodeCharReverse# ba# idx# =
@@ -238,8 +237,8 @@ decodeCharLenReverse (PrimArray ba#) (I# idx#) =
 
 -- | The unboxed version of 'decodeCharLenReverse'
 --
--- This function is marked as @NOINLINE@ to reduce code size.
---
+-- This function is marked as @NOINLINE@ to reduce code size, and stop messing up simplifier
+-- due to too much branches.
 decodeCharLenReverse# :: ByteArray# -> Int# -> Int#
 {-# NOINLINE decodeCharLenReverse# #-} -- This branchy code make GHC impossible to fuse, DON'T inline
 decodeCharLenReverse# ba# idx# =
@@ -349,6 +348,6 @@ copyChar' !l !mba !j !ba !i = case l of
             writePrimArray mba (j+2) =<< readPrimArray ba (i+2)
             writePrimArray mba (j+3) =<< readPrimArray ba (i+3)
 
-
+-- | @\xFFFD@, which will be encoded as @0xEF 0xBF 0xBD@ 3 bytes.
 replacementChar :: Char
 replacementChar = '\xFFFD'

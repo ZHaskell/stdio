@@ -108,15 +108,15 @@ data Buffer s = Buffer {-# UNPACK #-} !(A.MutablePrimArray s Word8)  -- ^ the bu
 --
 type BuildStep s = Buffer s -> ST s [V.Bytes]
 
--- | @Builder@ is a monoid to help compose @BuilderStep@. With next @BuilderStep@ continuation,
--- We can do interesting things like perform some action, or interleave the build process.
+-- | @Builder@ is a monad to help compose @BuilderStep@. With next @BuilderStep@ continuation,
+-- we can do interesting things like perform some action, or interleave the build process.
 --
 -- Notes on 'IsString' instance: It's recommended to use 'IsString' instance instead of 'stringUTF8'
--- or 'string7' since there's a rewrite rule to turn encoding loop into a memcpy, which is much faster.
+-- or 'string7' since there's a rewrite rule to turn encoding loop into a memcpy, which is faster.
 --
 -- The 'IsString' instance also gives desired UTF8 guarantees:
 --
--- * "\NUL" will be written directly as @\x00@.
+-- * @\NUL@ will be written directly as @\x00@.
 --
 -- * @\xD800@ ~ @\xDFFF@ will be replaced by replacement char.
 --
@@ -415,7 +415,7 @@ encodePrimBE = encodePrim . BE
 -- Illegal codepoints will be written as 'T.replacementChar's.
 --
 -- Note, if you're trying to write string literals builders,
--- please open 'OverloadedStrings' and use 'Builder's 'IsString' instance,
+-- please open 'OverloadedStrings' and use 'Builder''s 'IsString' instance,
 -- it will be rewritten into a memcpy, instead of encoding 'Char's in a
 -- loop like what 'stringUTF8' do.
 stringUTF8 :: String -> Builder ()
