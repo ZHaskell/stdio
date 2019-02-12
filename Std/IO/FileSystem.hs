@@ -39,6 +39,7 @@ module Std.IO.FileSystem
   , rmdir
   , DirEntType(..)
   , scandir
+  , UVStat(..), UVTimeSpec(..)
   , stat, lstat, fstat
   , rename
   , fsync, fdatasync
@@ -194,13 +195,13 @@ instance Output UVFileWriter where
 -- down to zero (no reading or writing is in process), which can
 -- be a problem if you are using multiple readers or writers in multiple threads.
 -- In that case you have to stop all reading or writing thread if you don't want to
--- block resource thread.
+-- block the resource thread.
 initUVFile :: HasCallStack
-     => CBytes
-     -> UVFileFlag
-     -> UVFileMode      -- ^ Sets the file mode (permission and sticky bits),
-                        -- but only if the file was created, see 'defaultMode'.
-     -> Resource UVFile
+           => CBytes
+           -> UVFileFlag        -- ^ Opening flags, e.g. 'O_CREAT' @.|.@ 'O_RDWR'
+           -> UVFileMode      -- ^ Sets the file mode (permission and sticky bits),
+                              -- but only if the file was created, see 'DEFAULT_MODE'.
+           -> Resource UVFile
 initUVFile path flags mode =
     initResource
         (do fd <- withCBytes path $ \ p ->
@@ -376,10 +377,23 @@ fchmod (UVFile fd counter) mode =
              (throwUVIfMinus_ (hs_uv_fs_fchmod fd mode))
 
 -- | Equivalent to <http://linux.die.net/man/2/utime utime(2)>.
-utime :: HasCallStack => CBytes -> Double -> Double -> IO ()
+--
+-- libuv choose 'Double' type due to cross platform concerns, we only provide micro-second precision:
+--
+--   * second     = v
+--   * nanosecond = (v * 1000000) % 1000000 * 1000;
+--
+-- second and nanosecond are fields in 'UVTimeSpec' respectively.
+utime :: HasCallStack
+      => CBytes
+      -> Double     -- ^ atime, i.e. access time
+      -> Double     -- ^ mtime, i.e. modify time
+      -> IO ()
 utime path atime mtime = throwUVIfMinus_ . withCBytes path $ \ p -> hs_uv_fs_utime p atime mtime
 
 -- | Equivalent to <http://linux.die.net/man/2/futime futime(2)>.
+--
+-- Same precision notes with 'utime'.
 futime :: HasCallStack => UVFile -> Double -> Double -> IO ()
 futime (UVFile fd counter) atime mtime =
     bracket_ (atomically $ do

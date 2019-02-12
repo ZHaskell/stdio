@@ -107,6 +107,7 @@ module Std.Data.Vector (
   , mapAccumR
   -- ** Generating and unfolding vector
   , replicate
+  , cycleN
   , unfoldr
   , unfoldrN
   -- * Searching by equality

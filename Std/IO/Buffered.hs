@@ -22,24 +22,20 @@ module Std.IO.Buffered where
 import           Control.Concurrent.MVar
 import           Control.Concurrent.STM.TVar
 import           Control.Monad
-import           Control.Monad.Primitive (ioToPrim, primToIO)
+import           Control.Monad.Primitive     (ioToPrim, primToIO)
 import           Control.Monad.ST
 import           Data.IORef
 import           Data.IORef.Unboxed
 import           Data.Primitive.PrimArray
 import           Data.Typeable
 import           Data.Word
-import           Foreign.C.Types          (CSize (..))
 import           Foreign.Ptr
-import           GHC.Prim
 import           Std.Data.Array
-import qualified Std.Data.Builder.Base    as B
-import qualified Std.Data.Text.Base       as T
-import qualified Std.Data.Vector.Base     as V
-import qualified Std.Data.Vector          as V
+import qualified Std.Data.Builder.Base       as B
+import qualified Std.Data.Vector             as V
+import qualified Std.Data.Vector.Base        as V
 import           Std.Foreign.PrimArray
 import           Std.IO.Exception
-import           System.Posix.Types       (CSsize (..))
 
 -- | Input device
 --
@@ -196,22 +192,14 @@ readToMagic magic h = V.concat `fmap` (go h magic)
                 chunks <- go h magic
                 return (chunk : chunks)
 
-data UTF8DecodeException = UTF8DecodeException V.Bytes IOEInfo
-  deriving (Show, Typeable)
-instance Exception UTF8DecodeException where
-    toException = ioExceptionToException
-    fromException = ioExceptionFromException
-
 -- | Read a line
 --
-readLine :: (HasCallStack, Input i) => BufferedInput i -> IO T.Text
+-- This function simply loop reading until a '\n' byte is met, and return all bytes read before including this
+-- '\n' byte, there's no guarantee the bytes are properly UTF-8 encoded.
+readLine :: (HasCallStack, Input i) => BufferedInput i -> IO V.Bytes
 readLine h = do
     bss <- go h (V.c2w '\n')
-    let bs = V.concat bss
-    case T.validateMaybe bs of
-        Just t  -> return t
-        Nothing -> throwIO (UTF8DecodeException bs
-                (IOEInfo "" "utf8 decode error" callStack))
+    return $! V.concat bss
   where
     go h magic = do
         chunk <- readBuffer h

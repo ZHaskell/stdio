@@ -130,7 +130,6 @@ import           Data.String              (IsString(..))
 import           Data.Word
 import           Foreign.C.Types          (CSize(..))
 import           GHC.Exts                 (build)
-import           GHC.Prim
 import           GHC.Ptr
 import           GHC.Types
 import           GHC.Stack

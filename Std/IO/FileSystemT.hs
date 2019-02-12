@@ -13,7 +13,13 @@ Maintainer  : drkoster@qq.com
 Stability   : experimental
 Portability : non-portable
 
-This module provide I/O operations related to filesystem, operations are implemented using libuv's threadpool to achieve non-block behavior, which should be prefered when the operations' estimated time is long enough(>1ms) or running with a non-threaded haskell runtime, such as accessing network filesystem or scan a very large directory. Otherwise you may block RTS's capability thus all the other haskell threads live on it.
+This module provide I/O operations related to filesystem, operations are implemented using libuv's threadpool to achieve non-block behavior (non-block here meaning won't block other haskell threads), which should be prefered when the operations' estimated time is long enough(>1ms) or running with a non-threaded haskell runtime, such as accessing network filesystem or scan a very large directory. Otherwise you may block RTS's capability thus all the other haskell threads live on it.
+
+The threadpool version operations have overheads similar to safe FFI, but provide same adventages:
+
+  * The libuv's threadpool have a limit on concurrent threads number (4 by default), which can reduce disk contention.
+  * The threadpool version works with non-threaded runtime, which doesn't have safe FFI available.
+  * The threadpool version won't relinquish current HEC (Haskell Execution Context) a.k.a. capability.
 
 -}
 
@@ -38,6 +44,7 @@ module Std.IO.FileSystemT
   , rmdir
   , DirEntType(..)
   , scandir
+  , UVStat(..), UVTimeSpec(..)
   , stat, lstat, fstat
   , rename
   , fsync, fdatasync
@@ -191,14 +198,20 @@ instance Output UVFileWriter where
 
 --------------------------------------------------------------------------------
 
--- | Open a file and get the descriptor
+-- | init a file 'Resource', which open a file when used.
+--
+-- Resource closing will wait for the referencing counter goes
+-- down to zero (no reading or writing is in process), which can
+-- be a problem if you are using multiple readers or writers in multiple threads.
+-- In that case you have to stop all reading or writing thread if you don't want to
+-- block the resource thread.
 initUVFile :: HasCallStack
            => CBytes
-           -> UVFileFlag
+           -> UVFileFlag        -- ^ Opening flags, e.g. 'O_CREAT' @.|.@ 'O_RDWR'
            -> UVFileMode        -- ^ Sets the file mode (permission and sticky bits),
-                                -- but only if the file was created, see 'defaultMode'.
+                                -- but only if the file was created, see 'DEFAULT_MODE'.
            -> Resource UVFile
-initUVFile path flags mode = do
+initUVFile path flags mode =
     initResource
         (do uvm <- getUVManager
             fd <- withCBytes path $ \ p ->
@@ -409,13 +422,26 @@ fchmod (UVFile fd counter) mode =
                  withUVRequest_ uvm (hs_uv_fs_fchmod_threaded fd mode))
 
 -- | Equivalent to <http://linux.die.net/man/2/utime utime(2)>.
-utime :: HasCallStack => CBytes -> Double -> Double -> IO ()
+--
+-- libuv choose 'Double' type due to cross platform concerns, we only provide micro-second precision:
+--
+--   * second     = v
+--   * nanosecond = (v * 1000000) % 1000000 * 1000;
+--
+-- second and nanosecond are fields in 'UVTimeSpec' respectively.
+utime :: HasCallStack
+      => CBytes
+      -> Double     -- ^ atime, i.e. access time
+      -> Double     -- ^ mtime, i.e. modify time
+      -> IO ()
 utime path atime mtime = do
     uvm <- getUVManager
     withCBytes path $ \ p ->
         withUVRequest_ uvm (hs_uv_fs_utime_threaded p atime mtime)
 
 -- | Equivalent to <http://linux.die.net/man/2/futime futime(2)>.
+--
+-- Same precision notes with 'utime'.
 futime :: HasCallStack => UVFile -> Double -> Double -> IO ()
 futime (UVFile fd counter) atime mtime =
     bracket_ (atomically $ do

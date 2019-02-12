@@ -36,7 +36,7 @@ Currently **the minimum version requirement for libuv is v1.14**. If your packag
 ```
 git clone https://github.com/libuv/libuv.git 
 cd libuv 
-git checkout tags/v1.18.0   # depend on your own need, any version >= 1.14 will work.
+git checkout tags/v1.24.0   # depend on your own need, any version >= 1.14 will work.
 sh autogen.sh 
 ./configure 
 make 
