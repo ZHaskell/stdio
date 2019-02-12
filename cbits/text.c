@@ -20,6 +20,19 @@ HsInt ascii_validate(const char* p, HsInt off, HsInt len){
 #endif
 #endif
 }
+// for some reason unknown, on windows we have to supply a seperated version of ascii_validate
+// otherwise we got segfault if we import the same FFI with different type (Addr# vs ByteArray#)
+HsInt ascii_validate_addr(const char* p, HsInt len){
+#ifdef __AVX2__
+    return (HsInt)validate_ascii_fast_avx(p, (size_t)len);
+#else
+#ifdef __SSE2__
+    return (HsInt)validate_ascii_fast(p, (size_t)len);
+#else
+    return (HsInt)ascii_u64(p, (size_t)len);
+#endif
+#endif
+}
 
 HsInt utf8_validate(const char* p, HsInt off, HsInt len){
     const char* q = p + off;
@@ -152,7 +165,7 @@ HsInt utf8_isnormalized(const char* p, HsInt off, HsInt len, size_t flag){
     return (HsInt)utf8isnormalized(p+off, len, flag, &offset);
 }
 
-HsInt utf8_normalize(const char* p, HsInt off, HsInt len, const char* q, HsInt len2, size_t flag){
+HsInt utf8_normalize(const char* p, HsInt off, HsInt len, char* q, HsInt len2, size_t flag){
     size_t converted_size;
     int32_t errors;
     if ((converted_size = utf8normalize(p+off, len, q, len2, flag, &errors)) == 0 ||
@@ -176,7 +189,7 @@ HsInt utf8_normalize_length(const char* p, HsInt off, HsInt len, size_t flag){
     }
 }
 
-HsInt utf8_casefold(const char* p, HsInt off, HsInt len, const char* q, HsInt len2, size_t locale){
+HsInt utf8_casefold(const char* p, HsInt off, HsInt len, char* q, HsInt len2, size_t locale){
     size_t converted_size;
     int32_t errors;
     if ((converted_size = utf8casefold(p+off, len, q, len2, locale, &errors)) == 0 ||
@@ -200,7 +213,7 @@ HsInt utf8_casefold_length(const char* p, HsInt off, HsInt len, size_t locale){
     }
 }
 
-HsInt utf8_tolower(const char* p, HsInt off, HsInt len, const char* q, HsInt len2, size_t locale){
+HsInt utf8_tolower(const char* p, HsInt off, HsInt len, char* q, HsInt len2, size_t locale){
     size_t converted_size;
     int32_t errors;
     if ((converted_size = utf8tolower(p+off, len, q, len2, locale, &errors)) == 0 ||
@@ -224,7 +237,7 @@ HsInt utf8_tolower_length(const char* p, HsInt off, HsInt len, size_t locale){
     }
 }
 
-HsInt utf8_toupper(const char* p, HsInt off, HsInt len, const char* q, HsInt len2, size_t locale){
+HsInt utf8_toupper(const char* p, HsInt off, HsInt len, char* q, HsInt len2, size_t locale){
     size_t converted_size;
     int32_t errors;
     if ((converted_size = utf8toupper(p+off, len, q, len2, locale, &errors)) == 0 ||
@@ -248,7 +261,7 @@ HsInt utf8_toupper_length(const char* p, HsInt off, HsInt len, size_t locale){
     }
 }
 
-HsInt utf8_totitle(const char* p, HsInt off, HsInt len, const char* q, HsInt len2, size_t locale){
+HsInt utf8_totitle(const char* p, HsInt off, HsInt len, char* q, HsInt len2, size_t locale){
     size_t converted_size;
     int32_t errors;
     if ((converted_size = utf8totitle(p+off, len, q, len2, locale, &errors)) == 0 ||

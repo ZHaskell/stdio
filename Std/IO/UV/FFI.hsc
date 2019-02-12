@@ -420,7 +420,7 @@ peekUVDirEnt p = return ((#{ptr hs_uv__dirent_t,  d_name } p), #{const DT_UNKNOW
 foreign import ccall unsafe hs_uv_fs_scandir_cleanup
     :: Ptr (Ptr UVDirEnt) -> Int -> IO ()
 foreign import ccall unsafe hs_uv_fs_scandir
-    :: CString -> MutableByteArray## RealWorld -> IO Int
+    :: CString -> MBA## (Ptr UVDirEnt) -> IO Int
 foreign import ccall unsafe hs_uv_fs_scandir_extra_cleanup 
     :: Ptr (Ptr (Ptr UVDirEnt)) -> Int -> IO ()
 foreign import ccall unsafe hs_uv_fs_scandir_threaded
@@ -587,9 +587,9 @@ foreign import ccall unsafe hs_uv_fs_symlink_threaded
 foreign import ccall unsafe hs_uv_fs_readlink_cleanup
     :: CString -> IO ()
 foreign import ccall unsafe hs_uv_fs_readlink
-    :: CString -> MutableByteArray## RealWorld -> IO Int
+    :: CString -> MBA## CString -> IO Int
 foreign import ccall unsafe hs_uv_fs_realpath
-    :: CString -> MutableByteArray## RealWorld -> IO Int
+    :: CString -> MBA## CString -> IO Int
 foreign import ccall unsafe hs_uv_fs_readlink_extra_cleanup 
     :: Ptr CString -> IO ()
 foreign import ccall unsafe hs_uv_fs_readlink_threaded

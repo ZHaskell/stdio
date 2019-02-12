@@ -142,6 +142,7 @@ import           Std.Data.Vector.Base     (Bytes, PrimVector(..), c_strlen)
 import qualified Std.Data.Vector.Base     as V
 import qualified Std.Data.Vector.Extra    as V
 import qualified Std.Data.Vector.Search   as V
+import           Std.Foreign.PrimArray
 import           System.IO.Unsafe (unsafeDupablePerformIO)
 
 import           Prelude                       hiding (concat, concatMap,
@@ -278,7 +279,7 @@ validateMaybe bs@(V.PrimVector (PrimArray ba#) (I# s#) l@(I# l#))
     | otherwise = Nothing
 
 foreign import ccall unsafe "text.h utf8_validate"
-    c_utf8_validate_ba :: ByteArray# -> Int# -> Int# -> Int
+    c_utf8_validate_ba :: BA# Word8 -> Int# -> Int# -> Int
 foreign import ccall unsafe "text.h utf8_validate_addr"
     c_utf8_validate_addr :: Addr# -> Int -> IO Int
 
@@ -699,11 +700,11 @@ normalizeTo nmode (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
 -- functions below will return error if the source ByteArray# is empty
 --
 foreign import ccall unsafe utf8_isnormalized ::
-    ByteArray# -> Int# -> Int# -> CSize -> Int
+    BA# Word8 -> Int# -> Int# -> CSize -> Int
 foreign import ccall unsafe utf8_normalize ::
-    ByteArray# -> Int# -> Int# -> MutableByteArray# RealWorld -> Int# -> CSize -> IO ()
+    BA# Word8 -> Int# -> Int# -> MBA# Word8 -> Int# -> CSize -> IO ()
 foreign import ccall unsafe utf8_normalize_length ::
-    ByteArray# -> Int# -> Int# -> CSize -> Int
+    BA# Word8 -> Int# -> Int# -> CSize -> Int
 
 -- ----------------------------------------------------------------------------
 -- ** Case conversions
@@ -886,24 +887,24 @@ toTitleWith locale (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
 
 -- functions below will return error if the source ByteArray# is empty
 foreign import ccall unsafe utf8_casefold ::
-    ByteArray# -> Int# -> Int# -> MutableByteArray# RealWorld -> Int# -> Locale -> IO ()
+    BA# Word8 -> Int# -> Int# -> MBA# Word8 -> Int# -> Locale -> IO ()
 foreign import ccall unsafe utf8_casefold_length ::
-    ByteArray# -> Int# -> Int# -> Locale -> Int
+    BA# Word8 -> Int# -> Int# -> Locale -> Int
 
 foreign import ccall unsafe utf8_tolower ::
-    ByteArray# -> Int# -> Int# -> MutableByteArray# RealWorld -> Int# -> Locale -> IO ()
+    BA# Word8 -> Int# -> Int# -> MBA# Word8 -> Int# -> Locale -> IO ()
 foreign import ccall unsafe utf8_tolower_length ::
-    ByteArray# -> Int# -> Int# -> Locale -> Int
+    BA# Word8 -> Int# -> Int# -> Locale -> Int
 
 foreign import ccall unsafe utf8_toupper ::
-    ByteArray# -> Int# -> Int# -> MutableByteArray# RealWorld -> Int# -> Locale -> IO ()
+    BA# Word8 -> Int# -> Int# -> MBA# Word8 -> Int# -> Locale -> IO ()
 foreign import ccall unsafe utf8_toupper_length ::
-    ByteArray# -> Int# -> Int# -> Locale -> Int
+    BA# Word8 -> Int# -> Int# -> Locale -> Int
 
 foreign import ccall unsafe utf8_totitle ::
-    ByteArray# -> Int# -> Int# -> MutableByteArray# RealWorld -> Int# -> Locale -> IO ()
+    BA# Word8 -> Int# -> Int# -> MBA# Word8 -> Int# -> Locale -> IO ()
 foreign import ccall unsafe utf8_totitle_length ::
-    ByteArray# -> Int# -> Int# -> Locale -> Int
+    BA# Word8 -> Int# -> Int# -> Locale -> Int
 
 {-|
 Check if the input string conforms to the category specified by the
@@ -956,4 +957,4 @@ spanCategory c (Text (V.PrimVector arr@(PrimArray arr#) s@(I# s#) l@(I# l#)))
         in (Text (V.PrimVector arr s i), Text (V.PrimVector arr (s+i) (l-i)))
 
 -- functions below will return error if the source ByteArray# is empty
-foreign import ccall utf8_iscategory :: ByteArray# -> Int# -> Int# -> Category -> Int
+foreign import ccall utf8_iscategory :: BA# Word8 -> Int# -> Int# -> Category -> Int

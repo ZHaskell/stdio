@@ -677,9 +677,9 @@ doFmt format decs (is, e) =
 
 foreign import ccall unsafe "static grisu3" c_grisu3
     :: Double
-    -> MutableByteArray# RealWorld  -- ^ char*
-    -> MutableByteArray# RealWorld  -- ^ Int
-    -> MutableByteArray# RealWorld  -- ^ Int
+    -> MBA# Word8   -- ^ char*
+    -> MBA# Int     -- ^ Int
+    -> MBA# Int     -- ^ Int
     -> IO Int
 
 -- | Decimal encoding of a 'Double'.
@@ -701,9 +701,9 @@ grisu3 d = unsafePerformIO $
 
 foreign import ccall unsafe "static grisu3_sp" c_grisu3_sp
     :: Float
-    -> MutableByteArray# RealWorld  -- ^ char*
-    -> MutableByteArray# RealWorld  -- ^ Int
-    -> MutableByteArray# RealWorld  -- ^ Int
+    -> MBA# Word8   -- ^ char*
+    -> MBA# Int     -- ^ Int
+    -> MBA# Int     -- ^ Int
     -> IO Int
 
 -- | Decimal encoding of a 'Float'.

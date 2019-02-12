@@ -75,6 +75,7 @@ module Std.Foreign.PrimArray
   , withPrimSafe
   , withPrimSafe'
     -- ** Pointer helpers
+  , BA#, MBA#
   , clearPtr
   , addrToPtr
   , ptrToAddr
@@ -98,6 +99,30 @@ import           Std.Data.Vector.Base
 import           Std.IO.Exception
 import           Std.IO.Resource
 
+-- | Type alias for 'ByteArray#'.
+--
+-- Since we can't newtype an unlifted type yet, type alias is the best we can get
+-- to describe a 'ByteArray#' which we are going to pass across FFI. At C side you
+-- should use a proper const pointer type.
+--
+-- Don't cast 'BA#' to 'Addr#' since the heap object offset is hard-coded in code generator:
+-- <https://github.com/ghc/ghc/blob/master/compiler/codeGen/StgCmmForeign.hs#L520>
+--
+-- USE THIS TYPE WITH UNSAFE FFI CALL ONLY.
+type BA# a = ByteArray#
+
+-- | Type alias for 'MutableByteArray#' 'RealWorld'.
+--
+-- Since we can't newtype an unlifted type yet, type alias is the best we can get
+-- to describe a 'MutableByteArray#' which we are going to pass across FFI. At C side you
+-- should use a proper pointer type.
+--
+-- Don't cast 'MBA#' to 'Addr#' since the heap object offset is hard-coded in code generator:
+-- <https://github.com/ghc/ghc/blob/master/compiler/codeGen/StgCmmForeign.hs#L520>
+--
+-- USE THIS TYPE WITH UNSAFE FFI CALL ONLY.
+type MBA# a = MutableByteArray# RealWorld
+
 -- | Pass primitive array to unsafe FFI as pointer.
 --
 -- Enable 'UnliftedFFITypes' extension in your haskell code, use proper pointer type and @CSize/CSsize@
@@ -109,12 +134,11 @@ import           Std.IO.Resource
 -- <https://github.com/ghc/ghc/blob/master/compiler/codeGen/StgCmmForeign.hs#L520>
 --
 -- In haskell side we use type system to distinguish immutable / mutable arrays, but in C side we can't.
--- So it's users' responsibility to make sure the array content is not mutated. Otherwise please thaw
--- the array and use 'withMutablePrimArrayUnsafe' instead.
+-- So it's users' responsibility to make sure the array content is not mutated (a const pointer type may help).
 --
 -- USE THIS FUNCTION WITH UNSAFE FFI CALL ONLY.
 --
-withPrimArrayUnsafe :: (Prim a) => PrimArray a -> (ByteArray# -> Int -> IO b) -> IO b
+withPrimArrayUnsafe :: (Prim a) => PrimArray a -> (BA# a -> Int -> IO b) -> IO b
 withPrimArrayUnsafe pa@(PrimArray ba#) f = f ba# (sizeofPrimArray pa)
 
 -- | Pass mutable primitive array to unsafe FFI as pointer.
@@ -124,12 +148,12 @@ withPrimArrayUnsafe pa@(PrimArray ba#) f = f ba# (sizeofPrimArray pa)
 -- USE THIS FUNCTION WITH UNSAFE FFI CALL ONLY.
 --
 withMutablePrimArrayUnsafe :: (Prim a) => MutablePrimArray RealWorld a
-                           -> (MutableByteArray# RealWorld-> Int -> IO b) -> IO b
+                           -> (MBA# a -> Int -> IO b) -> IO b
 withMutablePrimArrayUnsafe mpa@(MutablePrimArray mba#) f =
     getSizeofMutablePrimArray mpa >>= f mba#
 
 withMutableByteArrayUnsafe :: Int      -- ^ In bytes
-                           -> (MutableByteArray# RealWorld -> IO b) -> IO b
+                           -> (MBA# Word8 -> IO b) -> IO b
 withMutableByteArrayUnsafe len f = do
     (MutableByteArray mba#) <- newByteArray len
     f mba#
@@ -144,7 +168,7 @@ withMutableByteArrayUnsafe len f = do
 -- USE THIS FUNCTION WITH UNSAFE FFI CALL ONLY.
 --
 withPrimVectorUnsafe :: (Prim a)
-                     => PrimVector a -> (ByteArray# -> Int -> Int -> IO b) -> IO b
+                     => PrimVector a -> (BA# a -> Int -> Int -> IO b) -> IO b
 withPrimVectorUnsafe (PrimVector arr s l) f = withPrimArrayUnsafe arr $ \ ba# _ -> f ba# s l
 
 
@@ -155,7 +179,7 @@ withPrimVectorUnsafe (PrimVector arr s l) f = withPrimArrayUnsafe arr $ \ ba# _ 
 -- USE THIS FUNCTION WITH UNSAFE FFI CALL ONLY.
 --
 withPrimUnsafe :: (Prim a)
-               => a -> (MutableByteArray# RealWorld -> IO b) -> IO (a, b)
+               => a -> (MBA# a -> IO b) -> IO (a, b)
 withPrimUnsafe v f = do
     mpa@(MutablePrimArray mba#) <- newPrimArray 1    -- All heap objects are WORD aligned
     writePrimArray mpa 0 v
@@ -164,7 +188,7 @@ withPrimUnsafe v f = do
     return (a, b)
 
 withPrimUnsafe' :: (Prim a)
-               => (MutableByteArray# RealWorld -> IO b) -> IO (a, b)
+               => (MBA# a -> IO b) -> IO (a, b)
 withPrimUnsafe' f = do
     mpa@(MutablePrimArray mba#) <- newPrimArray 1    -- All heap objects are WORD aligned
     !b <- f mba#                                      -- so no need to do extra alignment

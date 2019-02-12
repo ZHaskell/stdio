@@ -91,7 +91,7 @@ module Std.Data.Vector.Base (
   -- * C FFI
   , c_strcmp
   , c_strlen
-  , c_ascii_validate
+  , c_ascii_validate_addr
  ) where
 
 import           Control.DeepSeq
@@ -432,7 +432,7 @@ packStringAddr :: Addr# -> Bytes
 packStringAddr addr# = validateAndCopy addr#
   where
     len = fromIntegral . unsafePerformIO $ c_strlen addr#
-    valid = unsafePerformIO $ c_ascii_validate addr# 0# len
+    valid = unsafePerformIO $ c_ascii_validate_addr addr# len
     validateAndCopy addr#
         | valid == 0 = pack . fmap (fromIntegral . ord) $ unpackCString# addr#
         | otherwise = runST $ do
@@ -1207,5 +1207,5 @@ foreign import ccall unsafe "string.h strcmp"
 foreign import ccall unsafe "string.h strlen"
     c_strlen :: Addr# -> IO CSize
 
-foreign import ccall unsafe "text.h ascii_validate"
-    c_ascii_validate :: Addr# -> Int# -> Int -> IO Int
+foreign import ccall unsafe "text.h ascii_validate_addr"
+    c_ascii_validate_addr :: Addr# -> Int -> IO Int
