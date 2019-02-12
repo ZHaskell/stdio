@@ -596,3 +596,47 @@ foreign import ccall unsafe hs_uv_fs_readlink_threaded
     :: CString -> Ptr CString -> Ptr UVLoop -> IO UVSlotUnSafe
 foreign import ccall unsafe hs_uv_fs_realpath_threaded
     :: CString -> Ptr CString -> Ptr UVLoop -> IO UVSlotUnSafe
+
+--------------------------------------------------------------------------------
+-- misc
+
+newtype UVHandleType = UVHandleType CInt deriving (Eq, Ord, Read, Show, Storable)
+
+pattern UV_UNKNOWN_HANDLE :: UVHandleType
+pattern UV_UNKNOWN_HANDLE = UVHandleType #{const UV_UNKNOWN_HANDLE}
+pattern UV_ASYNC :: UVHandleType
+pattern UV_ASYNC = UVHandleType #{const UV_ASYNC}
+pattern UV_CHECK :: UVHandleType
+pattern UV_CHECK = UVHandleType #{const UV_CHECK}
+pattern UV_FS_EVENT :: UVHandleType
+pattern UV_FS_EVENT = UVHandleType #{const UV_FS_EVENT}
+pattern UV_FS_POLL :: UVHandleType
+pattern UV_FS_POLL = UVHandleType #{const UV_FS_POLL}
+pattern UV_HANDLE :: UVHandleType
+pattern UV_HANDLE = UVHandleType #{const UV_HANDLE}
+pattern UV_IDLE :: UVHandleType
+pattern UV_IDLE = UVHandleType #{const UV_IDLE}
+pattern UV_NAMED_PIPE :: UVHandleType
+pattern UV_NAMED_PIPE = UVHandleType #{const UV_NAMED_PIPE}
+pattern UV_POLL :: UVHandleType
+pattern UV_POLL = UVHandleType #{const UV_POLL}
+pattern UV_PREPARE :: UVHandleType
+pattern UV_PREPARE = UVHandleType #{const UV_PREPARE}
+pattern UV_PROCESS :: UVHandleType
+pattern UV_PROCESS = UVHandleType #{const UV_PROCESS}
+pattern UV_STREAM :: UVHandleType
+pattern UV_STREAM = UVHandleType #{const UV_STREAM}
+pattern UV_TCP :: UVHandleType
+pattern UV_TCP = UVHandleType #{const UV_TCP}
+pattern UV_TIMER :: UVHandleType
+pattern UV_TIMER = UVHandleType #{const UV_TIMER}
+pattern UV_TTY :: UVHandleType
+pattern UV_TTY = UVHandleType #{const UV_TTY}
+pattern UV_UDP :: UVHandleType
+pattern UV_UDP = UVHandleType #{const UV_UDP}
+pattern UV_SIGNAL :: UVHandleType
+pattern UV_SIGNAL = UVHandleType #{const UV_SIGNAL}
+pattern UV_FILE :: UVHandleType
+pattern UV_FILE = UVHandleType #{const UV_FILE}
+
+foreign import ccall unsafe uv_guess_handle :: UVFD -> IO UVHandleType

@@ -4,19 +4,20 @@
 
 {-|
 Module      : Std.IO.LowResTimer
-Description : Low resolution (0.1s) timing wheel
+Description : Low resolution (second) timing wheel
 Copyright   : (c) Winterland, 2017-2018
 License     : BSD
 Maintainer  : drkoster@qq.com
 Stability   : experimental
 Portability : non-portable
 
-This module provide low resolution (0.1s) timers using a timing wheel of size 128 per capability,
+This module provide low resolution (second) timers using a timing wheel of size 128 per capability,
 each timer thread will automatically started or stopped based on demannd. register or cancel a timeout is O(1),
 and each step only need scan n/128 items given timers are registered in an even fashion.
 
 This timer is particularly suitable for high concurrent approximated I/O timeout scheduling.
-You should not rely on it to provide timing information since it's not very accurate.
+You should not rely on it to provide timing information since it's very inaccurate.
+A timing error as large as ±1 second are considered normal.
 
 Reference:
 
@@ -33,6 +34,7 @@ module Std.IO.LowResTimer
   , queryLowResTimer
   , cancelLowResTimer
   , cancelLowResTimer_
+  , timeoutLowRes
   , debounce
     -- * low resolution timer manager
   , LowResTimerManager
@@ -141,7 +143,7 @@ isLowResTimerManagerRunning (LowResTimerManager _ _ _ runningLock) = readMVar ru
 --   registerLowResTimer 100 (forkIO $ killThread tid)
 -- @
 --
-registerLowResTimer :: Int          -- ^ timout in unit of 100 milliseconds / 0.1s
+registerLowResTimer :: Int          -- ^ timout in unit of second
                     -> IO ()        -- ^ the action you want to perform, it should not block
                     -> IO LowResTimer
 registerLowResTimer t action = do
@@ -151,7 +153,7 @@ registerLowResTimer t action = do
 -- | Same as 'registerLowResTimer', but allow you choose timer manager.
 --
 registerLowResTimerOn :: LowResTimerManager   -- ^ a low resolution timer manager
-                      -> Int          -- ^ timout in unit of 100 milliseconds / 0.1s
+                      -> Int          -- ^ timout in unit of second
                       -> IO ()        -- ^ the action you want to perform, it should not block
                       -> IO LowResTimer
 registerLowResTimerOn lrtm@(LowResTimerManager queue indexLock regCounter _) t action = do
@@ -175,7 +177,7 @@ registerLowResTimerOn lrtm@(LowResTimerManager queue indexLock regCounter _) t a
 --
 newtype LowResTimer = LowResTimer Counter
 
--- | Query how many ticks (~0.1s) remain before timer firing.
+-- | Query how many seconds remain before timer firing.
 --
 -- A return value <= 0 indictate the timer is firing or fired.
 --
@@ -194,6 +196,27 @@ cancelLowResTimer (LowResTimer c) = atomicOrCounter_ c (-1)
 cancelLowResTimer_ :: LowResTimer -> IO ()
 cancelLowResTimer_ = void . cancelLowResTimer
 
+-- | similar to 'System.Timeout.timeout', this function put a limit on time which an IO can consume.
+--
+-- Note timeoutLowRes is also implemented with 'Exception' underhood, which can have some surprising
+-- effects on some devices, e.g. use 'timeoutLowRes' with reading or writing on 'UVStream's will close
+-- the 'UVStream' once a reading or writing is not able to be done in time.
+timeoutLowRes :: IO a -> Int -> IO (Maybe a)
+timeoutLowRes io timeo = do
+    mid <- myThreadId
+    catch
+        (do timer <- registerLowResTimer timeo (timeoutAThread mid)
+            r <- io
+            cancelLowResTimer timer
+            return (Just r))
+        ( \ (e :: TimeOutException) -> return Nothing )
+  where
+    timeoutAThread id = void . forkIO $ throwTo id TimeOutException
+
+data TimeOutException = TimeOutException deriving Show
+instance Exception TimeOutException
+
+--------------------------------------------------------------------------------
 -- | Check if low resolution timer manager loop is running, start loop if not.
 --
 ensureLowResTimerManager :: LowResTimerManager -> IO ()
@@ -219,10 +242,10 @@ startLowResTimerManager lrtm@(LowResTimerManager _ _ regCounter runningLock)  = 
 #ifndef mingw32_HOST_OS
                     | rtsSupportsBoundThreads -> do
                         htm <- getSystemTimerManager
-                        void $ registerTimeout htm 100000 (startLowResTimerManager lrtm)
+                        void $ registerTimeout htm 1000000 (startLowResTimerManager lrtm)
 #endif
                     | otherwise -> void . forkIO $ do   -- we have to fork another thread since we're holding runningLock,
-                        threadDelay 100000              -- this may affect accuracy, but on windows there're no other choices.
+                        threadDelay 1000000             -- this may affect accuracy, but on windows there're no other choices.
                         startLowResTimerManager lrtm
             return True
         else do
@@ -268,7 +291,7 @@ fireLowResTimerQueue lrtm@(LowResTimerManager queue indexLock regCounter running
 -- but doing that will stop system from being idle, which stop idle GC from running,
 -- and in turn disable deadlock detection, which is too bad. This function solves that.
 --
-debounce :: Int         -- ^ cache time in unit of 100 milliseconds / 0.1s
+debounce :: Int         -- ^ cache time in unit of second
          -> IO a        -- ^ the original IO action
          -> IO (IO a)   -- ^ debounced IO action
 debounce t action = do

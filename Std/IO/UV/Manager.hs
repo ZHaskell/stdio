@@ -35,11 +35,13 @@ module Std.IO.UV.Manager
   , pokeBufferTable
   , withUVManager
   , withUVManager_
+  , getUVSlot
+  -- * request based async function helper
   , withUVRequest
   , withUVRequest_
   , withUVRequest'
   , withUVRequestEx
-  -- * handle/request resources
+  -- * uv_stream abstraction
   , initUVStream
   , UVStream(..)
   -- * concurrent helpers
@@ -278,81 +280,6 @@ getUVSlot (UVManager blockTableRef _ _ _ _) f = do
 
 --------------------------------------------------------------------------------
 
--- | A haskell data type wrap an @uv_stream_t@ inside
---
--- 'UVStream' DO NOT provide thread safety! Use 'UVStream' concurrently in multiple
--- threads will lead to undefined behavior.
-data UVStream = UVStream
-    { uvsHandle :: {-# UNPACK #-} !(Ptr UVHandle)
-    , uvsSlot    :: {-# UNPACK #-} !UVSlot
-    , uvsManager :: UVManager
-    , uvsClosed  :: {-# UNPACK #-} !(IORef Bool)
-    }
-
--- | Safely lock an uv manager and perform uv_handle initialization.
---
--- Initialization an UV stream usually take two step:
---
---   * allocate an uv_stream struct with proper size
---   * lock a particular uv_loop from a uv manager, and perform custom initialization, such as @uv_tcp_init@.
---
--- And this is what 'initUVStream' do, all you need to do is to provide the manager you want to hook the handle
--- onto(usually the one on the same capability, i.e. the one obtained by 'getUVManager'),
--- and provide a custom initialization function.
---
-initUVStream :: HasCallStack
-             => (Ptr UVLoop -> Ptr UVHandle -> IO ())
-             -> UVManager
-             -> Resource UVStream
-initUVStream init uvm = initResource
-    (withUVManager uvm $ \ loop -> do
-        handle <- hs_uv_handle_alloc loop
-        slot <- getUVSlot uvm (peekUVHandleData handle)
-        tryTakeMVar =<< getBlockMVar uvm slot   -- clear the parking spot
-        init loop handle `onException` hs_uv_handle_free handle
-        closed <- newIORef False
-        return (UVStream handle slot uvm closed))
-    closeUVStream
-
-closeUVStream :: UVStream -> IO ()
-closeUVStream (UVStream handle _ uvm closed) = withUVManager_ uvm $ do
-    c <- readIORef closed
-    unless c $ writeIORef closed True >> hs_uv_handle_close handle
-
-instance Input UVStream where
-    -- readInput :: HasCallStack => UVStream -> Ptr Word8 ->  Int -> IO Int
-    readInput uvs@(UVStream handle slot uvm closed) buf len = mask_ $ do
-        c <- readIORef closed
-        when c throwECLOSED
-        m <- getBlockMVar uvm slot
-        withUVManager_ uvm $ do
-            throwUVIfMinus_ (hs_uv_read_start handle)
-            pokeBufferTable uvm slot buf len
-            tryTakeMVar m
-        -- We really can't do much when async exception hit a stream I/O
-        -- There's no way to cancel, all we can do is to close the stream
-        r <- takeMVar m `onException` closeUVStream uvs
-        if  | r > 0  -> return r
-            -- r == 0 should be impossible, since we guard this situation in c side
-            | r == fromIntegral UV_EOF -> return 0
-            | r < 0 ->  throwUVIfMinus (return r)
-
-
-instance Output UVStream where
-    -- writeOutput :: HasCallStack => UVStream -> Ptr Word8 -> Int -> IO ()
-    writeOutput uvs@(UVStream handle _ uvm closed) buf len = mask_ $ do
-        c <- readIORef closed
-        when c throwECLOSED
-        (slot, m) <- withUVManager_ uvm $ do
-            slot <- getUVSlot uvm (hs_uv_write handle buf len)
-            m <- getBlockMVar uvm slot
-            tryTakeMVar m
-            return (slot, m)
-        -- cancel uv_write_t will also close the stream
-        throwUVIfMinus_  (takeMVar m `onException` closeUVStream uvs)
-
---------------------------------------------------------------------------------
-
 -- | Cancel uv async function (actions which can be cancelled with 'uv_cancel') with
 -- best effort, if the action is already performed, run an extra clean up action.
 cancelUVReq :: UVManager -> UVSlot -> (Int -> IO ()) -> IO ()
@@ -441,3 +368,87 @@ forkBa io = do
     counter :: Counter
     {-# NOINLINE counter #-}
     counter = unsafePerformIO $ newCounter 0
+
+--------------------------------------------------------------------------------
+-- UVStream
+
+-- | A haskell data type wrap an @uv_stream_t@ inside
+--
+-- 'UVStream' DO NOT provide thread safety! Use 'UVStream' concurrently in multiple
+-- threads will lead to undefined behavior.
+data UVStream = UVStream
+    { uvsHandle :: {-# UNPACK #-} !(Ptr UVHandle)
+    , uvsSlot    :: {-# UNPACK #-} !UVSlot
+    , uvsManager :: UVManager
+    , uvsClosed  :: {-# UNPACK #-} !(IORef Bool)
+    }
+
+instance Show UVStream where
+    show (UVStream handle slot uvm _) =
+        "UVStream{uvsHandle = " ++ show handle ++
+                ",uvsSlot = " ++ show slot ++
+                ",uvsManager =" ++ show uvm ++ "}"
+
+-- | Safely lock an uv manager and perform uv_handle initialization.
+--
+-- Initialization an UV stream usually take two step:
+--
+--   * allocate an uv_stream struct with proper size
+--   * lock a particular uv_loop from a uv manager, and perform custom initialization, such as @uv_tcp_init@.
+--
+-- And this is what 'initUVStream' do, all you need to do is to provide the manager you want to hook the handle
+-- onto(usually the one on the same capability, i.e. the one obtained by 'getUVManager'),
+-- and provide a custom initialization function.
+--
+initUVStream :: HasCallStack
+             => (Ptr UVLoop -> Ptr UVHandle -> IO ())
+             -> UVManager
+             -> Resource UVStream
+initUVStream init uvm = initResource
+    (withUVManager uvm $ \ loop -> do
+        handle <- hs_uv_handle_alloc loop
+        slot <- getUVSlot uvm (peekUVHandleData handle)
+        tryTakeMVar =<< getBlockMVar uvm slot   -- clear the parking spot
+        init loop handle `onException` hs_uv_handle_free handle
+        closed <- newIORef False
+        return (UVStream handle slot uvm closed))
+    closeUVStream
+
+closeUVStream :: UVStream -> IO ()
+closeUVStream (UVStream handle _ uvm closed) = withUVManager_ uvm $ do
+    c <- readIORef closed
+    unless c $ writeIORef closed True >> hs_uv_handle_close handle
+
+instance Input UVStream where
+    -- readInput :: HasCallStack => UVStream -> Ptr Word8 ->  Int -> IO Int
+    readInput uvs@(UVStream handle slot uvm closed) buf len = mask_ $ do
+        c <- readIORef closed
+        when c throwECLOSED
+        m <- getBlockMVar uvm slot
+        withUVManager_ uvm $ do
+            throwUVIfMinus_ (hs_uv_read_start handle)
+            pokeBufferTable uvm slot buf len
+            tryTakeMVar m
+        -- We really can't do much when async exception hit a stream I/O
+        -- There's no way to cancel, all we can do is to close the stream
+        r <- takeMVar m `onException` closeUVStream uvs
+        if  | r > 0  -> return r
+            -- r == 0 should be impossible, since we guard this situation in c side
+            | r == fromIntegral UV_EOF -> return 0
+            | r < 0 ->  throwUVIfMinus (return r)
+
+
+instance Output UVStream where
+    -- writeOutput :: HasCallStack => UVStream -> Ptr Word8 -> Int -> IO ()
+    writeOutput uvs@(UVStream handle _ uvm closed) buf len = mask_ $ do
+        c <- readIORef closed
+        when c throwECLOSED
+        (slot, m) <- withUVManager_ uvm $ do
+            slot <- getUVSlot uvm (hs_uv_write handle buf len)
+            m <- getBlockMVar uvm slot
+            tryTakeMVar m
+            return (slot, m)
+        -- cancel uv_write_t will also close the stream
+        throwUVIfMinus_  (takeMVar m `onException` closeUVStream uvs)
+
+--------------------------------------------------------------------------------

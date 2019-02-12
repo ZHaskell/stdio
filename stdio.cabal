@@ -155,11 +155,11 @@ library
                             Std.IO.LowResTimer
                             Std.IO.Exception 
                             Std.IO.Buffered
-                            Std.IO.TTY
                             Std.IO.FileSystem
                             Std.IO.FileSystemT
                             Std.IO.TCP
                             Std.IO.SockAddr
+                            Std.IO.StdStream
                             Std.IO.UV.Errno
                             Std.IO.UV.FFI
                             Std.IO.UV.Manager
