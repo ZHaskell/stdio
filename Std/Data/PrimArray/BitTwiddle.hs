@@ -5,9 +5,9 @@
 {-|
 Module      : Std.Data.PrimArray.BitTwiddle
 Description : Primitive bits twiddling
-Copyright   : (c) Winterland, 2017-2018
+Copyright   : (c) Dong Han, 2017-2018
 License     : BSD
-Maintainer  : drkoster@qq.com
+Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 
@@ -31,7 +31,6 @@ import GHC.Prim
 import GHC.Types
 import GHC.Word
 import Data.Primitive.PrimArray
-import Data.Primitive.ByteArray
 
 -- we need to know word size
 #include "MachDeps.h"

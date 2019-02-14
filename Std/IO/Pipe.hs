@@ -7,9 +7,9 @@
 {-|
 Module      : Std.IO.Pipe
 Description : Named pipe/Unix domain servers and clients
-Copyright   : (c) Winterland, 2018
+Copyright   : (c) Dong Han, 2018
 License     : BSD
-Maintainer  : drkoster@qq.com
+Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 

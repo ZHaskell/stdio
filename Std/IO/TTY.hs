@@ -7,9 +7,9 @@
 {-|
 Module      : Std.IO.TTY
 Description : TTY devices
-Copyright   : (c) Winterland, 2018
+Copyright   : (c) Dong Han, 2018
 License     : BSD
-Maintainer  : drkoster@qq.com
+Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 

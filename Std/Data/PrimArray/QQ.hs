@@ -8,9 +8,9 @@
 {-|
 Module      : Std.Data.PrimArray.QQ
 Description : Extra stuff for PrimArray related literals
-Copyright   : (c) Winterland, 2017-2018
+Copyright   : (c) Dong Han, 2017-2018
 License     : BSD
-Maintainer  : drkoster@qq.com
+Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 
@@ -63,7 +63,6 @@ import           Language.Haskell.TH
 import           Language.Haskell.TH.Quote
 import           Std.Data.Array
 import           Control.Monad.ST
-import           Std.Data.PrimArray.Cast
 
 -- | Construct data with ASCII encoded literals.
 --
@@ -75,19 +74,19 @@ import           Std.Data.PrimArray.Cast
 --     (asciiLiteral $ \ len addr -> [| word8ArrayFromAddr $(len) $(addr) |])
 --     ...
 --
--- word8ArrayFromAddr :: Int# -> Addr# -> PrimArray Word8
+-- word8ArrayFromAddr :: Int -> Addr# -> PrimArray Word8
 -- {-# INLINE word8ArrayFromAddr #-}
--- word8ArrayFromAddr l# addr# = runST $ do
+-- word8ArrayFromAddr l addr# = runST $ do
 --     mba <- newPrimArray (I# l)
---     copyPtrToMutablePrimArray mba 0 (Ptr addr#) (I# l#)
+--     copyPtrToMutablePrimArray mba 0 (Ptr addr#) l
 --     unsafeFreezePrimArray mba
 -- @@@
 --
 asciiLiteral :: (ExpQ -> ExpQ -> ExpQ) -- ^ Construction function which receive a byte
-                                       --   length 'Int#' and a 'Addr#' 'LitE' expression.
+                                       --   length 'Int' and a 'Addr#' 'LitE' expression.
              -> String                 -- ^ Quoter input
              -> ExpQ                   -- ^ Final Quoter
-asciiLiteral k str = k (return . LitE  . IntPrimL . fromIntegral $ length str)
+asciiLiteral k str = k (return . LitE  . IntegerL . fromIntegral $ length str)
                        ((LitE . StringPrimL) `fmap` check str)
   where
     check :: String -> Q [Word8]
@@ -105,14 +104,14 @@ arrASCII = QuasiQuoter
     (error "Cannot use arrASCII as a type")
     (error "Cannot use arrASCII as a dec")
 
-word8ArrayFromAddr :: Int# -> Addr# -> PrimArray Word8
+word8ArrayFromAddr :: Int -> Addr# -> PrimArray Word8
 {-# INLINE word8ArrayFromAddr #-}
-word8ArrayFromAddr l# addr# = runST $ do
-    mba <- newPrimArray (I# l#)
-    copyPtrToMutablePrimArray mba 0 (Ptr addr#) (I# l#)
+word8ArrayFromAddr l addr# = runST $ do
+    mba <- newPrimArray l
+    copyPtrToMutablePrimArray mba 0 (Ptr addr#) l
     unsafeFreezePrimArray mba
 
-int8ArrayFromAddr :: Int# -> Addr# -> PrimArray Int8
+int8ArrayFromAddr :: Int -> Addr# -> PrimArray Int8
 int8ArrayFromAddr l addr# = castArray (word8ArrayFromAddr l addr#)
 
 -- | Construct data with UTF-8 encoded literals.
@@ -120,7 +119,7 @@ int8ArrayFromAddr l addr# = castArray (word8ArrayFromAddr l addr#)
 -- Smiliar to 'asciIILiteral', the
 --
 utf8Literal :: (ExpQ -> ExpQ -> ExpQ) -> String -> ExpQ
-utf8Literal k str = k (return . LitE  . IntPrimL . fromIntegral $ length str)
+utf8Literal k str = k (return . LitE  . IntegerL . fromIntegral $ length str)
                       ((LitE . StringPrimL) `fmap` check str)
   where
     check :: String -> Q [Word8]
@@ -164,13 +163,13 @@ utf8Literal k str = k (return . LitE  . IntPrimL . fromIntegral $ length str)
 vectorLiteral :: ([Integer] -> Q [Word8]) -> (ExpQ -> ExpQ -> ExpQ) -> String -> ExpQ
 vectorLiteral f k str = do
     (len, ws) <- parse str
-    k (return . LitE  . IntPrimL .fromIntegral $ len) $ (return . LitE . StringPrimL) ws
+    k (return . LitE  . IntegerL .fromIntegral $ len) $ (return . LitE . StringPrimL) ws
   where
     parse :: String -> Q (Int, [Word8])
     parse str = do
         case (readList :: ReadS [Integer]) ("[" ++ str ++ "]") of
             [(is, "")] -> (length is, ) `fmap` f is
-            _ -> do fail $ "can't parse vector literal:" ++ str
+            _ -> do _ <- fail $ "can't parse vector literal:" ++ str
                     return (0, [])
 
 --------------------------------------------------------------------------------
@@ -239,16 +238,14 @@ arrW16 = QuasiQuoter
     (error "Cannot use arrW16 as a type")
     (error "Cannot use arrW16 as a dec")
 
-word16ArrayFromAddr :: Int# -> Addr# -> PrimArray Word16
+word16ArrayFromAddr :: Int -> Addr# -> PrimArray Word16
 {-# INLINE word16ArrayFromAddr #-}
-word16ArrayFromAddr l# addr# = runST $ do
-    mba <- newArr (I# l#)
-    go (I# l#) (Ptr addr#) mba 0
+word16ArrayFromAddr l addr# = runST $ do
+    mba <- newArr l
+    copyPtrToMutablePrimArray mba 0 (Ptr addr#) l
     unsafeFreezePrimArray mba
-  where
-    go l ptr mba idx = copyPtrToMutablePrimArray mba 0 ptr l
 
-int16ArrayFromAddr :: Int# -> Addr# -> PrimArray Int16
+int16ArrayFromAddr :: Int -> Addr# -> PrimArray Int16
 int16ArrayFromAddr l addr# = castArray (word16ArrayFromAddr l addr#)
 
 int16Literal :: (ExpQ -> ExpQ -> ExpQ) -> String -> ExpQ
@@ -302,16 +299,14 @@ arrW32 = QuasiQuoter
     (error "Cannot use arrW32 as a type")
     (error "Cannot use arrW32 as a dec")
 
-word32ArrayFromAddr :: Int# -> Addr# -> PrimArray Word32
+word32ArrayFromAddr :: Int -> Addr# -> PrimArray Word32
 {-# INLINE word32ArrayFromAddr #-}
-word32ArrayFromAddr l# addr# = runST $ do
-    mba <- newArr (I# l#)
-    go (I# l#) (Ptr addr#) mba 0
+word32ArrayFromAddr l addr# = runST $ do
+    mba <- newArr l
+    copyPtrToMutablePrimArray mba 0 (Ptr addr#) l
     unsafeFreezePrimArray mba
-  where
-    go l ptr mba !idx = copyPtrToMutablePrimArray mba 0 ptr l
 
-int32ArrayFromAddr :: Int# -> Addr# -> PrimArray Int32
+int32ArrayFromAddr :: Int -> Addr# -> PrimArray Int32
 int32ArrayFromAddr l addr# = castArray (word32ArrayFromAddr l addr#)
 
 int32Literal :: (ExpQ -> ExpQ -> ExpQ) -> String -> ExpQ
@@ -372,16 +367,14 @@ arrW64 = QuasiQuoter
     (error "Cannot use arrW64 as a type")
     (error "Cannot use arrW64 as a dec")
 
-word64ArrayFromAddr :: Int# -> Addr# -> PrimArray Word64
+word64ArrayFromAddr :: Int -> Addr# -> PrimArray Word64
 {-# INLINE word64ArrayFromAddr #-}
-word64ArrayFromAddr l# addr# = runST $ do
-    mba <- newArr (I# l#)
-    go (I# l#) (Ptr addr#) mba 0
+word64ArrayFromAddr l addr# = runST $ do
+    mba <- newArr l
+    copyPtrToMutablePrimArray mba 0 (Ptr addr#) l
     unsafeFreezePrimArray mba
-  where
-    go l ptr mba !idx = copyPtrToMutablePrimArray mba 0 ptr l
 
-int64ArrayFromAddr :: Int# -> Addr# -> PrimArray Int64
+int64ArrayFromAddr :: Int -> Addr# -> PrimArray Int64
 int64ArrayFromAddr l addr# = castArray (word64ArrayFromAddr l addr#)
 
 int64Literal :: (ExpQ -> ExpQ -> ExpQ) -> String -> ExpQ
@@ -416,7 +409,7 @@ arrI64 = QuasiQuoter
 
 --------------------------------------------------------------------------------
 
-wordArrayFromAddr :: Int# -> Addr# -> PrimArray Word
+wordArrayFromAddr :: Int -> Addr# -> PrimArray Word
 wordArrayFromAddr l addr# =
 #if SIZEOF_HSWORD == 8
     unsafeCoerce# (word64ArrayFromAddr l addr#)
@@ -424,7 +417,7 @@ wordArrayFromAddr l addr# =
     unsafeCoerce# (word32ArrayFromAddr l addr#)
 #endif
 
-intArrayFromAddr :: Int# -> Addr# -> PrimArray Int
+intArrayFromAddr :: Int -> Addr# -> PrimArray Int
 intArrayFromAddr l addr# =
 #if SIZEOF_HSWORD == 8
     unsafeCoerce# (int64ArrayFromAddr l addr#)

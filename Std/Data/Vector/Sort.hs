@@ -12,9 +12,9 @@
 {-|
 Module      : Std.Data.Vector.Sort
 Description : Sorting vectors
-Copyright   : (c) 2008-2011 Dan Doel, (c) Winterland, 2017-2018
+Copyright   : (c) 2008-2011 Dan Doel, (c) Dong Han, 2017-2018
 License     : BSD
-Maintainer  : drkoster@qq.com
+Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 

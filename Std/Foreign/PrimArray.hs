@@ -5,9 +5,9 @@
 {-|
 Module      : Std.Foreign.PrimArray
 Description : Use PrimArray with FFI
-Copyright   : (c) Winterland, 2017-2018
+Copyright   : (c) Dong Han, 2017-2018
 License     : BSD
-Maintainer  : drkoster@qq.com
+Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 

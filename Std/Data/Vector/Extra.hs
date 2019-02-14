@@ -7,9 +7,9 @@
 {-|
 Module      : Std.Data.Vector.Extra
 Description : Fast boxed and unboxed vector
-Copyright   : (c) Winterland, 2017-2018
+Copyright   : (c) Dong Han, 2017-2018
 License     : BSD
-Maintainer  : drkoster@qq.com
+Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 
@@ -311,7 +311,7 @@ group = groupBy (==)
 
 groupBy :: Vec v a =>  (a -> a -> Bool) -> v a -> [v a]
 {-# INLINE groupBy #-}
-groupBy f vs@(Vec arr s l)
+groupBy f (Vec arr s l)
     | l == 0    = []
     | otherwise = Vec arr s n : groupBy f (Vec arr (s+n) (l-n))
   where
@@ -547,9 +547,9 @@ reverse (Vec arr s l) = create l (go s (l-1))
 --
 intersperse :: forall v a. Vec v a => a -> v a -> v a
 {-# INLINE intersperse #-}
-intersperse x v@(Vec _ _ 0)  = empty
+intersperse x   (Vec _ _ 0)  = empty
 intersperse x v@(Vec _ _ 1)  = v
-intersperse x v@(Vec arr s l) = create (2*l-1) (go s 0)
+intersperse x   (Vec arr s l) = create (2*l-1) (go s 0)
    where
     !end = s+l-1
     go :: Int         -- the reading index of orginal bytes

@@ -5,9 +5,9 @@
 {-|
 Module      : Std.Data.Vector.QQ
 Description : vectors literals using QuasiQuote
-Copyright   : (c) Winterland, 2017-2018
+Copyright   : (c) Dong Han, 2017-2018
 License     : BSD
-Maintainer  : drkoster@qq.com
+Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 

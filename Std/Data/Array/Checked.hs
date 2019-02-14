@@ -1,12 +1,12 @@
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeFamilies  #-}
 {-# LANGUAGE UnboxedTuples #-}
 
 {-|
 Module      : Std.Data.Array.Checked
 Description : Bounded checked boxed and unboxed arrays
-Copyright   : (c) Winterland, 2017-2018
+Copyright   : (c) Dong Han, 2017-2019
 License     : BSD
-Maintainer  : drkoster@qq.com
+Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 
@@ -68,13 +68,12 @@ module Std.Data.Array.Checked
   , ArrayException(..)
   ) where
 
-import qualified Std.Data.Array as A
-import Control.Exception (throw, ArrayException(..))
-import GHC.Stack
-import Data.Typeable
-import Control.Monad.Primitive
-import Data.Primitive.Types
-import GHC.Ptr (Ptr(..))
+import           Control.Exception       (ArrayException (..), throw)
+import           Control.Monad.Primitive
+import           Data.Primitive.Types
+import           GHC.Ptr                 (Ptr (..))
+import           GHC.Stack
+import qualified Std.Data.Array          as A
 
 check :: HasCallStack => Bool -> a -> a
 {-# INLINE check #-}

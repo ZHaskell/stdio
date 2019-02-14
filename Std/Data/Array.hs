@@ -1,22 +1,22 @@
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE BangPatterns      #-}
+{-# LANGUAGE CPP                    #-}
+{-# LANGUAGE FlexibleContexts       #-}
+{-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE MagicHash #-}
-{-# LANGUAGE UnboxedTuples #-}
-{-# LANGUAGE UnliftedFFITypes #-}
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE KindSignatures         #-}
+{-# LANGUAGE MagicHash              #-}
+{-# LANGUAGE MultiParamTypeClasses  #-}
+{-# LANGUAGE ScopedTypeVariables    #-}
+{-# LANGUAGE TypeFamilies           #-}
+{-# LANGUAGE UnboxedTuples          #-}
+{-# LANGUAGE UnliftedFFITypes       #-}
 
 {-|
 Module      : Std.Data.Array
 Description : Fast boxed and unboxed arrays
-Copyright   : (c) Winterland, 2017
+Copyright   : (c) Dong Han, 2017
 License     : BSD
-Maintainer  : drkoster@qq.com
+Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 
@@ -66,22 +66,20 @@ module Std.Data.Array (
   , castMutableArray
   ) where
 
-import Data.Primitive.Types
-import Control.Monad.Primitive
-import Control.Exception (ArrayException(..), throw)
-import Data.Primitive.PrimArray
-import Data.Primitive.ByteArray
-import Data.Primitive.Array
-import Data.Primitive.SmallArray
-import Data.Primitive.UnliftedArray
-import Data.Primitive.Ptr (copyPtrToMutablePrimArray)
-import Foreign.C.Types (CInt(..))
-import GHC.Ptr (Ptr(..))
-import GHC.Types
-import GHC.ST
-import GHC.Prim
-import GHC.Types (isTrue#)
-import Std.Data.PrimArray.Cast
+import           Control.Exception            (ArrayException (..), throw)
+import           Control.Monad.Primitive
+import           Data.Primitive.Array
+import           Data.Primitive.ByteArray
+import           Data.Primitive.PrimArray
+import           Data.Primitive.Ptr           (copyPtrToMutablePrimArray)
+import           Data.Primitive.SmallArray
+import           Data.Primitive.Types
+import           Data.Primitive.UnliftedArray
+import           GHC.Prim
+import           GHC.Ptr                      (Ptr (..))
+import           GHC.ST
+import           GHC.Types
+import           Std.Data.PrimArray.Cast
 
 -- | Bottom value (@throw ('UndefinedElement' "Data.Array.uninitialized")@)
 -- for initialize new boxed array('Array', 'SmallArray'..).
@@ -461,8 +459,9 @@ instance PrimUnlifted a => Arr MutableUnliftedArray UnliftedArray a where
     unsafeFreezeArr = unsafeFreezeUnliftedArray
     {-# INLINE unsafeFreezeArr #-}
     unsafeThawArr (UnliftedArray arr#) = primitive ( \ s0# ->
-            let (# s1#, marr# #) = unsafeThawArray# (unsafeCoerce# arr#) s0#  -- ArrayArray# and Array# use the same representation
-            in (# s1#, MutableUnliftedArray (unsafeCoerce# arr#) #)           -- so this works
+            let (# s1#, marr# #) = unsafeThawArray# (unsafeCoerce# arr#) s0#
+                                                        -- ArrayArray# and Array# use the same representation
+            in (# s1#, MutableUnliftedArray (unsafeCoerce# marr#) #)    -- so this works
         )
     {-# INLINE unsafeThawArr #-}
 
@@ -530,8 +529,6 @@ newPinnedPrimArray n = do
     (MutableByteArray mba#) <- newPinnedByteArray (n*siz)
     return (MutablePrimArray mba#)
   where siz = sizeOf (undefined :: a)
-        align = alignment (undefined :: a)
-
 
 -- | Create a /pinned/ primitive array of the specified size and respect given primitive type's
 -- alignment. The garbage collector is guaranteed not to move it.

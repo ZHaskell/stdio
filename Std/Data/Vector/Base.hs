@@ -17,9 +17,9 @@
 {-|
 Module      : Std.Data.Vector.Base
 Description : Fast boxed and unboxed vector
-Copyright   : (c) Winterland, 2017-2018
+Copyright   : (c) Dong Han, 2017-2018
 License     : BSD
-Maintainer  : drkoster@qq.com
+Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 
@@ -44,7 +44,6 @@ module Std.Data.Vector.Base (
   , PrimVector(..)
   -- ** Word8 vector
   , Bytes
-  , pattern Bytes#
   , w2c, c2w
   -- * Basic creating
   , create, create', creating, creating', createN, createN2
@@ -408,9 +407,6 @@ instance (Prim a, Read a) => Read (PrimVector a) where
 
 -- | 'Bytes' is just primitive word8 vectors.
 type Bytes = PrimVector Word8
-
-pattern Bytes# :: ByteArray# -> Int# -> Int# -> PrimVector a
-pattern Bytes# ba# s# l# = PrimVector (PrimArray ba#) (I# s#) (I# l#)
 
 instance (a ~ Word8) => IsString (PrimVector a) where
     {-# INLINE fromString #-}

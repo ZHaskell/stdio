@@ -7,9 +7,9 @@
 {-|
 Module      : Std.Data.Builder.Numeric
 Description : UTF8 compatible builders.
-Copyright   : (c) Winterland, 2017-2019
+Copyright   : (c) Dong Han, 2017-2019
 License     : BSD
-Maintainer  : drkoster@qq.com
+Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 

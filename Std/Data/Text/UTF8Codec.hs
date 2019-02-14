@@ -5,9 +5,9 @@
 {-|
 Module      : Std.Data.Text.UTF8Codec
 Description : UTF-8 codecs and helpers.
-Copyright   : (c) Winterland, 2017-2018
+Copyright   : (c) Dong Han, 2017-2018
 License     : BSD
-Maintainer  : drkoster@qq.com
+Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 
@@ -44,7 +44,7 @@ encodeCharLength n
 encodeChar :: MutablePrimArray s Word8 -> Int -> Char -> ST s Int
 {-# INLINE encodeChar #-}
 encodeChar (MutablePrimArray mba#) (I# i#) (C# c#) = ST (\ s# ->
-    let (# s1#, j# #) = encodeChar# mba# i# c# s# in (# s1#, I# j# #))
+    let !(# s1#, j# #) = encodeChar# mba# i# c# s# in (# s1#, I# j# #))
 
 -- | The unboxed version of 'encodeChar'.
 --
@@ -97,7 +97,7 @@ encodeChar# mba# i# c# = case (int2Word# (ord# c#)) of
 encodeCharModifiedUTF8 :: (PrimMonad m) => MutablePrimArray (PrimState m) Word8 -> Int -> Char -> m Int
 {-# INLINE encodeCharModifiedUTF8 #-}
 encodeCharModifiedUTF8 (MutablePrimArray mba#) (I# i#) (C# c#) = primitive (\ s# ->
-    let (# s1#, j# #) = encodeCharModifiedUTF8# mba# i# c# s# in (# s1#, I# j# #))
+    let !(# s1#, j# #) = encodeCharModifiedUTF8# mba# i# c# s# in (# s1#, I# j# #))
 
 -- | The unboxed version of 'encodeCharModifiedUTF8'.
 encodeCharModifiedUTF8# :: MutableByteArray# s -> Int# -> Char# -> State# s -> (# State# s, Int# #)
@@ -139,12 +139,12 @@ encodeCharModifiedUTF8# mba# i# c# = case (int2Word# (ord# c#)) of
 decodeChar :: PrimArray Word8 -> Int -> (# Char, Int #)
 {-# INLINE decodeChar #-}
 decodeChar (PrimArray ba#) (I# idx#) =
-    let (# c#, i# #) = decodeChar# ba# idx# in (# C# c#, I# i# #)
+    let !(# c#, i# #) = decodeChar# ba# idx# in (# C# c#, I# i# #)
 
 decodeChar_ :: PrimArray Word8 -> Int -> Char
 {-# INLINE decodeChar_ #-}
 decodeChar_ (PrimArray ba#) (I# idx#) =
-    let (# c#, i# #) = decodeChar# ba# idx# in C# c#
+    let !(# c#, i# #) = decodeChar# ba# idx# in C# c#
 
 -- | The unboxed version of 'decodeChar'
 --
@@ -199,12 +199,12 @@ decodeCharLen# ba# idx# = case indexWord8Array# ba# idx# of
 decodeCharReverse :: PrimArray Word8 -> Int -> (# Char, Int #)
 {-# INLINE decodeCharReverse #-}
 decodeCharReverse (PrimArray ba#) (I# idx#) =
-    let (# c#, i# #) = decodeCharReverse# ba# idx# in (# C# c#, I# i# #)
+    let !(# c#, i# #) = decodeCharReverse# ba# idx# in (# C# c#, I# i# #)
 
 decodeCharReverse_ :: PrimArray Word8 -> Int -> Char
 {-# INLINE decodeCharReverse_ #-}
 decodeCharReverse_ (PrimArray ba#) (I# idx#) =
-    let (# c#, i# #) = decodeCharReverse# ba# idx# in C# c#
+    let !(# c#, i# #) = decodeCharReverse# ba# idx# in C# c#
 
 -- | The unboxed version of 'decodeCharReverse'
 --

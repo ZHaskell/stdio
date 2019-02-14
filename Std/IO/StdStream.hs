@@ -5,9 +5,9 @@
 {-|
 Module      : Std.IO.StdStream
 Description : TTY devices
-Copyright   : (c) Winterland, 2018~2019
+Copyright   : (c) Dong Han, 2018~2019
 License     : BSD
-Maintainer  : drkoster@qq.com
+Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 

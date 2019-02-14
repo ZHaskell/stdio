@@ -5,9 +5,9 @@
 {-|
 Module      : Std.IO.Resource
 Description : The Resource monad
-Copyright   : (c) Winterland, 2017
+Copyright   : (c) Dong Han, 2017
 License     : BSD
-Maintainer  : drkoster@qq.com
+Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 

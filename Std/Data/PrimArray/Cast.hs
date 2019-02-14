@@ -8,9 +8,9 @@
 {-|
 Module      : Std.Data.PrimArray.Cast
 Description : Primitive casting
-Copyright   : Haskell Foundation, (c) Winterland, 2017-2018
+Copyright   : Haskell Foundation, (c) Dong Han, 2017-2018
 License     : BSD
-Maintainer  : drkoster@qq.com
+Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 

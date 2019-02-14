@@ -8,9 +8,9 @@
 {-|
 Module      : Std.IO.FileSystem
 Description : Filesystem I/O
-Copyright   : (c) Winterland, 2017~2019
+Copyright   : (c) Dong Han, 2017~2019
 License     : BSD
-Maintainer  : drkoster@qq.com
+Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 
@@ -59,11 +59,9 @@ module Std.IO.FileSystem
 import           Control.Concurrent.STM.TVar
 import           Control.Concurrent.MVar
 import           Control.Monad
-import           Control.Monad.IO.Class
 import           Control.Monad.STM
 import           Data.Word
 import           Data.Int
-import           GHC.Generics
 import           Std.Data.CBytes                 as CBytes
 import           Foreign.Ptr
 import           Foreign.Storable               (peekElemOff)
