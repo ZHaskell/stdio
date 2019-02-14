@@ -25,6 +25,7 @@ main = do
     b2 <- timeoutLowRes 30 $ readBuffered stdinBuf
     ...
     writeBuffer stdoutBuf
+    flushBuffer stdoutBuf
 
 @@@
 

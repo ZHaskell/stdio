@@ -42,7 +42,7 @@ spec = describe "filesystem (threadpool version) operations" $ do
             withResource (initUVFile filename flags mode) $ \ file -> do
                 o <- newBufferedOutput file 4096
                 writeBuffer o content
-                flush o
+                flushBuffer o
 
             withResource (initUVFile filename flags mode) $ \ file -> do
                 i <- newBufferedInput file 4096
@@ -60,7 +60,7 @@ spec = describe "filesystem (threadpool version) operations" $ do
             withResource (initUVFile filename flags mode) $ \ file -> do
                 o <- newBufferedOutput file 4096
                 writeBuffer o content2
-                flush o
+                flushBuffer o
 
             withResource (initUVFile filename flags mode) $ \ file -> do
                 i <- newBufferedInput file 4096

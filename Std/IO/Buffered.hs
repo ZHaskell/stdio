@@ -74,17 +74,6 @@ data BufferedOutput o = BufferedOutput
     , outputBuffer  :: {-# UNPACK #-} !(MutablePrimArray RealWorld Word8)
     }
 
-data BufferedInputConfig = BufferedInputConfig
-    { inputBufSiz  :: Int
-    , inputTimeout :: Int
-    , inputMinRate :: Int
-    }
-
-data BufferedOutputConfig = BufferedOutputConfig
-    { outputBufSiz     :: Int
-    , outputTimeout    :: Int
-    , outputAsyncFlush :: Bool
-    }
 
 newBufferedInput :: input
                  -> Int     -- ^ Input buffer size
@@ -275,8 +264,8 @@ writeBuilder BufferedOutput{..} (B.Builder b) = do
 
 -- | Flush the buffer(if not empty).
 --
-flush :: Output f => BufferedOutput f -> IO ()
-flush BufferedOutput{..} = do
+flushBuffer :: Output f => BufferedOutput f -> IO ()
+flushBuffer BufferedOutput{..} = do
     i <- readPrimIORef bufIndex
     withMutablePrimArrayContents outputBuffer $ \ ptr -> writeOutput bufOutput ptr i
     writePrimIORef bufIndex 0

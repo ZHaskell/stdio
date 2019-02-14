@@ -100,7 +100,7 @@ flushLog oLock bList =
     withMVar oLock $ \ o -> do
         bss <- atomicModifyIORef' bList (\ bss -> ([], bss))
         forM_ (reverse bss) (writeBuffer o)
-        flush o
+        flushBuffer o
 
 -- | Make a new logger
 newLogger :: Output o
