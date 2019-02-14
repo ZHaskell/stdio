@@ -1,9 +1,6 @@
-resolver: lts-10.4
+resolver: lts-13.4
 
-extra-deps:
-- primitive-0.6.4.0
-- exceptions-0.10.0
-- tasty-1.1.0.1
+extra-deps: []
 
 packages:
 - .
