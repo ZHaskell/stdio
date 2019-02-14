@@ -91,14 +91,12 @@ data CBytes
 
 -- | Create a 'CBytes' with IO action.
 --
--- Note: The initial content of the 'CString' is random, it doesn't even have
--- a proper '\NUL' ternimator, user should take the responsibility to do a
--- proper initialization and return the actual length.
---
+-- User only have to do content initialization and return the content length,
+-- 'create' takes the responsibility to add the '\NUL' ternimator.
 create :: HasCallStack
-       => Int  -- capacity, including the '\NUL' terminator
-       -> (CString -> IO Int)  -- initialization function,
-                               -- write the pointer, return the length
+       => Int  -- ^ capacity n, including the '\NUL' terminator
+       -> (CString -> IO Int)  -- ^ initialization function,
+                               -- write the pointer, return the length (<= n-1)
        -> IO CBytes
 {-# INLINE create #-}
 create n fill = do

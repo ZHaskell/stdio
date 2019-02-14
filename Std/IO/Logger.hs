@@ -154,7 +154,7 @@ fatal :: B.Builder () -> IO ()
 fatal = otherLevel "FATAL" True
 
 otherLevel :: B.Builder ()      -- ^ log level
-           -> Bool              -- ^ flush immediately
+           -> Bool              -- ^ flush immediately?
            -> B.Builder ()      -- ^ log content
            -> IO ()
 otherLevel level flushNow b = getDefaultLogger >>=
