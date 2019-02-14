@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE PatternSynonyms    #-}
 
 {-|
 Module      : Std.IO.SockAddr
@@ -47,18 +48,18 @@ module Std.IO.SockAddr
   , htonl
   -- * family, type, protocol
   , SocketFamily(..)
-  , aF_UNSPEC
-  , aF_INET
-  , aF_INET6
+  , pattern AF_UNSPEC
+  , pattern AF_INET
+  , pattern AF_INET6
   , SocketType(..)
-  , sOCK_DGRAM
-  , sOCK_STREAM
-  , sOCK_SEQPACKET
-  , sOCK_RAW
-  , sOCK_RDM
+  , pattern SOCK_DGRAM
+  , pattern SOCK_STREAM
+  , pattern SOCK_SEQPACKET
+  , pattern SOCK_RAW
+  , pattern SOCK_RDM
   , SocketProtocol(..)
-  , iPPROTO_TCP
-  , iPPROTO_UDP
+  , pattern IPPROTO_TCP
+  , pattern IPPROTO_UDP
   ) where
 
 import           Control.Monad.IO.Class
@@ -117,8 +118,8 @@ data SockAddr
   deriving (Show, Eq, Ord)
 
 sockAddrFamily :: SockAddr -> SocketFamily
-sockAddrFamily (SockAddrInet _ _) = aF_INET
-sockAddrFamily (SockAddrInet6 _ _ _ _) = aF_INET6
+sockAddrFamily (SockAddrInet _ _) = AF_INET
+sockAddrFamily (SockAddrInet6 _ _ _ _) = AF_INET6
 
 type FlowInfo = Word32
 type ScopeID = Word32
@@ -422,27 +423,31 @@ instance Storable SocketProtocol where
     poke ptr (SocketProtocol v) = poke (castPtr ptr) v
 
 -- | unspecified
-aF_UNSPEC           = SocketFamily (#const AF_UNSPEC          )
+pattern AF_UNSPEC :: SocketFamily
+pattern AF_UNSPEC = SocketFamily (#const AF_UNSPEC)
 -- | internetwork: UDP, TCP, etc
-aF_INET             = SocketFamily (#const AF_INET            )
+pattern AF_INET :: SocketFamily
+pattern AF_INET = SocketFamily (#const AF_INET)
 -- | Internet Protocol version 6
-aF_INET6            = SocketFamily (#const AF_INET6           )
+pattern AF_INET6 :: SocketFamily
+pattern AF_INET6 = SocketFamily (#const AF_INET6)
 
+pattern SOCK_STREAM :: SocketType
+pattern SOCK_STREAM = SocketType (#const SOCK_STREAM)
+pattern SOCK_DGRAM :: SocketType
+pattern SOCK_DGRAM = SocketType (#const SOCK_DGRAM) 
+pattern SOCK_RAW :: SocketType
+pattern SOCK_RAW = SocketType (#const SOCK_RAW) 
+pattern SOCK_RDM :: SocketType
+pattern SOCK_RDM = SocketType (#const SOCK_RDM) 
+pattern SOCK_SEQPACKET :: SocketType
+pattern SOCK_SEQPACKET = SocketType (#const SOCK_SEQPACKET) 
 
-sOCK_STREAM = SocketType (#const SOCK_STREAM)
-sOCK_DGRAM = SocketType (#const SOCK_DGRAM) 
-sOCK_RAW = SocketType (#const SOCK_RAW) 
-sOCK_RDM = SocketType (#const SOCK_RDM) 
-sOCK_SEQPACKET = SocketType (#const SOCK_SEQPACKET) 
-
-iPPROTO_DEF :: SocketProtocol
-iPPROTO_DEF = SocketProtocol 0
-
-iPPROTO_IP :: SocketProtocol
-iPPROTO_IP = SocketProtocol (#const IPPROTO_IP)
-
-iPPROTO_TCP :: SocketProtocol
-iPPROTO_TCP = SocketProtocol (#const IPPROTO_TCP)
-
-iPPROTO_UDP :: SocketProtocol
-iPPROTO_UDP = SocketProtocol (#const IPPROTO_UDP)
+pattern IPPROTO_DEF :: SocketProtocol
+pattern IPPROTO_DEF = SocketProtocol 0
+pattern IPPROTO_IP :: SocketProtocol
+pattern IPPROTO_IP = SocketProtocol (#const IPPROTO_IP)
+pattern IPPROTO_TCP :: SocketProtocol
+pattern IPPROTO_TCP = SocketProtocol (#const IPPROTO_TCP)
+pattern IPPROTO_UDP :: SocketProtocol
+pattern IPPROTO_UDP = SocketProtocol (#const IPPROTO_UDP)
