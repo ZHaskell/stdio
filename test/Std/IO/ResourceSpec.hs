@@ -6,7 +6,7 @@ module Std.IO.ResourceSpec where
 import           Control.Concurrent
 import           Control.Exception
 import           Control.Monad
-import           Data.IORef.Unboxed
+import           Std.Data.PrimIORef
 import           Data.Typeable
 import           Std.IO.Resource          as R
 import           Test.Hspec
@@ -21,14 +21,14 @@ spec = describe "resource tests" $ do
     it "resource pool" $ do
         resCounter <- newCounter 0
         workerCounter <- newCounter 0
-        let res = initResource (atomicAddCounter resCounter 1)
-                               (\ _ -> void $ atomicSubCounter resCounter 1)
+        let res = initResource (atomicAddCounter_ resCounter 1)
+                               (\ _ -> atomicSubCounter_ resCounter 1)
             resPool = initPool res 100 1
         R.withResource resPool $ \ pool -> do
             let res = initInPool pool
             replicateM_ 300 . forkIO. R.withResource res $ \ _ -> do
-                atomicAddCounter workerCounter 1
-                r <- readIORefU resCounter
+                atomicAddCounter_ workerCounter 1
+                r <- readPrimIORef resCounter
                 threadDelay 1000000
                 assertEqual "pool should limit max usage" True (r <= 100)
 
@@ -38,10 +38,10 @@ spec = describe "resource tests" $ do
                                 -- we used to use replicateConcurrently_ from async, but it's
                                 -- not really neccessary
 
-            w <- readIORefU workerCounter
+            w <- readPrimIORef workerCounter
             assertEqual "worker should be able to get resource" 300 w
 
-            r <- readIORefU resCounter
+            r <- readPrimIORef resCounter
             assertEqual "pool should keep returned resources alive" 100 r
 
             s <- statPool pool
@@ -49,7 +49,7 @@ spec = describe "resource tests" $ do
 
             threadDelay 1200000  -- another 1.2s
 
-            r <- readIORefU resCounter
+            r <- readPrimIORef resCounter
             assertEqual "pool should reap unused resources" 0 r
 
             threadDelay 1200000  -- another 1.2s
@@ -59,20 +59,20 @@ spec = describe "resource tests" $ do
 
             -- Let's test again
 
-            writeIORefU workerCounter 0
+            writePrimIORef workerCounter 0
 
             replicateM_ 300 . forkIO. R.withResource res $ \ _ -> do
-                atomicAddCounter workerCounter 1
-                r <- readIORefU resCounter
+                atomicAddCounter_ workerCounter 1
+                r <- readPrimIORef resCounter
                 threadDelay 1000000
                 assertEqual "pool should limit max usage" True (r <= 100)
 
             threadDelay 4000000
 
-            w <- readIORefU workerCounter
+            w <- readPrimIORef workerCounter
             assertEqual "worker should be able to get resource" 300 w
 
-            r <- readIORefU resCounter
+            r <- readPrimIORef resCounter
             assertEqual "pool should keep returned resources alive" 100 r
 
             s <- statPool pool
@@ -80,7 +80,7 @@ spec = describe "resource tests" $ do
 
             threadDelay 1200000  -- another 1.2s
 
-            r <- readIORefU resCounter
+            r <- readPrimIORef resCounter
             assertEqual "pool should reap unused resources" 0 r
 
             threadDelay 1200000  -- another 1.2s
@@ -90,21 +90,21 @@ spec = describe "resource tests" $ do
 
     it "resource pool under exceptions" $ do
         resCounter <- newCounter 0
-        let res = initResource (atomicAddCounter resCounter 1)
-                               (\ _ -> void $ atomicSubCounter resCounter 1)
+        let res = initResource (atomicAddCounter' resCounter 1)
+                               (\ _ -> atomicSubCounter_ resCounter 1)
             resPool = initPool res 100 1
         R.withResource resPool $ \ pool -> do
             let res = initInPool pool
             handle (\ (e :: WorkerException) -> return ()) .
                     replicateM_ 300 . forkIO. R.withResource res $ \ i -> do
-                        r <- readIORefU resCounter
+                        r <- readPrimIORef resCounter
                         threadDelay 1000000
                         when (even i) (throwIO WorkerException)
                         assertEqual "pool should limit max usage" True (r <= 100)
 
             threadDelay 4000000
 
-            r <- readIORefU resCounter
+            r <- readPrimIORef resCounter
             assertEqual "pool should keep returned resources alive" 100 r
 
             s <- statPool pool
@@ -112,7 +112,7 @@ spec = describe "resource tests" $ do
 
             threadDelay 1200000  -- another 1.2s
 
-            r <- readIORefU resCounter
+            r <- readPrimIORef resCounter
             assertEqual "pool should reap unused resources" 0 r
 
             threadDelay 1200000  -- another 1.2s

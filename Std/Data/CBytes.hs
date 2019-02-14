@@ -77,7 +77,7 @@ import           Prelude                 hiding (all, any, appendFile, break,
                                           unlines, unzip, writeFile, zip,
                                           zipWith)
 import           Std.Data.Array
-import           Std.Data.Text.UTF8Codec (encodeCBytesChar)
+import           Std.Data.Text.UTF8Codec (encodeCharModifiedUTF8)
 import qualified Std.Data.Vector.Base    as V
 import           Std.IO.Exception
 import           System.IO.Unsafe        (unsafeDupablePerformIO)
@@ -230,12 +230,12 @@ pack s = runST $ do
         siz <- getSizeofMutablePrimArray mba
         if i < siz - 4  -- we need at least 5 bytes for safety due to extra '\0' byte
         then do
-            i' <- encodeCBytesChar mba i c
+            i' <- encodeCharModifiedUTF8 mba i c
             return (SP2 i' mba)
         else do
             let !siz' = siz `shiftL` 1
             !mba' <- resizeMutablePrimArray mba siz'
-            i' <- encodeCBytesChar mba' i c
+            i' <- encodeCharModifiedUTF8 mba' i c
             return (SP2 i' mba')
 
 

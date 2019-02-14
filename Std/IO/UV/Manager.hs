@@ -54,7 +54,6 @@ import           Control.Monad
 import           Control.Monad.IO.Class
 import           Data.IORef
 import           Data.Bits (shiftL)
-import           Data.IORef.Unboxed
 import           Data.Primitive.PrimArray
 import           Data.Word
 import           Foreign.C
@@ -62,6 +61,7 @@ import           Foreign.Ptr
 import           Foreign.Storable
 import           GHC.Conc.Sync            (labelThread)
 import           Std.Data.Array
+import           Std.Data.PrimIORef
 import           Std.IO.Buffered
 import           Std.IO.Exception
 import           Std.IO.UV.Errno
@@ -362,7 +362,7 @@ withUVRequestEx uvm f extra_cleanup = do
 -- distribute new threads to all capabilities in round-robin manner. Thus its name forkBa(lance).
 forkBa :: IO () -> IO ThreadId
 forkBa io = do
-    i <- atomicAddCounter_ counter 1
+    i <- atomicAddCounter counter 1
     forkOn i io
   where
     counter :: Counter

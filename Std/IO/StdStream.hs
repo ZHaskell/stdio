@@ -11,14 +11,30 @@ Maintainer  : drkoster@qq.com
 Stability   : experimental
 Portability : non-portable
 
-This module provides stdin\/stderr\/stdout reading and writings.
+This module provides stdin\/stderr\/stdout reading and writings. Usually you don't have to use 'stderr' or 'stderrBuf' directly, 'Std.IO.Logger' provides more logging utilities through @stderr@. While 'stdinBuf' and 'stdoutBuf' is useful when you write interactive programs, 'Std.IO.Buffered' module provide many reading and writing operations. Example:
+
+@@@
+import Std.IO.LowResTimer
+import Std.IO.Buffered
+import Std.IO.StdStream (stdinBuf, stdoutBuf)
+
+main = do
+    -- read by '\n'
+    b1 <- readLine stdinBuf
+    -- read whatever user input in 3s, otherwise get Nothing
+    b2 <- timeoutLowRes 30 $ readBuffered stdinBuf
+    ...
+    writeBuffer stdoutBuf
+
+@@@
+
 -}
 module Std.IO.StdStream
   ( -- * Standard input & output streams
     StdStream
   , isStdStreamTTY
   , stdin, stdout, stderr
-  , stdinBuffered, stdoutBuffered, stderrBuffered
+  , stdinBuf, stdoutBuf
   ) where
 
 import Std.IO.UV.FFI
@@ -96,17 +112,13 @@ stderr :: StdStream
 {-# NOINLINE stderr #-}
 stderr = unsafePerformIO (makeStdStream 2)
 
-stdinBuffered :: BufferedInput StdStream
-{-# NOINLINE stdinBuffered #-}
-stdinBuffered = unsafePerformIO (newBufferedInput stdin defaultChunkSize)
+stdinBuf :: BufferedInput StdStream
+{-# NOINLINE stdinBuf #-}
+stdinBuf = unsafePerformIO (newBufferedInput stdin defaultChunkSize)
 
-stdoutBuffered :: BufferedOutput StdStream
-{-# NOINLINE stdoutBuffered #-}
-stdoutBuffered = unsafePerformIO (newBufferedOutput stdout defaultChunkSize)
-
-stderrBuffered :: BufferedOutput StdStream
-{-# NOINLINE stderrBuffered #-}
-stderrBuffered = unsafePerformIO (newBufferedOutput stderr defaultChunkSize)
+stdoutBuf :: BufferedOutput StdStream
+{-# NOINLINE stdoutBuf #-}
+stdoutBuf = unsafePerformIO (newBufferedOutput stdout defaultChunkSize)
 
 makeStdStream :: UVFD -> IO StdStream
 makeStdStream fd = do

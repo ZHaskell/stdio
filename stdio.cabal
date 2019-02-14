@@ -147,12 +147,17 @@ library
                             Std.Data.Parser.Base
                             Std.Data.Parser.Numeric
 
+                            Std.Data.PrimIORef
+                            Std.Data.PrimSTRef
+                            Std.Data.PrimSTRef.Base
+
                             Std.Data.LEON
 
                             Std.Foreign.PrimArray
 
                             Std.IO.Resource
                             Std.IO.LowResTimer
+                            Std.IO.Logger
                             Std.IO.Exception 
                             Std.IO.Buffered
                             Std.IO.FileSystem
@@ -173,7 +178,6 @@ library
                         ,   primitive >= 0.6.4
                         ,   deepseq
                         ,   template-haskell 
-                        ,   unboxed-ref >= 0.4
                         ,   exceptions >= 0.10
                         ,   transformers
                         ,   word8
@@ -181,6 +185,7 @@ library
                         ,   hashable
                         ,   case-insensitive
                         ,   stm
+                        ,   time
 
   if flag(integer-simple)
     cpp-options: -DINTEGER_SIMPLE
@@ -300,7 +305,6 @@ test-suite test
                   , HUnit
                   , QuickCheck >= 2.10
                   , quickcheck-instances
-                  , unboxed-ref
                   , word8
                   , scientific
                   , primitive
