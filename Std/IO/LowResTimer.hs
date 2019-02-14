@@ -16,7 +16,7 @@ each timer thread will automatically started or stopped based on demannd. regist
 and each step only need scan n/128 items given timers are registered in an even fashion.
 
 This timer is particularly suitable for high concurrent approximated I/O timeout scheduling.
-You should not rely on it to provide timing information since it's not very accurate.
+You should not rely on it to provide timing information since it's very inaccurate.
 
 Reference:
 
@@ -28,12 +28,16 @@ Reference:
 module Std.IO.LowResTimer
   ( -- * low resolution timers
     registerLowResTimer
+  , registerLowResTimer_
   , registerLowResTimerOn
   , LowResTimer
   , queryLowResTimer
   , cancelLowResTimer
   , cancelLowResTimer_
-  , debounce
+  , timeoutLowRes
+  , throttle
+  , throttle_
+  , throttleTrailing_
     -- * low resolution timer manager
   , LowResTimerManager
   , getLowResTimerManager
@@ -50,7 +54,7 @@ import           Control.Concurrent.MVar
 import           Control.Exception
 import           Control.Monad
 import           Data.IORef
-import           Data.IORef.Unboxed
+import           Std.Data.PrimIORef
 import           Data.Word
 import           GHC.Conc
 import           System.IO.Unsafe
@@ -141,17 +145,23 @@ isLowResTimerManagerRunning (LowResTimerManager _ _ _ runningLock) = readMVar ru
 --   registerLowResTimer 100 (forkIO $ killThread tid)
 -- @
 --
-registerLowResTimer :: Int          -- ^ timout in unit of 100 milliseconds / 0.1s
+registerLowResTimer :: Int          -- ^ timeout in unit of 0.1s
                     -> IO ()        -- ^ the action you want to perform, it should not block
                     -> IO LowResTimer
 registerLowResTimer t action = do
     lrtm <- getLowResTimerManager
     registerLowResTimerOn lrtm t action
 
+-- | 'void' ('registerLowResTimer' t action)
+registerLowResTimer_ :: Int          -- ^ timeout in unit of 0.1s
+                     -> IO ()        -- ^ the action you want to perform, it should not block
+                     -> IO ()
+registerLowResTimer_ t action = void (registerLowResTimer t action)
+
 -- | Same as 'registerLowResTimer', but allow you choose timer manager.
 --
 registerLowResTimerOn :: LowResTimerManager   -- ^ a low resolution timer manager
-                      -> Int          -- ^ timout in unit of 100 milliseconds / 0.1s
+                      -> Int          -- ^ timeout in unit of 0.1s
                       -> IO ()        -- ^ the action you want to perform, it should not block
                       -> IO LowResTimer
 registerLowResTimerOn lrtm@(LowResTimerManager queue indexLock regCounter _) t action = do
@@ -164,7 +174,7 @@ registerLowResTimerOn lrtm@(LowResTimerManager queue indexLock regCounter _) t a
         atomicModifyIORef' tlistRef $ \ tlist ->
             let newList = TimerItem roundCounter action tlist
             in (newList, ())
-        atomicAddCounter regCounter 1
+        atomicAddCounter_ regCounter 1
 
     ensureLowResTimerManager lrtm
 
@@ -175,25 +185,48 @@ registerLowResTimerOn lrtm@(LowResTimerManager queue indexLock regCounter _) t a
 --
 newtype LowResTimer = LowResTimer Counter
 
--- | Query how many ticks (~0.1s) remain before timer firing.
+-- | Query how many seconds remain before timer firing.
 --
 -- A return value <= 0 indictate the timer is firing or fired.
 --
 queryLowResTimer :: LowResTimer -> IO Int
-queryLowResTimer (LowResTimer c) = readIORefU c
+queryLowResTimer (LowResTimer c) = readPrimIORef c
 
 -- | Cancel a timer, return the remaining ticks.
 --
 -- This function have no effect after the timer is fired.
 --
 cancelLowResTimer :: LowResTimer -> IO Int
-cancelLowResTimer (LowResTimer c) = atomicOrCounter_ c (-1)
+cancelLowResTimer (LowResTimer c) = atomicOrCounter c (-1)
 
 -- | @void . cancelLowResTimer@
 --
 cancelLowResTimer_ :: LowResTimer -> IO ()
 cancelLowResTimer_ = void . cancelLowResTimer
 
+-- | similar to 'System.Timeout.timeout', this function put a limit on time which an IO can consume.
+--
+-- Note timeoutLowRes is also implemented with 'Exception' underhood, which can have some surprising
+-- effects on some devices, e.g. use 'timeoutLowRes' with reading or writing on 'UVStream's will close
+-- the 'UVStream' once a reading or writing is not able to be done in time.
+timeoutLowRes :: Int    -- ^ timeout in unit of 0.1s
+              -> IO a
+              -> IO (Maybe a)
+timeoutLowRes timeo io = do
+    mid <- myThreadId
+    catch
+        (do timer <- registerLowResTimer timeo (timeoutAThread mid)
+            r <- io
+            cancelLowResTimer timer
+            return (Just r))
+        ( \ (e :: TimeOutException) -> return Nothing )
+  where
+    timeoutAThread id = void . forkIO $ throwTo id TimeOutException
+
+data TimeOutException = TimeOutException deriving Show
+instance Exception TimeOutException
+
+--------------------------------------------------------------------------------
 -- | Check if low resolution timer manager loop is running, start loop if not.
 --
 ensureLowResTimerManager :: LowResTimerManager -> IO ()
@@ -209,7 +242,7 @@ ensureLowResTimerManager lrtm@(LowResTimerManager _ _ _ runningLock) = do
 startLowResTimerManager :: LowResTimerManager ->IO ()
 startLowResTimerManager lrtm@(LowResTimerManager _ _ regCounter runningLock)  = do
     modifyMVar_ runningLock $ \ _ -> do     -- we shouldn't receive async exception here
-        c <- readIORefU regCounter          -- unless something terribly wrong happened, e.g., stackoverflow
+        c <- readPrimIORef regCounter          -- unless something terribly wrong happened, e.g., stackoverflow
         if c > 0
         then do
             forkIO (fireLowResTimerQueue lrtm)  -- we offload the scanning to another thread to minimize
@@ -243,13 +276,13 @@ fireLowResTimerQueue lrtm@(LowResTimerManager queue indexLock regCounter running
     go tList tListRef regCounter
   where
     go (TimerItem roundCounter action nextList) tListRef regCounter = do
-        r <- atomicSubCounter_ roundCounter 1
+        r <- atomicSubCounter roundCounter 1
         case r `compare` 0 of
             LT -> do                                     -- if round number is less than 0, then it's a cancelled timer
-                atomicSubCounter regCounter 1
+                atomicSubCounter_ regCounter 1
                 go nextList tListRef regCounter
             EQ -> do                                     -- if round number is equal to 0, fire it
-                atomicSubCounter regCounter 1
+                atomicSubCounter_ regCounter 1
                 catch action ( \ (_ :: SomeException) -> return () )  -- well, we really don't want timers break our loop
                 go nextList tListRef regCounter
             GT -> do                                     -- if round number is larger than 0, put it back for another round
@@ -264,23 +297,55 @@ fireLowResTimerQueue lrtm@(LowResTimerManager queue indexLock regCounter running
 -- This combinator is useful when you want to share IO result within a period, the action will be called
 -- on demand, and the result will be cached for t milliseconds.
 --
--- One common way to get a shared periodical updated value is to start a seperate thread,
--- but doing that will stop system from being idle, which stop idle GC from running,
+-- One common way to get a shared periodical updated value is to start a seperate thread and do calculation
+-- periodically, but doing that will stop system from being idle, which stop idle GC from running,
 -- and in turn disable deadlock detection, which is too bad. This function solves that.
---
-debounce :: Int         -- ^ cache time in unit of 100 milliseconds / 0.1s
+throttle :: Int         -- ^ cache time in unit of 0.1s
          -> IO a        -- ^ the original IO action
-         -> IO (IO a)   -- ^ debounced IO action
-debounce t action = do
-    resultLock <- newEmptyMVar
+         -> IO (IO a)   -- ^ throttled IO action
+throttle t action = do
+    resultCounter <- newCounter 0
+    resultRef <- newIORef =<< action
     return $ do
-        mresult <- tryReadMVar resultLock
-        case mresult of
-            Just result -> return result
-            _           -> do
-                result' <- action
-                written <- tryPutMVar resultLock result'  -- there may be some contention here
-                when written . void $             -- we don't have to success, but if we have
-                    registerLowResTimer t         -- after t ms we clear result
-                        (void $ tryTakeMVar resultLock)
-                return result'
+        c <- atomicOrCounter resultCounter (-1) -- 0x11111111 or 0x1111111111111111 depend machine word size
+        if c == 0
+        then do
+            registerLowResTimer_ t (void $ atomicAndCounter resultCounter 0)
+            !r <- action
+            atomicWriteIORef resultRef r
+            return r
+        else readIORef resultRef
+
+-- | Debounce IO action without caching result.
+--
+-- The IO action will run at leading edge. i.e. once run, during following (t/10)s throttled action will
+-- no-ops.
+--
+-- Note the action will run in the calling thread.
+throttle_ :: Int            -- ^ cache time in unit of 0.1s
+          -> IO ()          -- ^ the original IO action
+          -> IO (IO ())     -- ^ throttled IO action
+throttle_ t action = do
+    resultCounter <- newCounter 0
+    return $ do
+        c <- atomicOrCounter resultCounter (-1) -- 0x11111111 or 0x1111111111111111 depend machine word size
+        when (c == 0) $ do
+            registerLowResTimer_ t (void $ atomicAndCounter resultCounter 0)
+            void action
+
+-- | Similar to 'throttle_' but run action in trailing edge
+--
+-- The IO action will run at trailing edge. i.e. no matter how many times throttled action
+-- are called, original action will run only once after (t/10)s.
+--
+-- Note the action will be run in a new created thread.
+throttleTrailing_ :: Int
+                  -> IO ()        -- ^ the original IO action
+                  -> IO (IO ())   -- ^ throttled IO action
+throttleTrailing_ t action = do
+    resultCounter <- newCounter 0
+    return $ do
+        c <- atomicOrCounter resultCounter (-1) -- 0x11111111 or 0x1111111111111111 depend machine word size
+        when (c == 0) . registerLowResTimer_ t . void . forkIO $ do
+            atomicAndCounter_ resultCounter 0
+            action

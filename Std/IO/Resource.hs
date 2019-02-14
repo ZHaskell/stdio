@@ -39,7 +39,7 @@ import           Control.Concurrent.STM.TVar
 import           Control.Monad
 import qualified Control.Monad.Catch as MonadCatch
 import           Control.Monad.IO.Class
-import           Data.IORef.Unboxed
+import           Std.Data.PrimIORef
 import           Std.IO.LowResTimer
 import           Std.IO.Exception
 
@@ -154,7 +154,7 @@ withResource' resource k = do
         (liftIO $ do
             (a, release) <- (acquire resource)
             let release' = do
-                    c' <- atomicOrCounter_ c 1
+                    c' <- atomicOrCounter c 1
                     when (c' == 0) release
             return (a, release'))
         (\(_, release) -> liftIO release)

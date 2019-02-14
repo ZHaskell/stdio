@@ -57,7 +57,7 @@ import           Std.Data.Text.Base       (Text (..))
 -- Notes on 'IsString' instance: It's recommended to use 'IsString' instance instead of 'stringUTF8'
 -- or 'string7' since there's a rewrite rule to turn encoding loop into a memcpy, which is much faster.
 --
--- The 'IsString' instance also gives desired UTF8 guarantees:
+-- Different from 'Builder ()', 'TextBuilder ()''s 'IsString' instance will gives desired UTF8 guarantees:
 --
 -- * "\NUL" will be written directly as @\x00@.
 --
@@ -68,7 +68,7 @@ newtype TextBuilder a = TextBuilder { toBuilder :: B.Builder a }
 
 instance (a ~ ()) => IsString (TextBuilder a) where
     {-# INLINE fromString #-}
-    fromString = TextBuilder . fromString
+    fromString = stringUTF8
 
 deriving instance Semigroup (TextBuilder ())
 deriving instance Monoid (TextBuilder ())

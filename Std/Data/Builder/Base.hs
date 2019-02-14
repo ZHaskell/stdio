@@ -64,7 +64,7 @@ module Std.Data.Builder.Base
   , encodePrimLE
   , encodePrimBE
   -- * More builders
-  , stringUTF8, charUTF8, string7, char7, string8, char8, text
+  , stringModifiedUTF8, charModifiedUTF8, stringUTF8, charUTF8, string7, char7, string8, char8, text
   ) where
 
 import           Control.Monad
@@ -111,15 +111,14 @@ type BuildStep s = Buffer s -> ST s [V.Bytes]
 -- | @Builder@ is a monad to help compose @BuilderStep@. With next @BuilderStep@ continuation,
 -- we can do interesting things like perform some action, or interleave the build process.
 --
--- Notes on 'IsString' instance: It's recommended to use 'IsString' instance instead of 'stringUTF8'
--- or 'string7' since there's a rewrite rule to turn encoding loop into a memcpy, which is faster.
+-- Notes on 'IsString' instance: 'Builder' '()''s 'IsString' instance use 'stringModifiedUTF8',
+-- which is different from 'stringUTF8' in that it DOES NOT PROVIDE UTF8 GUARANTEES! :
 --
--- The 'IsString' instance also gives desired UTF8 guarantees:
+-- * @\NUL@ will be written as @\xC0 \x80@.
 --
--- * @\NUL@ will be written directly as @\x00@.
+-- * @\xD800@ ~ @\xDFFF@ will be encoded in three bytes as normal UTF-8 codepoints.
 --
--- * @\xD800@ ~ @\xDFFF@ will be replaced by replacement char.
---
+-- Because this is also how ghc compile string literal into binaries.
 newtype Builder a = Builder
     { runBuilder :: forall s. AllocateStrategy s -> (a -> BuildStep s) -> BuildStep s}
 
@@ -157,30 +156,37 @@ instance Monoid (Builder ()) where
 
 instance (a ~ ()) => IsString (Builder a) where
     {-# INLINE fromString #-}
-    fromString = stringLiteral
+    fromString = stringModifiedUTF8
 
--- | A alias to 'stringUTF8', but will be rewritten to a memcpy if possible.
-stringLiteral :: String -> Builder ()
-{-# NOINLINE CONLIKE stringLiteral #-}
+-- | but will be rewritten to a memcpy if possible.
+stringModifiedUTF8 :: String -> Builder ()
+{-# INLINE CONLIKE [1] stringModifiedUTF8 #-}
 {-# RULES
-    "stringLiteral/addrLiteral" forall addr . stringLiteral (unpackCString# addr) = addrLiteral addr
+    "stringModifiedUTF8/addrLiteral" forall addr . stringModifiedUTF8 (unpackCString# addr) = addrLiteral addr
   #-}
-stringLiteral = stringUTF8
+stringModifiedUTF8 = mapM_ charModifiedUTF8
+
+-- | Turn 'Char' into 'Builder' with Modified UTF8 encoding
+--
+-- '\NUL' is encoded as two bytes @C0 80@ , '\xD800' ~ '\xDFFF' is encoded as a three bytes normal UTF-8 codepoint.
+charModifiedUTF8 :: Char -> Builder ()
+{-# INLINE charModifiedUTF8 #-}
+charModifiedUTF8 chr = do
+    ensureN 4
+    Builder (\ _  k (Buffer mba i) -> do
+        i' <- T.encodeCharModifiedUTF8 mba i chr
+        k () (Buffer mba i'))
 
 addrLiteral :: Addr# -> Builder ()
 {-# INLINE addrLiteral #-}
-addrLiteral addr# = validateAndCopy addr#
+addrLiteral addr# = copy addr#
   where
     len = fromIntegral . unsafeDupablePerformIO $ V.c_strlen addr#
-    valid = unsafeDupablePerformIO $ T.c_utf8_validate_addr addr# len
-    validateAndCopy addr#
-        | valid == 0 = stringLiteral (unpackCString# addr#)
-        | otherwise = do
-            ensureN len
-            Builder (\ _  k (Buffer mba i) -> do
-               copyPtrToMutablePrimArray mba i (Ptr addr#) len
-               k () (Buffer mba (i + len)))
-
+    copy addr# = do
+        ensureN len
+        Builder (\ _  k (Buffer mba i) -> do
+           copyPtrToMutablePrimArray mba i (Ptr addr#) len
+           k () (Buffer mba (i + len)))
 
 append :: Builder a -> Builder b -> Builder b
 {-# INLINE append #-}
@@ -414,13 +420,32 @@ encodePrimBE = encodePrim . BE
 --
 -- Illegal codepoints will be written as 'T.replacementChar's.
 --
--- Note, if you're trying to write string literals builders,
--- please open 'OverloadedStrings' and use 'Builder''s 'IsString' instance,
--- it will be rewritten into a memcpy, instead of encoding 'Char's in a
--- loop like what 'stringUTF8' do.
+-- Note, if you're trying to write string literals builders, and you know it doen't contain
+-- '\NUL' or surrgate codepoints, then you can open 'OverloadedStrings' and use 'Builder''s
+-- 'IsString' instance, it can save an extra UTF-8 validation.
+--
+-- This function will be rewritten into a memcpy if possible, (running a fast UTF-8 validation
+-- at runtime first).
 stringUTF8 :: String -> Builder ()
-{-# INLINE stringUTF8 #-}
+{-# INLINE CONLIKE [1] stringUTF8 #-}
+{-# RULES
+    "stringUTF8/addrUTF8" forall addr . stringUTF8 (unpackCString# addr) = addrUTF8 addr
+  #-}
 stringUTF8 = mapM_ charUTF8
+
+addrUTF8 :: Addr# -> Builder ()
+{-# INLINABLE addrUTF8 #-}
+addrUTF8 addr# = validateAndCopy addr#
+  where
+    len = fromIntegral . unsafeDupablePerformIO $ V.c_strlen addr#
+    valid = unsafeDupablePerformIO $ T.c_utf8_validate_addr addr# len
+    validateAndCopy addr#
+        | valid == 0 = mapM_ charUTF8 (unpackCString# addr#)
+        | otherwise = do
+            ensureN len
+            Builder (\ _  k (Buffer mba i) -> do
+               copyPtrToMutablePrimArray mba i (Ptr addr#) len
+               k () (Buffer mba (i + len)))
 
 -- | Turn 'Char' into 'Builder' with UTF8 encoding
 --
@@ -428,8 +453,7 @@ stringUTF8 = mapM_ charUTF8
 charUTF8 :: Char -> Builder ()
 {-# INLINE charUTF8 #-}
 charUTF8 chr = do
-    let !n = T.encodeCharLength chr
-    ensureN n
+    ensureN 4
     Builder (\ _  k (Buffer mba i) -> do
         i' <- T.encodeChar mba i chr
         k () (Buffer mba i'))

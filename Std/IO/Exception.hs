@@ -82,7 +82,6 @@ import Control.Exception hiding (IOException)
 import Control.Monad
 import Control.Concurrent.STM
 import Data.Typeable
-import Data.IORef.Unboxed
 import Foreign.Ptr
 import Foreign.C.Types
 import GHC.Stack

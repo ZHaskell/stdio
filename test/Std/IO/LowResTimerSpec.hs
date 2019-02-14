@@ -3,7 +3,7 @@ module Std.IO.LowResTimerSpec where
 import           Control.Concurrent
 import           Control.Monad
 import           Control.Monad.IO.Class
-import           Data.IORef.Unboxed
+import           Std.Data.PrimIORef
 import           Std.IO.LowResTimer
 import           Test.Hspec
 import           Test.HUnit
@@ -14,7 +14,7 @@ spec = describe "low resolution timers" $ do
         c <- newCounter 0
         replicateM_ 10000 $ do
             forM_ [1..10] $ \ i -> do
-                registerLowResTimer i (void $ atomicAddCounter c 1)
+                registerLowResTimer i (atomicAddCounter_ c 1)
 
         threadDelay 1000
         lrtm <- getLowResTimerManager
@@ -22,7 +22,7 @@ spec = describe "low resolution timers" $ do
         assertEqual "timer manager should start" True running
 
         threadDelay 1200000 -- make sure all timers are fired
-        c' <- readIORefU c
+        c' <- readPrimIORef c
         assertEqual "timers registration counter" 100000 c'
 
         threadDelay 100000  -- another 0.1s
@@ -31,12 +31,22 @@ spec = describe "low resolution timers" $ do
         running <- isLowResTimerManagerRunning lrtm
         assertEqual "timer manager should stopped" False running
 
-    it "debounce sh" $ do
+    it "throttle" $ do
         c <- newCounter 0
-        debouncedAdd <- debounce 1 (atomicAddCounter c 1)
-        forkIO . replicateM_ 10000 $ do
-            debouncedAdd
-            threadDelay 500
-        threadDelay 1000000  -- wait 1s here
-        c' <- readIORefU c
-        assertBool "debounced add" (5  <= c' && c' <= 6)
+        throttledAdd <- throttle 10 (atomicAddCounter_ c 1)
+        forkIO . replicateM_ 100 $ do
+            throttledAdd
+            threadDelay 50000
+        threadDelay 10000000  -- wait 10s here
+        c' <- readPrimIORef c
+        assertBool "throttled add" (6  <= c' && c' <= 7)
+
+    it "throttleTrailing" $ do
+        c <- newCounter 0
+        throttledAdd <- throttleTrailing_ 10 (atomicAddCounter_ c 1)
+        forkIO . replicateM_ 100 $ do
+            throttledAdd
+            threadDelay 50000
+        threadDelay 10000000  -- wait 10s here
+        c' <- readPrimIORef c
+        assertBool "throttled add" (5  <= c' && c' <= 6)

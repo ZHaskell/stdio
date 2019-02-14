@@ -34,7 +34,6 @@ import           Control.Concurrent.MVar
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Data.Int
-import           Data.IORef.Unboxed
 import           Data.Primitive.PrimArray
 import           Foreign.C.Types
 import           Foreign.Ptr

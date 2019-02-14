@@ -77,7 +77,7 @@ import           Prelude                 hiding (all, any, appendFile, break,
                                           unlines, unzip, writeFile, zip,
                                           zipWith)
 import           Std.Data.Array
-import           Std.Data.Text.UTF8Codec (encodeCBytesChar)
+import           Std.Data.Text.UTF8Codec (encodeCharModifiedUTF8)
 import qualified Std.Data.Vector.Base    as V
 import           Std.IO.Exception
 import           System.IO.Unsafe        (unsafeDupablePerformIO)
@@ -91,14 +91,12 @@ data CBytes
 
 -- | Create a 'CBytes' with IO action.
 --
--- Note: The initial content of the 'CString' is random, it doesn't even have
--- a proper '\NUL' ternimator, user should take the responsibility to do a
--- proper initialization and return the actual length.
---
+-- User only have to do content initialization and return the content length,
+-- 'create' takes the responsibility to add the '\NUL' ternimator.
 create :: HasCallStack
-       => Int  -- capacity, including the '\NUL' terminator
-       -> (CString -> IO Int)  -- initialization function,
-                               -- write the pointer, return the length
+       => Int  -- ^ capacity n, including the '\NUL' terminator
+       -> (CString -> IO Int)  -- ^ initialization function,
+                               -- write the pointer, return the length (<= n-1)
        -> IO CBytes
 {-# INLINE create #-}
 create n fill = do
@@ -230,12 +228,12 @@ pack s = runST $ do
         siz <- getSizeofMutablePrimArray mba
         if i < siz - 4  -- we need at least 5 bytes for safety due to extra '\0' byte
         then do
-            i' <- encodeCBytesChar mba i c
+            i' <- encodeCharModifiedUTF8 mba i c
             return (SP2 i' mba)
         else do
             let !siz' = siz `shiftL` 1
             !mba' <- resizeMutablePrimArray mba siz'
-            i' <- encodeCBytesChar mba' i c
+            i' <- encodeCharModifiedUTF8 mba' i c
             return (SP2 i' mba')
 
 

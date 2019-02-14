@@ -25,7 +25,6 @@ import           Control.Monad
 import           Control.Monad.Primitive     (ioToPrim, primToIO)
 import           Control.Monad.ST
 import           Data.IORef
-import           Data.IORef.Unboxed
 import           Data.Primitive.PrimArray
 import           Data.Typeable
 import           Data.Word
@@ -34,6 +33,7 @@ import           Std.Data.Array
 import qualified Std.Data.Builder.Base       as B
 import qualified Std.Data.Vector             as V
 import qualified Std.Data.Vector.Base        as V
+import           Std.Data.PrimIORef
 import           Std.Foreign.PrimArray
 import           Std.IO.Exception
 
@@ -60,29 +60,20 @@ class Input i where
 class Output o where
     writeOutput :: HasCallStack => o -> Ptr Word8 -> Int -> IO ()
 
+-- | Input device with buffer, NOT THREAD SAFE!
 data BufferedInput i = BufferedInput
     { bufInput    :: i
     , bufPushBack :: {-# UNPACK #-} !(IORef V.Bytes)
     , inputBuffer :: {-# UNPACK #-} !(IORef (MutablePrimArray RealWorld Word8))
     }
 
+-- | Output device with buffer, NOT THREAD SAFE!
 data BufferedOutput o = BufferedOutput
     { bufOutput     :: o
     , bufIndex      :: {-# UNPACK #-} !Counter
     , outputBuffer  :: {-# UNPACK #-} !(MutablePrimArray RealWorld Word8)
     }
 
-data BufferedInputConfig = BufferedInputConfig
-    { inputBufSiz  :: Int
-    , inputTimeout :: Int
-    , inputMinRate :: Int
-    }
-
-data BufferedOutputConfig = BufferedOutputConfig
-    { outputBufSiz     :: Int
-    , outputTimeout    :: Int
-    , outputAsyncFlush :: Bool
-    }
 
 newBufferedInput :: input
                  -> Int     -- ^ Input buffer size
@@ -97,7 +88,7 @@ newBufferedOutput :: output
                   -> Int    -- ^ Output buffer size
                   -> IO (BufferedOutput output)
 newBufferedOutput o bufSiz = do
-    index <- newIORefU 0
+    index <- newPrimIORef 0
     buf <- newPinnedPrimArray bufSiz
     return (BufferedOutput o index buf)
 
@@ -223,19 +214,19 @@ readLine h = do
 --
 writeBuffer :: (Output o) => BufferedOutput o -> V.Bytes -> IO ()
 writeBuffer o@BufferedOutput{..} v@(V.PrimVector ba s l) = do
-    i <- readIORefU bufIndex
+    i <- readPrimIORef bufIndex
     bufSiz <- getSizeofMutablePrimArray outputBuffer
     if i + l <= bufSiz
     then do
         -- current buffer can hold it
         copyPrimArray outputBuffer i ba s l   -- copy to buffer
-        writeIORefU bufIndex (i+l)              -- update index
+        writePrimIORef bufIndex (i+l)              -- update index
     else do
         if (i > 0)
         then do
             -- flush the buffer
             withMutablePrimArrayContents outputBuffer $ \ ptr -> writeOutput bufOutput ptr i
-            writeIORefU bufIndex 0
+            writePrimIORef bufIndex 0
 
             writeBuffer o v -- try write to buffer again
         else
@@ -249,7 +240,7 @@ writeBuffer o@BufferedOutput{..} v@(V.PrimVector ba s l) = do
 --
 writeBuilder :: (Output o) => BufferedOutput o -> B.Builder a -> IO ()
 writeBuilder BufferedOutput{..} (B.Builder b) = do
-    i <- readIORefU bufIndex
+    i <- readPrimIORef bufIndex
     originBufSiz <- getSizeofMutablePrimArray outputBuffer
     _ <- primToIO (b (B.OneShotAction action) (lastStep originBufSiz) (B.Buffer outputBuffer i))
     return ()
@@ -260,21 +251,21 @@ writeBuilder BufferedOutput{..} (B.Builder b) = do
     lastStep :: Int -> a -> B.BuildStep RealWorld
     lastStep originBufSiz _ (B.Buffer buf offset)
         | sameMutablePrimArray buf outputBuffer = ioToPrim $ do
-            writeIORefU bufIndex offset   -- record new buffer index
+            writePrimIORef bufIndex offset   -- record new buffer index
             return []
         | offset >= originBufSiz = ioToPrim $ do
             withMutablePrimArrayContents buf $ \ ptr -> writeOutput bufOutput ptr offset
-            writeIORefU bufIndex 0
+            writePrimIORef bufIndex 0
             return [] -- to match 'BuildStep' return type
         | otherwise = ioToPrim $ do
             copyMutablePrimArray outputBuffer 0 buf 0 offset
-            writeIORefU bufIndex offset
+            writePrimIORef bufIndex offset
             return [] -- to match 'BuildStep' return type
 
 -- | Flush the buffer(if not empty).
 --
-flush :: Output f => BufferedOutput f -> IO ()
-flush BufferedOutput{..} = do
-    i <- readIORefU bufIndex
+flushBuffer :: Output f => BufferedOutput f -> IO ()
+flushBuffer BufferedOutput{..} = do
+    i <- readPrimIORef bufIndex
     withMutablePrimArrayContents outputBuffer $ \ ptr -> writeOutput bufOutput ptr i
-    writeIORefU bufIndex 0
+    writePrimIORef bufIndex 0

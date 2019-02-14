@@ -91,19 +91,23 @@ encodeChar# mba# i# c# = case (int2Word# (ord# c#)) of
 
 -- | Encode a 'Char' into bytes with non-standard UTF-8 encoding(Used in "Data.CBytes").
 --
--- '\NUL' is encoded as two bytes @C0 80@ , '\xD800' ~ '\xDFFF' is encoded as a three bytes normal utf-8 codepoint.
+-- '\NUL' is encoded as two bytes @C0 80@ , '\xD800' ~ '\xDFFF' is encoded as a three bytes normal UTF-8 codepoint.
 -- This function assumed there're enough space for encoded bytes, and return the advanced index.
 --
-encodeCBytesChar :: (PrimMonad m) => MutablePrimArray (PrimState m) Word8 -> Int -> Char -> m Int
-{-# INLINE encodeCBytesChar #-}
-encodeCBytesChar (MutablePrimArray mba#) (I# i#) (C# c#) = primitive (\ s# ->
-    let (# s1#, j# #) = encodeCBytesChar# mba# i# c# s# in (# s1#, (I# j#) #))
+encodeCharModifiedUTF8 :: (PrimMonad m) => MutablePrimArray (PrimState m) Word8 -> Int -> Char -> m Int
+{-# INLINE encodeCharModifiedUTF8 #-}
+encodeCharModifiedUTF8 (MutablePrimArray mba#) (I# i#) (C# c#) = primitive (\ s# ->
+    let (# s1#, j# #) = encodeCharModifiedUTF8# mba# i# c# s# in (# s1#, I# j# #))
 
--- | The unboxed version of 'encodeCBytesChar'.
-encodeCBytesChar# :: MutableByteArray# s -> Int# -> Char# -> State# s -> (# State# s, Int# #)
-{-# NOINLINE encodeCBytesChar# #-} -- codesize vs speed choice here
-encodeCBytesChar# mba# i# c# = case (int2Word# (ord# c#)) of
+-- | The unboxed version of 'encodeCharModifiedUTF8'.
+encodeCharModifiedUTF8# :: MutableByteArray# s -> Int# -> Char# -> State# s -> (# State# s, Int# #)
+{-# NOINLINE encodeCharModifiedUTF8# #-} -- codesize vs speed choice here
+encodeCharModifiedUTF8# mba# i# c# = case (int2Word# (ord# c#)) of
     n#
+        | isTrue# (n# `eqWord#` 0x00000000##) -> \ s# ->    -- encode \NUL as \xC0 \x80
+            let s1# = writeWord8Array# mba# i# 0xC0## s#
+                s2# = writeWord8Array# mba# (i# +# 1#) 0x80## s1#
+            in (# s2#, i# +# 2# #)
         | isTrue# (n# `leWord#` 0x0000007F##) -> \ s# ->
             let s1# = writeWord8Array# mba# i# n# s#
             in (# s1#, i# +# 1# #)
@@ -111,7 +115,7 @@ encodeCBytesChar# mba# i# c# = case (int2Word# (ord# c#)) of
             let s1# = writeWord8Array# mba# i# (0xC0## `or#` (n# `uncheckedShiftRL#` 6#)) s#
                 s2# = writeWord8Array# mba# (i# +# 1#) (0x80## `or#` (n# `and#` 0x3F##)) s1#
             in (# s2#, i# +# 2# #)
-        | isTrue# (n# `leWord#` 0x0000FFFF##) -> \ s# ->
+        | isTrue# (n# `leWord#` 0x0000FFFF##) -> \ s# ->    -- \xD800 ~ \xDFFF is encoded as normal UTF-8 codepoints
             let s1# = writeWord8Array# mba# i# (0xE0## `or#` (n# `uncheckedShiftRL#` 12#)) s#
                 s2# = writeWord8Array# mba# (i# +# 1#) (0x80## `or#` ((n# `uncheckedShiftRL#` 6#) `and#` 0x3F##)) s1#
                 s3# = writeWord8Array# mba# (i# +# 2#) (0x80## `or#` (n# `and#` 0x3F##)) s2#
