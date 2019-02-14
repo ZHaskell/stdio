@@ -54,11 +54,11 @@ import           Control.Monad.Primitive
 import           Control.Monad.ST
 import           Data.Bits
 import           Data.Foldable           (foldlM)
+import           Data.Hashable           (Hashable(..), hashByteArrayWithSalt, hashPtrWithSalt)
 import qualified Data.List               as List
 import           Data.Monoid             (Monoid (..))
 import           Data.Semigroup          (Semigroup (..))
 import           Data.String             (IsString (..))
-import           Data.Primitive.ByteArray
 import           Data.Primitive.PrimArray
 import           Data.Word
 import           Foreign.C
@@ -142,6 +142,12 @@ instance Monoid CBytes where
     mappend = append
     {-# INLINE mconcat #-}
     mconcat = concat
+
+instance Hashable CBytes where
+    hashWithSalt salt (CBytesOnHeap pa@(PrimArray ba#)) = hashByteArrayWithSalt ba# 0 (sizeofPrimArray pa - 1) salt
+    hashWithSalt salt (CBytesLiteral p) = unsafeDupablePerformIO $ do
+        len <- c_strlen p
+        hashPtrWithSalt p (fromIntegral len) salt
 
 append :: CBytes -> CBytes -> CBytes
 {-# INLINABLE append #-}

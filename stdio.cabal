@@ -303,6 +303,7 @@ test-suite test
     build-depends:  stdio
                   , base
                   , hspec >= 2.5.4
+                  , hashable
                   , HUnit
                   , QuickCheck >= 2.10
                   , quickcheck-instances

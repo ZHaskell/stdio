@@ -102,6 +102,8 @@ import           Data.Char                     (ord)
 import           Data.Data
 import qualified Data.Foldable                 as F
 import           Data.Functor.Identity
+import           Data.Hashable                 (Hashable(..), hashByteArrayWithSalt)
+import           Data.Hashable.Lifted          (Hashable1(..), hashWithSalt1)
 import qualified Data.List                     as List
 import           Data.Maybe
 import           Data.Monoid                   (Monoid (..))
@@ -167,9 +169,9 @@ indexMaybe (Vec arr s l) i | i < 0 || i >= l = Nothing
 -- | Boxed vector
 --
 data Vector a = Vector
-    {-# UNPACK #-} !(SmallArray a) -- payload
-    {-# UNPACK #-} !Int         -- offset
-    {-# UNPACK #-} !Int         -- length
+    {-# UNPACK #-} !(SmallArray a)  -- ^ payload
+    {-# UNPACK #-} !Int             -- ^ offset
+    {-# UNPACK #-} !Int             -- ^ length
     deriving (Typeable, Data)
 
 instance Vec Vector a where
@@ -273,6 +275,19 @@ instance F.Foldable Vector where
 
 instance T.Traversable Vector where
     traverse = traverse
+
+instance Hashable a => Hashable (Vector a) where
+    {-# INLINE hashWithSalt #-}
+    hashWithSalt = hashWithSalt1
+
+instance Hashable1 Vector where
+    {-# INLINE liftHashWithSalt #-}
+    liftHashWithSalt h salt (Vector arr s l) = hashWithSalt (go salt s) l
+      where
+        !end = s + l
+        go !salt !i
+            | i >= end  = salt
+            | otherwise = go (h salt (indexArr arr i)) (i+1)
 
 traverse :: (Vec v a, Vec u b, Applicative f) => (a -> f b) -> v a -> f (u b)
 {-# INLINE [1] traverse #-}
@@ -402,6 +417,19 @@ instance (Prim a, Show a) => Show (PrimVector a) where
 
 instance (Prim a, Read a) => Read (PrimVector a) where
     readsPrec p str = [ (pack x, y) | (x, y) <- readsPrec p str ]
+
+instance  {-# OVERLAPPABLE #-}  (Hashable a, Prim a) => Hashable (PrimVector a) where
+    {-# INLINE hashWithSalt #-}
+    hashWithSalt salt (PrimVector arr s l) = go salt s
+      where
+        !end = s + l
+        go !salt !i
+            | i >= end  = salt
+            | otherwise = go (hashWithSalt salt (indexArr arr i)) (i+1)
+
+instance {-# OVERLAPPING #-} Hashable (PrimVector Word8) where
+    {-# INLINE hashWithSalt #-}
+    hashWithSalt salt (PrimVector (PrimArray ba#) s l) = hashByteArrayWithSalt ba# s l salt
 
 --------------------------------------------------------------------------------
 

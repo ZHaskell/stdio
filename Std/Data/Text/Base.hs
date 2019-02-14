@@ -123,6 +123,7 @@ import           Control.Monad
 import           Data.Bits
 import           Data.Char          hiding (toLower, toUpper, toTitle)
 import           Data.Foldable            (foldlM)
+import           Data.Hashable            (Hashable(..))
 import qualified Data.List                as List
 import           Data.Primitive.PrimArray
 import           Data.Typeable
@@ -170,6 +171,10 @@ instance Read Text where
 
 instance NFData Text where
     rnf (Text bs) = rnf bs
+
+instance Hashable Text where
+    {-# INLINE hashWithSalt #-}
+    hashWithSalt salt (Text bs) = hashWithSalt salt bs
 
 instance IsString Text where
     {-# INLINE fromString #-}

@@ -6,6 +6,7 @@ module Std.Data.Vector.BaseSpec where
 
 import qualified Data.List                as List
 import           Data.Word
+import           Data.Hashable            (hashWithSalt, hash)
 import qualified Std.Data.Vector.Base     as V
 import           Test.QuickCheck
 import           Test.QuickCheck.Function
@@ -30,7 +31,7 @@ spec = describe "vector-base" $ do
         prop "vector compare === List.compare" $ \ xs ys ->
             (V.pack @V.PrimVector @Word8 xs `compare` V.pack ys) === (xs `compare` ys)
 
-    describe "vector unpack(R) . pack(R)(N) == id" . modifyMaxSuccess (*50) . modifyMaxSize (*50) $ do
+    describe "vector unpack(R) . pack(R)(N) == id" . modifyMaxSuccess (*10) . modifyMaxSize (*10) $ do
         prop "unpack . pack === id" $ \ xs ->
             (V.unpack @V.Vector @Integer) (V.pack xs)  === xs
         prop "unpack . pack === id" $ \ xs ->
@@ -45,7 +46,7 @@ spec = describe "vector-base" $ do
         prop "unpackR . packR === id" $ \ xs ->
             (V.unpackR @V.PrimVector @Word8) (V.packR xs)  === xs
 
-    describe "vector pack == packN" . modifyMaxSuccess (*50) . modifyMaxSize (*50) $ do
+    describe "vector pack == packN" . modifyMaxSuccess (*10) . modifyMaxSize (*10) $ do
         prop "pack === packN XX" $ \ xs d ->
             (V.pack @V.Vector @Integer xs) === (V.packN d xs)
         prop "pack === packN XX" $ \ xs d ->
@@ -59,6 +60,17 @@ spec = describe "vector-base" $ do
             (V.packR @V.PrimVector @Int xs) === (V.packRN d xs)
         prop "packR === packRN XX" $ \ xs d ->
             (V.packR @V.PrimVector @Word8 xs) === (V.packRN d xs)
+
+    describe "Bytes Hashable instance property" $ do
+        prop "Vector Word8's hash should be equal to hashWithSalt (Bytes's one) (Bytes's length)" $ \ xs ->
+            hash (V.pack @V.Vector @Word8 xs) === hashWithSalt (hash (V.pack @V.PrimVector @Word8 xs)) (List.length xs)
+        prop "Vector a's hash should be equal to [a]'s hash" $ \ xs ->
+            hash (V.pack @V.Vector @Word8 xs) === hash xs
+        prop "Vector a's hash should be equal to [a]'s hash" $ \ xs ->
+            hash (V.pack @V.Vector @Int xs) === hash xs
+        prop "Vector a's hash should be equal to [a]'s hash" $ \ xs ->
+            hash (V.pack @V.Vector @Integer xs) === hash xs
+
 
     describe "Bytes IsString instance property" $ do
         prop "ASCII string" $

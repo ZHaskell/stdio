@@ -36,6 +36,9 @@ import           System.Posix.Types (CSsize (..))
 import           GHC.Generics
 
 #include "hs_uv.h"
+#if HAVE_UNISTD_H
+#include <unistd.h>
+#endif
 
 --------------------------------------------------------------------------------
 -- Type alias
