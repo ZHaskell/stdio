@@ -70,13 +70,13 @@ spec = describe "filesystem (threadpool version) operations" $ do
             withResource (initUVFile filename flags mode) $ \ file -> do
                 i <- newBufferedInput file 4096
                 firstLine <- readLine i
-                firstLine  @=? fst (V.break (== V.c2w '\n') content2) `V.snoc` (V.c2w '\n')
+                firstLine  @=? fst (V.break (== V.c2w '\n') content2)
 
                 fr <- newUVFileReader file 0
                 i <- newBufferedInput fr 4096
                 replicateM_ 1024 $ do
                     firstLine <- readLine i
-                    firstLine  @=? fst (V.break (== V.c2w '\n') content2) `V.snoc` (V.c2w '\n')
+                    firstLine  @=? fst (V.break (== V.c2w '\n') content2)
             unlink filename
 
         let dirname  = tempdir <> "/test-dir"

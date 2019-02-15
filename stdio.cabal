@@ -151,7 +151,7 @@ library
                             Std.Data.PrimSTRef
                             Std.Data.PrimSTRef.Base
 
-                            Std.Data.LEON
+                            -- Std.Data.LEON
 
                             Std.Foreign.PrimArray
 

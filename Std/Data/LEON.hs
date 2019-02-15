@@ -16,7 +16,7 @@
 {-|
 Module      : Std.Data.LEON
 Description : Simple binary serialization/deserialization
-Copyright   : (c) Dong Han, 2017
+Copyright   : (c) Dong Han, 2019
 License     : BSD
 Maintainer  : winterland1989@gmail.com
 Stability   : experimental
@@ -24,6 +24,8 @@ Portability : non-portable
 
 LEON (little endian object notation) is an efficiently serialization using simple binary encoding. As suggested by its name, default instances use little endian encoding, i.e. "Intel convention", encoded data should be portable
 across machine endianness, word size, or compiler version within one major version. For example, data encoded using the 'LEON' class could be written on any machine, and read back on any another using @stdio@ packages with the same major version.
+
+This module is still W.I.P, there're lots of instances to be added.
 
 -}
 
