@@ -43,7 +43,7 @@ module Std.Data.Vector.Base (
   , Vector(..)
   , PrimVector(..)
   -- ** Word8 vector
-  , Bytes
+  , Bytes, packASCII
   , w2c, c2w
   -- * Basic creating
   , create, create', creating, creating', createN, createN2
@@ -442,21 +442,21 @@ type Bytes = PrimVector Word8
 
 instance (a ~ Word8) => IsString (PrimVector a) where
     {-# INLINE fromString #-}
-    fromString = packStringLiteral
+    fromString = packASCII
 
 instance CI.FoldCase Bytes where
     {-# INLINE foldCase #-}
     foldCase = map toLower
 
-
-packStringLiteral :: String -> Bytes
-{-# NOINLINE CONLIKE packStringLiteral #-}
+packASCII :: String -> Bytes
+{-# INLINE CONLIKE [1] packASCII #-}
 {-# RULES
-    "packStringLiteral/packStringAddr" forall addr . packStringLiteral (unpackCString# addr) = packStringAddr addr
+    "packASCII/packStringAddr" forall addr . packASCII (unpackCString# addr) = packStringAddr addr
   #-}
-packStringLiteral = pack . fmap (fromIntegral . ord)
+packASCII = pack . fmap (fromIntegral . ord)
 
 packStringAddr :: Addr# -> Bytes
+{-# INLINABLE packStringAddr #-}
 packStringAddr addr# = validateAndCopy addr#
   where
     len = fromIntegral . unsafeDupablePerformIO $ c_strlen addr#

@@ -8,7 +8,7 @@ import qualified Data.List                as List
 import           Data.Word
 import           Data.Hashable            (hashWithSalt, hash)
 import qualified Std.Data.CBytes          as CB
-import qualified Std.Data.Vector          as V
+import qualified Std.Data.Vector.Base     as V
 import           Test.QuickCheck
 import           Test.QuickCheck.Function
 import           Test.QuickCheck.Property
@@ -29,7 +29,7 @@ spec = describe "CBytes-base" $ do
     describe "CBytes Hashable instance property" . modifyMaxSuccess (*10) . modifyMaxSize (*10) $ do
         prop "CBytes a's hash should be equal to Bytes's hash" $ \ (ASCIIString xs) ->
             let ys = List.filter (/= '\NUL') xs
-            in hash (CB.pack ys) === hash (V.pack @V.PrimVector ys)
+            in hash (CB.pack ys) === hash (V.packASCII ys)
         prop "CBytes a's hash should be equal to literal's hash" $
             hash ("hello world!" :: CB.CBytes) === hash (CB.fromBytes "hello world!")
 

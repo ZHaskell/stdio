@@ -81,7 +81,7 @@ module Std.Data.Vector (
   , Vector
   , PrimVector
   -- ** Word8 vector
-  , Bytes
+  , Bytes, packASCII
   -- * Basic creating
   , empty, singleton, copy
   -- * Conversion between list
