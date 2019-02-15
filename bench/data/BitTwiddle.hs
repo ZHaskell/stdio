@@ -6,7 +6,7 @@ module BitTwiddle (bitTwiddle) where
 
 import Criterion.Main
 import qualified Data.ByteString as BS
-import qualified Std.Data.Vector as V
+import qualified Std.Data.Vector.Base as V
 import Control.DeepSeq
 import Control.Monad
 import Data.Word

@@ -790,7 +790,7 @@ map f (Vec arr s l) = create l (go 0)
   where
     go :: Int -> MArray v s b -> ST s ()
     go !i !marr | i >= l = return ()
-               | otherwise = do
+                | otherwise = do
                     x <- indexArrM arr (i+s); writeArr marr i (f x);
                     go (i+1) marr
 

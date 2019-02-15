@@ -20,18 +20,12 @@ executable parser
   -- other-modules:       
   other-extensions:    OverloadedStrings, BangPatterns
   build-depends:       base,
-                       ghc-prim,
-                       primitive,
+                       stdio,
                        deepseq,
                        bytestring,
                        cereal,
                        binary,
-                       template-haskell,
                        store-core
 
-  include-dirs:       ../../include
-  includes:           bytes.h
-  c-sources:          ../../cbits/bytes.c
-  hs-source-dirs:      ../../
-                       ./
+  hs-source-dirs:      .
   default-language:    Haskell2010

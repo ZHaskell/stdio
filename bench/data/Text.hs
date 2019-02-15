@@ -53,7 +53,7 @@ pack1000 t st =
 last :: T.Text -> S.Text -> [Benchmark]
 last t st =
     [ bench "text/last" $ nf T.last t
-    , bench "stdio text/last" $ nf S.last st
+    , bench "stdio text/last" $ nf S.lastMaybe st
     ]
 
 length :: T.Text -> S.Text -> [Benchmark]
@@ -65,7 +65,7 @@ length t st =
 map :: T.Text -> S.Text -> [Benchmark]
 map t st =
     [ bench "text/map" $ nf (T.map id) t
-    , bench "stdio text/map" $ nf (S.map id) st
+    , bench "stdio text/map" $ nf (S.map' id) st
     ]
 
 reverse :: T.Text -> S.Text -> [Benchmark]

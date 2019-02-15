@@ -4,6 +4,9 @@
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE TypeApplications #-}
 
+-- | Lot of benchmarks here use (\ x -> foo x) instead of foo
+-- because ghc inliner only inline foo (hence specialize it) when it's saturated
+
 module Bytes (bytes) where
 
 import Criterion.Main
@@ -20,7 +23,7 @@ import Prelude hiding (reverse,head,tail,last,init,null
     ,concat,any,take,drop,splitAt,takeWhile
     ,dropWhile,span,break,elem,filter,maximum
     ,minimum,all,concatMap,foldl1,foldr1
-    ,scanl,scanl1,scanr,scanr1
+    ,scanl1,scanl,scanr,scanr1
     ,readFile,writeFile,appendFile,replicate
     ,getContents,getLine,putStr,putStrLn,interact
     ,zip,zipWith,unzip,notElem
@@ -67,12 +70,9 @@ bytes = -- List.reverse
     , bgroup "foldr" foldr
     , bgroup "foldr'" foldr'
     , bgroup "concat" concat
-    , bgroup "maximum" maximum
     , bgroup "concatMap" concatMap
     , bgroup "all" all
-    , bgroup "all" any
-    , bgroup "scanl1" scanl1
-    , bgroup "scanr1" scanr1
+    , bgroup "any" any
     , bgroup "mapAccumL" mapAccumL
     , bgroup "mapAccumR" mapAccumR
     , bgroup "replicate" replicate
@@ -125,7 +125,8 @@ map :: [Benchmark]
 map =
     [ bench "bytestring/map"  $ nf (\ bs -> B.map (+1) bs) bytestring1000
     , bench "vector/map"      $ nf (VU.map (+1)) vector1000
-    , bench "bytes/map"       $ nf (V.map @V.PrimVector @V.PrimVector (+1)) bytes1000
+    , bench "bytes/map"       $ nf (\ bs -> V.map @V.PrimVector @V.PrimVector (+1) bs) bytes1000
+    , bench "bytes/map'"       $ nf (\ bs -> V.map' @V.PrimVector @V.PrimVector (+1) bs) bytes1000
     , bench "bytes/pack . List.map f . unpack" $
         nf (V.packN @V.PrimVector 1000 . List.map (+1) . V.unpack) bytes1000
     ]
@@ -159,7 +160,7 @@ foldl' :: [Benchmark]
 foldl' =
     [ bench "bytestring/foldl'" $ nf (\ x -> B.foldl' (+) wordZ x) bytestring1000
     , bench "vector/foldl'"     $ nf (VU.foldl' (+) wordZ) vector1000
-    , bench "bytes/foldl'"      $ nf (V.foldl' (+) wordZ) bytes1000
+    , bench "bytes/foldl'"      $ nf (\ x -> V.foldl' (+) wordZ x) bytes1000
     , bench "bytes/foldl'"      $ nf (List.foldl' (+) wordZ . V.unpack) bytes1000
     ]
 
@@ -174,7 +175,7 @@ foldr' :: [Benchmark]
 foldr' =
     [ bench "bytestring/foldr'" $ nf (\ x -> B.foldr' (+) wordZ x) bytestring1000
     , bench "vector/foldr'"     $ nf (VU.foldr' (+) wordZ) vector1000
-    , bench "bytes/foldr'"      $ nf (V.foldr' (+) wordZ) bytes1000
+    , bench "bytes/foldr'"      $ nf (\ x -> V.foldr' (+) wordZ x) bytes1000
     ]
 
 foldr :: [Benchmark]
@@ -182,12 +183,6 @@ foldr =
     [ bench "bytestring/foldr" $ nf (\ x -> B.foldr (+) wordZ x) bytestring1000
     , bench "vector/foldr"     $ nf (VU.foldr (+) wordZ) vector1000
     , bench "bytes/foldr"      $ nf (List.foldr (+) wordZ . V.unpack) bytes1000
-    ]
-
-maximum :: [Benchmark]
-maximum =
-    [ bench "bytestring/maximum" $ nf B.maximum bytestring1000
-    , bench "bytes/maximum"      $ nf V.maximum bytes1000
     ]
 
 concat :: [Benchmark]
@@ -205,30 +200,16 @@ concatMap =
 
 all :: [Benchmark]
 all =
-    [ bench "bytestring/all" $ nf (B.all odd) bytestring1000
+    [ bench "bytestring/all" $ nf (\ x -> B.all odd x) bytestring1000
     , bench "vector/all"     $ nf (VU.all odd) vector1000
-    , bench "bytes/all"      $ nf (V.all odd) bytes1000
+    , bench "bytes/all"      $ nf (\ x -> V.all odd x) bytes1000
     ]
 
 any :: [Benchmark]
 any =
-    [ bench "bytestring/any" $ nf (B.any even) bytestring1000
+    [ bench "bytestring/any" $ nf (\ x -> B.any even x) bytestring1000
     , bench "vector/any"     $ nf (VU.any even) vector1000
-    , bench "bytes/any"      $ nf (V.any even) bytes1000
-    ]
-
-scanl1 :: [Benchmark]
-scanl1 =
-    [ bench "bytestring/scanl1" $ nf (\x-> B.scanl1 (+) x) bytestring1000
-    , bench "vector/scanl1"     $ nf (VU.scanl1 (+)) vector1000
-    , bench "bytes/scanl1"      $ nf (V.scanl1 (+)) bytes1000
-    ]
-
-scanr1 :: [Benchmark]
-scanr1 =
-    [ bench "bytestring/scanr1" $ nf (\x -> B.scanr1 (+) x) bytestring1000
-    , bench "vector/scanr1"     $ nf (VU.scanr1 (+)) vector1000
-    , bench "bytes/scanr1"      $ nf (V.scanr1 (+)) bytes1000
+    , bench "bytes/any"      $ nf (\x -> V.any even x) bytes1000
     ]
 
 accumStep :: Word8 -> Word8 -> (Word8, Word8)
