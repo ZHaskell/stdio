@@ -224,7 +224,7 @@ instance IsString CBytes where
 --
 -- '\NUL' is encoded as two bytes @C0 80@ , '\xD800' ~ '\xDFFF' is encoded as a three bytes normal UTF-8 codepoint.
 pack :: String -> CBytes
-{-# INLINE [1] pack #-}
+{-# INLINE CONLIKE [1] pack #-}
 pack s = runST $ do
     mba <- newPinnedPrimArray V.defaultInitSize
     (SP2 i mba') <- foldlM go (SP2 0 mba) s

@@ -11,7 +11,8 @@
 {-|
 Module      : Std.Data.Builder.Base
 Description : Efficient serialization/format.
-Copyright   : (c) Dong Han, 2017-2018
+Copyright   : (c) Dong Han, 2017-2019
+              (c) Tao He, 2018-2019
 License     : BSD
 Maintainer  : winterland1989@gmail.com
 Stability   : experimental

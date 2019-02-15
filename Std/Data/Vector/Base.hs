@@ -17,7 +17,8 @@
 {-|
 Module      : Std.Data.Vector.Base
 Description : Fast boxed and unboxed vector
-Copyright   : (c) Dong Han, 2017-2018
+Copyright   : (c) Dong Han, 2017-2019
+              (c) Tao He, 2018-2019
 License     : BSD
 Maintainer  : winterland1989@gmail.com
 Stability   : experimental

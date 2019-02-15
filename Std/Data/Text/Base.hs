@@ -178,17 +178,10 @@ instance Hashable Text where
 
 instance IsString Text where
     {-# INLINE fromString #-}
-    fromString = packStringLiteral
-
-packStringLiteral :: String -> Text
-{-# NOINLINE CONLIKE packStringLiteral #-}
-{-# RULES
-    "packStringLiteral/packStringAddr" forall addr . packStringLiteral (unpackCString# addr) = packStringAddr addr
-  #-}
-packStringLiteral = pack
-
+    fromString = pack
 
 packStringAddr :: Addr# -> Text
+{-# INLINABLE packStringAddr #-}
 packStringAddr addr# = validateAndCopy addr#
   where
     len = fromIntegral . unsafeDupablePerformIO $ c_strlen addr#
@@ -291,7 +284,10 @@ foreign import ccall unsafe "text.h utf8_validate_addr"
 
 pack :: String -> Text
 pack = packN V.defaultInitSize
-{-# INLINE pack #-}
+{-# INLINE CONLIKE [1] pack #-}
+{-# RULES
+    "pack/packStringAddr" forall addr . pack (unpackCString# addr) = packStringAddr addr
+  #-}
 
 -- | /O(n)/ Convert a list into a text with an approximate size(in bytes, not codepoints).
 --
