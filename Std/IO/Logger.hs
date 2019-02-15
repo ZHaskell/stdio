@@ -13,23 +13,23 @@ Portability : non-portable
 
 Simple, high performance logger. The design choice of this logger is biased towards simplicity instead of generlization:
 
-    * All log functions lives in 'IO' , customization via 'changeDefaultLogger' at the start of the program.
-    * The log format is basically fixed with simple JSON support.
+    * All log functions lives in 'IO'.
+    * A logger connected to stderr, 'setStdLogger' are always available.
     * Each logging thread are responsible for building log 'Builder's into a small 'V.Bytes' with line buffer
-      instead of leaving all 'Builder's to the flushing thread:
+      instead of leaving all 'Builder's to the flushing thread so that:
         * We won't keep garbage for too long simply because they're referenced by log's 'Builder'.
         * Each logging thread only need perform a CAS to prepend log 'V.Bytes' into a list, which reduces contention.
-        * Logging order is preserved under concurrent settings.
+        * Each log is atomic, Logging order is preserved under concurrent settings.
 
 Flushing is automatic and throttled for 'debug', 'info', 'warn' to boost performance, while a 'fatal' log always flush logger's buffer, This also lead to a problem that if main thread exits too early logs may missed, to add a flushing when program exits, use 'withLogger' like:
 
-@@@
+@
 import Std.IO.Logger
 
 main :: IO ()
-main = withLogger $ do
+main = withStdLogger $ do
     ....
-@@@
+@
 -}
 
 module Std.IO.Logger
@@ -37,14 +37,22 @@ module Std.IO.Logger
     Logger
   , LoggerConfig(..)
   , newLogger
-  , changeDefaultLogger
-  , withLogger
+  , loggerFlush
+  , setStdLogger
+  , getStdLogger
+  , withStdLogger
     -- * logging functions
   , debug
   , info
   , warn
   , fatal
   , otherLevel
+    -- * logging functions with specific logger
+  , debugWith
+  , infoWith
+  , warnWith
+  , fatalWith
+  , otherLevelWith
   ) where
 
 import Control.Monad
@@ -63,7 +71,7 @@ import qualified Data.Time as Time
 import Std.IO.Exception
 
 data Logger = Logger
-    { loggerFlush           :: IO ()
+    { loggerFlush           :: IO ()                -- ^ flush logger's buffer to output device
     , loggerThrottledFlush  :: IO ()
     , loggerBytesList       :: {-# UNPACK #-} !(IORef [V.Bytes])
     , loggerConfig          :: {-# UNPACK #-} !LoggerConfig
@@ -114,30 +122,30 @@ newLogger config o = do
     throttledFlush <- throttleTrailing_ (loggerMinFlushInterval config) flush
     return $ Logger flush throttledFlush bList config
 
-defaultLogger :: IORef Logger
-{-# NOINLINE defaultLogger #-}
-defaultLogger = unsafePerformIO $
+globalLogger :: IORef Logger
+{-# NOINLINE globalLogger #-}
+globalLogger = unsafePerformIO $
     newIORef =<< newLogger defaultLoggerConfig stderr
 
--- | Change default logger.
-changeDefaultLogger :: Logger -> IO ()
-changeDefaultLogger !logger = atomicWriteIORef defaultLogger logger
+-- | Change stderr logger.
+setStdLogger :: Logger -> IO ()
+setStdLogger !logger = atomicWriteIORef globalLogger logger
 
-getDefaultLogger :: IO Logger
-getDefaultLogger = readIORef defaultLogger
+getStdLogger :: IO Logger
+getStdLogger = readIORef globalLogger
 
--- | Manually flush default logger.
+-- | Manually flush stderr logger.
 flushDefaultLogger :: IO ()
-flushDefaultLogger = getDefaultLogger >>= loggerFlush
+flushDefaultLogger = getStdLogger >>= loggerFlush
 
 pushLog :: IORef [V.Bytes] -> Int -> B.Builder () -> IO ()
 pushLog blist bfsiz b = do
     let !bs = B.buildBytesWith bfsiz b
     atomicModifyIORef' blist (\ bss -> (bs:bss, ()))
 
--- | Flush default logger when program exits.
-withLogger :: IO () -> IO ()
-withLogger = (`finally` flushDefaultLogger)
+-- | Flush stderr logger when program exits.
+withStdLogger :: IO () -> IO ()
+withStdLogger = (`finally` flushDefaultLogger)
 
 --------------------------------------------------------------------------------
 
@@ -157,8 +165,30 @@ otherLevel :: B.Builder ()      -- ^ log level
            -> Bool              -- ^ flush immediately?
            -> B.Builder ()      -- ^ log content
            -> IO ()
-otherLevel level flushNow b = getDefaultLogger >>=
-    \ (Logger flush throttledFlush blist (LoggerConfig _ _ tscache lbsiz showdebug showts)) -> do
+otherLevel level flushNow b =
+    getStdLogger >>= \ logger -> otherLevelWith logger level flushNow b
+
+--------------------------------------------------------------------------------
+
+debugWith :: Logger -> B.Builder () -> IO ()
+debugWith logger = otherLevelWith logger "DEBUG" False
+
+infoWith :: Logger -> B.Builder () -> IO ()
+infoWith logger = otherLevelWith logger "INFO" False
+warnWith :: Logger -> B.Builder () -> IO ()
+
+warnWith logger = otherLevelWith logger "WARN" False
+fatalWith :: Logger -> B.Builder () -> IO ()
+
+fatalWith logger = otherLevelWith logger "FATAL" False
+
+otherLevelWith :: Logger
+               -> B.Builder ()      -- ^ log level
+               -> Bool              -- ^ flush immediately?
+               -> B.Builder ()      -- ^ log content
+               -> IO ()
+otherLevelWith logger level flushNow b = case logger of
+    (Logger flush throttledFlush blist (LoggerConfig _ _ tscache lbsiz showdebug showts)) -> do
         ts <- if showts then tscache else return ""
         when showdebug $ do
             pushLog blist lbsiz $ do
@@ -170,4 +200,3 @@ otherLevel level flushNow b = getDefaultLogger >>=
                 b
                 B.encodePrim _lf
             if flushNow then flush else throttledFlush
-

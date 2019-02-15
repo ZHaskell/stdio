@@ -149,8 +149,8 @@ instance Monoid CBytes where
     mconcat = concat
 
 instance Hashable CBytes where
-    hashWithSalt salt (CBytesOnHeap pa@(PrimArray ba#)) =
-        hashByteArrayWithSalt ba# 0 (sizeofPrimArray pa - 1) salt
+    hashWithSalt salt (CBytesOnHeap pa@(PrimArray ba#)) = unsafeDupablePerformIO $ do
+        V.c_fnv_hash_ba ba# 0 (sizeofPrimArray pa - 1) salt
     hashWithSalt salt (CBytesLiteral p@(Ptr addr#)) = unsafeDupablePerformIO $ do
         len <- c_strlen p
         V.c_fnv_hash_addr addr# (fromIntegral len) salt

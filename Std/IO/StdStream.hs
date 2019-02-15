@@ -36,8 +36,15 @@ module Std.IO.StdStream
   , isStdStreamTTY
   , stdin, stdout, stderr
   , stdinBuf, stdoutBuf
+    -- * utils
+  , printStd
+  , readLineStd
+  , putStd
+  , putLineStd
   ) where
 
+import Std.Data.Builder as B
+import Std.Data.Vector as V
 import Std.IO.UV.FFI
 import Std.IO.UV.Manager
 import Control.Monad
@@ -135,3 +142,27 @@ makeStdStream fd = do
                 `onException` hs_uv_handle_free handle
             return (StdTTY handle slot uvm)
     else return (StdFile fd)
+
+--------------------------------------------------------------------------------
+
+-- | print a 'Show' to stdout
+printStd :: Show a => a -> IO ()
+printStd s = do
+    writeBuffer stdoutBuf (B.buildBytes . B.stringUTF8 . show $ s)
+    flushBuffer stdoutBuf
+
+-- | print a 'Builder' to stdout
+putStd :: Builder a -> IO ()
+putStd b = do
+    writeBuffer stdoutBuf (B.buildBytes b)
+    flushBuffer stdoutBuf
+
+-- | print a 'Builder' to stdout, with a linefeed
+putLineStd :: Builder a -> IO ()
+putLineStd b = do
+    writeBuffer stdoutBuf (B.buildBytes $ b >> B.char8 '\n')
+    flushBuffer stdoutBuf
+
+-- | read a line from stdin
+readLineStd :: IO V.Bytes
+readLineStd = readLine stdinBuf

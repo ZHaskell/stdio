@@ -13,11 +13,30 @@ Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 
-This module provide basic I/O interface stdio use.
+This module provide buffered I/O interface.
 
 -}
 
-module Std.IO.Buffered where
+module Std.IO.Buffered
+  ( -- * Input & Output device
+    Input(..), Output(..)
+    -- * Buffered Input
+  , BufferedInput
+  , newBufferedInput
+  , readBuffer
+  , unReadBuffer
+  , readExactly
+  , readToMagic, readToMagic'
+  , readLine, readLine'
+    -- * Buffered Output
+  , BufferedOutput
+  , newBufferedOutput
+  , writeBuffer
+  , writeBuilder
+  , flushBuffer
+    -- * Exceptions
+  , ShortReadException(..)
+  ) where
 
 import           Control.Concurrent.MVar
 import           Control.Concurrent.STM.TVar
@@ -164,10 +183,28 @@ unReadBuffer pb' BufferedInput{..} = do
 
 -- | Read until reach a magic bytes
 --
--- If EOF reached before meet a magic byte, a 'ShortReadException' will be thrown.
-
+-- If EOF reached before meet a magic byte, the partial bytes are returned.
 readToMagic :: (HasCallStack, Input i) => Word8 -> BufferedInput i -> IO V.Bytes
 readToMagic magic h = V.concat `fmap` (go h magic)
+  where
+    go h magic = do
+        chunk <- readBuffer h
+        if V.null chunk
+        then return []
+        else case V.elemIndex magic chunk of
+            Just i -> do
+                let (lastChunk, rest) = V.splitAt (i+1) chunk
+                unReadBuffer rest h
+                return [lastChunk]
+            Nothing -> do
+                chunks <- go h magic
+                return (chunk : chunks)
+
+-- | Read until reach a magic bytes
+--
+-- If EOF reached before meet a magic byte, a 'ShortReadException' will be thrown.
+readToMagic' :: (HasCallStack, Input i) => Word8 -> BufferedInput i -> IO V.Bytes
+readToMagic' magic h = V.concat `fmap` (go h magic)
   where
     go h magic = do
         chunk <- readBuffer h
@@ -183,27 +220,27 @@ readToMagic magic h = V.concat `fmap` (go h magic)
                 chunks <- go h magic
                 return (chunk : chunks)
 
--- | Read a line
+-- | Read to a linefeed ('\n' or '\r\n'), return 'Bytes' before it.
 --
--- This function simply loop reading until a '\n' byte is met, and return all bytes read before including this
--- '\n' byte, there's no guarantee the bytes are properly UTF-8 encoded.
+-- If EOF reached before meet a magic byte, the partial bytes are returned.
 readLine :: (HasCallStack, Input i) => BufferedInput i -> IO V.Bytes
-readLine h = do
-    bss <- go h (V.c2w '\n')
-    return $! V.concat bss
-  where
-    go h magic = do
-        chunk <- readBuffer h
-        if V.null chunk
-        then return []
-        else case V.elemIndex magic chunk of
-            Just i -> do
-                let (lastChunk, rest) = V.splitAt (i+1) chunk
-                unReadBuffer rest h
-                return [lastChunk]
-            Nothing -> do
-                chunks <- go h magic
-                return (chunk : chunks)
+readLine i = do
+    bs@(V.PrimVector arr s l) <- readToMagic 10 i
+    return $ case bs `V.indexMaybe` (l-2) of
+        Nothing -> V.PrimVector arr s (l-1)
+        Just r | r == 13   -> V.PrimVector arr s (l-2)
+               | otherwise -> V.PrimVector arr s (l-1)
+
+-- | Read to a linefeed ('\n' or '\r\n'), return 'Bytes' before it.
+--
+-- If EOF reached before meet a magic byte, a 'ShortReadException' will be thrown.
+readLine' :: (HasCallStack, Input i) => BufferedInput i -> IO V.Bytes
+readLine' i = do
+    bs@(V.PrimVector arr s l) <- readToMagic' 10 i
+    return $ case bs `V.indexMaybe` (l-2) of
+        Nothing -> V.PrimVector arr s (l-1)
+        Just r | r == 13   -> V.PrimVector arr s (l-2)
+               | otherwise -> V.PrimVector arr s (l-1)
 
 --------------------------------------------------------------------------------
 

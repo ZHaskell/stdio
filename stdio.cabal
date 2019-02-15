@@ -174,7 +174,7 @@ library
 
     -- other-extensions:    
 
-    build-depends:          base >=4.9 && <5.0
+    build-depends:          base >=4.12 && <5.0
                         ,   ghc-prim  >= 0.4
                         ,   primitive >= 0.6.4
                         ,   deepseq
