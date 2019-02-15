@@ -19,7 +19,7 @@ A 'Text' simply wraps a 'Bytes' that are UTF-8 encoded codepoints, you can use '
 
 module Std.Data.Text (
   -- * Text type
-    Text
+    Text, getUTF8Bytes
   , validate, validateMaybe
   -- * Basic creating
   , empty, singleton, copy

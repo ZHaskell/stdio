@@ -420,16 +420,18 @@ instance (Prim a, Read a) => Read (PrimVector a) where
 
 instance  {-# OVERLAPPABLE #-}  (Hashable a, Prim a) => Hashable (PrimVector a) where
     {-# INLINE hashWithSalt #-}
+    -- we don't do a final hash with length to keep consistent with Bytes's instance
     hashWithSalt salt (PrimVector arr s l) = go salt s
       where
         !end = s + l
         go !salt !i
             | i >= end  = salt
-            | otherwise = go (hashWithSalt salt (indexArr arr i)) (i+1)
+            | otherwise = go (hashWithSalt salt (indexPrimArray arr i)) (i+1)
 
 instance {-# OVERLAPPING #-} Hashable (PrimVector Word8) where
     {-# INLINE hashWithSalt #-}
-    hashWithSalt salt (PrimVector (PrimArray ba#) s l) = hashByteArrayWithSalt ba# s l salt
+    hashWithSalt salt (PrimVector (PrimArray ba#) s l) =
+        hashByteArrayWithSalt ba# s l salt
 
 --------------------------------------------------------------------------------
 

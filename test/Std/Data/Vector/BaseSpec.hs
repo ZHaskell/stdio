@@ -61,7 +61,8 @@ spec = describe "vector-base" $ do
         prop "packR === packRN XX" $ \ xs d ->
             (V.packR @V.PrimVector @Word8 xs) === (V.packRN d xs)
 
-    describe "Bytes Hashable instance property" $ do
+    describe "Bytes Hashable instance property" . modifyMaxSuccess (*10) . modifyMaxSize (*10) $ do
+
         prop "Vector Word8's hash should be equal to hashWithSalt (Bytes's one) (Bytes's length)" $ \ xs ->
             hash (V.pack @V.Vector @Word8 xs) === hashWithSalt (hash (V.pack @V.PrimVector @Word8 xs)) (List.length xs)
         prop "Vector a's hash should be equal to [a]'s hash" $ \ xs ->
@@ -74,9 +75,9 @@ spec = describe "vector-base" $ do
 
     describe "Bytes IsString instance property" $ do
         prop "ASCII string" $
-            "hello world" == V.pack @V.PrimVector (List.map V.c2w "hello world")
+            "hello world" === V.pack @V.PrimVector (List.map V.c2w "hello world")
         prop "UTF8 string" $
-            "你好世界" == V.pack @V.PrimVector (List.map V.c2w "你好世界")
+            "你好世界" === V.pack @V.PrimVector (List.map V.c2w "你好世界")
 
     describe "vector length == List.length" $ do
         prop "vector length === List.length" $ \ xs ->

@@ -44,7 +44,7 @@ module Std.Data.CBytes
   , unpack
   , null , length
   , empty, append, concat
-  , toBytes, fromBytes
+  , toBytes, fromBytes, fromText
   , fromCStringMaybe, fromCString, fromCStringN
   , withCBytes
   ) where
@@ -54,7 +54,8 @@ import           Control.Monad.Primitive
 import           Control.Monad.ST
 import           Data.Bits
 import           Data.Foldable           (foldlM)
-import           Data.Hashable           (Hashable(..), hashByteArrayWithSalt, hashPtrWithSalt)
+import           Data.Hashable           (Hashable(..),
+                                            hashByteArrayWithSalt, hashPtrWithSalt)
 import qualified Data.List               as List
 import           Data.Monoid             (Monoid (..))
 import           Data.Semigroup          (Semigroup (..))
@@ -77,6 +78,7 @@ import           Prelude                 hiding (all, any, appendFile, break,
                                           unlines, unzip, writeFile, zip,
                                           zipWith)
 import           Std.Data.Array
+import qualified Std.Data.Text           as T
 import           Std.Data.Text.UTF8Codec (encodeCharModifiedUTF8)
 import qualified Std.Data.Vector.Base    as V
 import           Std.IO.Exception
@@ -87,6 +89,9 @@ import           System.IO.Unsafe        (unsafeDupablePerformIO)
 --
 data CBytes
     = CBytesOnHeap  {-# UNPACK #-} !(PrimArray Word8)   -- ^ On heap pinned 'PrimArray'
+                                                        -- there's an invariance that this array's
+                                                        -- length is always shrinked to contain content
+                                                        -- and \NUL terminator
     | CBytesLiteral {-# UNPACK #-} !CString             -- ^ String literals with static address
 
 -- | Create a 'CBytes' with IO action.
@@ -144,7 +149,8 @@ instance Monoid CBytes where
     mconcat = concat
 
 instance Hashable CBytes where
-    hashWithSalt salt (CBytesOnHeap pa@(PrimArray ba#)) = hashByteArrayWithSalt ba# 0 (sizeofPrimArray pa - 1) salt
+    hashWithSalt salt (CBytesOnHeap pa@(PrimArray ba#)) =
+        hashByteArrayWithSalt ba# 0 (sizeofPrimArray pa - 1) salt
     hashWithSalt salt (CBytesLiteral p) = unsafeDupablePerformIO $ do
         len <- c_strlen p
         hashPtrWithSalt p (fromIntegral len) salt
@@ -216,8 +222,9 @@ instance IsString CBytes where
 
 -- | Pack a 'String' into null-terminated 'CBytes'.
 --
+-- '\NUL' is encoded as two bytes @C0 80@ , '\xD800' ~ '\xDFFF' is encoded as a three bytes normal UTF-8 codepoint.
 pack :: String -> CBytes
-{-# NOINLINE [1] pack #-}
+{-# INLINE [1] pack #-}
 pack s = runST $ do
     mba <- newPinnedPrimArray V.defaultInitSize
     (SP2 i mba') <- foldlM go (SP2 0 mba) s
@@ -229,7 +236,6 @@ pack s = runST $ do
     -- It's critical that this function get specialized and unboxed
     -- Keep an eye on its core!
     go :: SP2 s -> Char -> ST s (SP2 s)
-    go sp          '\NUL' = return sp
     go (SP2 i mba) !c     = do
         siz <- getSizeofMutablePrimArray mba
         if i < siz - 4  -- we need at least 5 bytes for safety due to extra '\0' byte
@@ -255,12 +261,12 @@ unpack cbytes = unsafeDupablePerformIO . withCBytes cbytes $ \ (Ptr addr#) ->
 
 null :: CBytes -> Bool
 {-# INLINE null #-}
-null (CBytesOnHeap pa) = indexArr pa 0 == 0
+null (CBytesOnHeap pa) = indexPrimArray pa 0 == 0
 null (CBytesLiteral p) = unsafeDupablePerformIO (peekElemOff p 0) == 0
 
 length :: CBytes -> Int
 {-# INLINE length #-}
-length (CBytesOnHeap pa) = sizeofArr pa - 1
+length (CBytesOnHeap pa) = sizeofPrimArray pa - 1
 length (CBytesLiteral p) = fromIntegral $ unsafeDupablePerformIO (c_strlen p)
 
 -- | /O(1)/, (/O(n)/ in case of literal), convert to 'V.Bytes', which can be
@@ -269,7 +275,7 @@ length (CBytesLiteral p) = fromIntegral $ unsafeDupablePerformIO (c_strlen p)
 -- NOTE: the '\NUL' ternimator is not included.
 toBytes :: CBytes -> V.Bytes
 {-# INLINABLE toBytes #-}
-toBytes cbytes@(CBytesOnHeap pa) = V.fromArr pa 0 l
+toBytes cbytes@(CBytesOnHeap pa) = V.PrimVector pa 0 l
   where l = length cbytes
 toBytes cbytes@(CBytesLiteral p) = V.create (l+1) (\ mpa -> do
     copyPtrToMutablePrimArray mpa 0 (castPtr p) l
@@ -286,6 +292,12 @@ fromBytes (V.Vec arr s l) =  runST (do
         writePrimArray mpa l 0     -- the \NUL terminator
         pa <- unsafeFreezePrimArray mpa
         return (CBytesOnHeap pa))
+
+-- | /O(n)/, convert from 'T.Text', allocate pinned memory and
+-- add the '\NUL' ternimator
+fromText :: T.Text -> CBytes
+{-# INLINABLE fromText #-}
+fromText = fromBytes . T.getUTF8Bytes
 
 --------------------------------------------------------------------------------
 
