@@ -267,7 +267,7 @@ pattern O_APPEND = UVFileFlag #{const UV_FS_O_APPEND}
 pattern O_CREAT :: UVFileFlag
 pattern O_CREAT = UVFileFlag #{const UV_FS_O_CREAT}
 
--- | File I/O is done directly to and from user-space buffers, which must be aligned. Buffer size and address should be a multiple of the physical sector size of the block device, (DO NOT USE WITH stdio's @BufferedIO@)
+-- | File IO is done directly to and from user-space buffers, which must be aligned. Buffer size and address should be a multiple of the physical sector size of the block device, (DO NOT USE WITH stdio's @BufferedIO@)
 pattern O_DIRECT :: UVFileFlag
 pattern O_DIRECT = UVFileFlag #{const UV_FS_O_DIRECT}
 
@@ -277,7 +277,7 @@ pattern O_DIRECT = UVFileFlag #{const UV_FS_O_DIRECT}
 pattern O_DIRECTORY :: UVFileFlag
 pattern O_DIRECTORY = UVFileFlag #{const UV_FS_O_DIRECTORY}
 
--- |The file is opened for synchronous I/O. Write operations will complete once all data and a minimum of metadata are flushed to disk.
+-- |The file is opened for synchronous IO. Write operations will complete once all data and a minimum of metadata are flushed to disk.
 --
 -- Note 'o_DSYNC' is supported on Windows via @FILE_FLAG_WRITE_THROUGH@.
 pattern O_DSYNC :: UVFileFlag
@@ -353,7 +353,7 @@ pattern O_SHORT_LIVED = UVFileFlag #{const UV_FS_O_SHORT_LIVED}
 pattern O_SYMLINK :: UVFileFlag
 pattern O_SYMLINK = UVFileFlag #{const UV_FS_O_SYMLINK}
 
--- | The file is opened for synchronous I/O. Write operations will complete once all data and all metadata are flushed to disk.
+-- | The file is opened for synchronous IO. Write operations will complete once all data and all metadata are flushed to disk.
 --
 -- Note 'o_SYNC' is supported on Windows via @FILE_FLAG_WRITE_THROUGH@.
 pattern O_SYNC :: UVFileFlag

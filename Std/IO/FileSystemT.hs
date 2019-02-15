@@ -6,14 +6,14 @@
 
 {-|
 Module      : Std.IO.FileSystemT
-Description : Filesystem I/O using threadpool
+Description : Filesystem IO using threadpool
 Copyright   : (c) Dong Han, 2017~2019
 License     : BSD
 Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 
-This module provide I/O operations related to filesystem, operations are implemented using libuv's threadpool to achieve non-block behavior (non-block here meaning won't block other haskell threads), which should be prefered when the operations' estimated time is long enough(>1ms) or running with a non-threaded haskell runtime, such as accessing network filesystem or scan a very large directory. Otherwise you may block RTS's capability thus all the other haskell threads live on it.
+This module provide IO operations related to filesystem, operations are implemented using libuv's threadpool to achieve non-block behavior (non-block here meaning won't block other haskell threads), which should be prefered when the operations' estimated time is long enough(>1ms) or running with a non-threaded haskell runtime, such as accessing network filesystem or scan a very large directory. Otherwise you may block RTS's capability thus all the other haskell threads live on it.
 
 The threadpool version operations have overheads similar to safe FFI, but provide same adventages:
 

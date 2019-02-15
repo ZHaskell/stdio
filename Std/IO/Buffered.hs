@@ -6,14 +6,14 @@
 
 {-|
 Module      : Std.IO.Buffered
-Description : Buffered I/O interface
+Description : Buffered IO interface
 Copyright   : (c) Dong Han, 2017-2018
 License     : BSD
 Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 
-This module provide buffered I/O interface.
+This module provide buffered IO interface.
 
 -}
 

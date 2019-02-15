@@ -4,25 +4,25 @@
 
 {-|
 Module      : Std.IO.UV.Manager
-Description : I/O manager based on libuv
+Description : IO manager based on libuv
 Copyright   : (c) Dong Han, 2017-2018
 License     : BSD
 Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 
-This module provide I/O manager which bridge libuv's async interface with ghc's light weight thread.
+This module provide IO manager which bridge libuv's async interface with ghc's light weight thread.
 
-The main procedures for doing event I/O is:
+The main procedures for doing event IO is:
 
-+ Allocate a slot number using 'allocSlot'.
-+ Prepare you I/O buffer and write them to uv loop with 'pokeBufferTable'(both read and write).
-+ Block your thread with a 'MVar', using 'getBlockMVar' to get it.
-+ Read the result with 'getResult', for read it's the read bytes number, for write it will be zero.
-  Use 'E.throwIfError' to guard error situations.
-+ Return the slot back uv manager with 'freeSlot'.
+  * Allocate a slot number using 'allocSlot'.
+  * Prepare you IO buffer and write them to uv loop with 'pokeBufferTable'(both read and write).
+  * Block your thread with a 'MVar', using 'getBlockMVar' to get it.
+  * Read the result with 'getResult', for read it's the read bytes number, for write it will be zero.
+    Use 'E.throwIfError' to guard error situations.
+  * Return the slot back uv manager with 'freeSlot'.
 
-Usually slots are cache in the I/O device so that you don't have to allocate new one before each I/O operation.
+Usually slots are cache in the IO device so that you don't have to allocate new one before each IO operation.
 Check "System.IO.Socket.TCP" as an example.
 
 -}
@@ -74,7 +74,7 @@ import           System.IO.Unsafe
 --------------------------------------------------------------------------------
 
 data UVManager = UVManager
-    { uvmBlockTable :: {-# UNPACK #-} !(IORef (UnliftedArray (MVar Int))) -- a array to store threads blocked on async I/O.
+    { uvmBlockTable :: {-# UNPACK #-} !(IORef (UnliftedArray (MVar Int))) -- a array to store threads blocked on async IO.
 
     , uvmLoop       :: {-# UNPACK #-} !(Ptr UVLoop)        -- the uv loop refrerence
 
@@ -135,13 +135,13 @@ getBlockMVar uvm slot = do
 -- NOTE, this action is not protected with 'withUVManager_ for effcient reason, you should merge this action
 -- with other uv action and put them together inside a 'withUVManager_ or 'withUVManager\''. for example:
 --
---  @@@
---      ...
---      withUVManager_ uvm $ do
---          pokeBufferTable uvm slot buf len
---          uvReadStart handle
---      ...
---  @@@
+-- @
+--    ...
+--    withUVManager_ uvm $ do
+--        pokeBufferTable uvm slot buf len
+--        uvReadStart handle
+--    ...
+-- @
 --
 pokeBufferTable :: UVManager -> UVSlot -> Ptr Word8 -> Int -> IO ()
 {-# INLINABLE pokeBufferTable #-}
@@ -354,7 +354,7 @@ withUVRequestEx uvm f extra_cleanup = do
 
 -- | Fork a new GHC thread with active load-balancing.
 --
--- Using libuv based I/O solution has a disadvantage that file handlers are bound to certain
+-- Using libuv based IO solution has a disadvantage that file handlers are bound to certain
 -- uv_loop, thus certain uv mananger/capability. Worker threads that migrate to other capability
 -- will lead contention since various APIs here is protected by manager's lock, this makes GHC's
 -- work-stealing strategy unsuitable for certain workload, such as a webserver.
@@ -429,7 +429,7 @@ instance Input UVStream where
             throwUVIfMinus_ (hs_uv_read_start handle)
             pokeBufferTable uvm slot buf len
             tryTakeMVar m
-        -- We really can't do much when async exception hit a stream I/O
+        -- We really can't do much when async exception hit a stream IO
         -- There's no way to cancel, all we can do is to close the stream
         r <- takeMVar m `onException` closeUVStream uvs
         if  | r > 0  -> return r

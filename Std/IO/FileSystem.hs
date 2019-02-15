@@ -7,14 +7,14 @@
 
 {-|
 Module      : Std.IO.FileSystem
-Description : Filesystem I/O
+Description : Filesystem IO
 Copyright   : (c) Dong Han, 2017~2019
 License     : BSD
 Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 
-This module provide I/O operations related to filesystem, operations are implemented using unsafe FFIs, which should be prefered when the operations' estimated time is short(<1ms), which is much common on modern SSDs.
+This module provide IO operations related to filesystem, operations are implemented using unsafe FFIs, which should be prefered when the operations' estimated time is short(<1ms), which is much common on modern SSDs.
 
 -}
 

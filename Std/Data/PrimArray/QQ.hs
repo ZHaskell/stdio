@@ -68,7 +68,7 @@ import           Control.Monad.ST
 --
 -- Example usage:
 --
--- @@@
+-- @
 -- arrASCII :: QuasiQuoter
 -- arrASCII = QuasiQuoter
 --     (asciiLiteral $ \ len addr -> [| word8ArrayFromAddr $(len) $(addr) |])
@@ -80,7 +80,7 @@ import           Control.Monad.ST
 --     mba <- newPrimArray (I# l)
 --     copyPtrToMutablePrimArray mba 0 (Ptr addr#) l
 --     unsafeFreezePrimArray mba
--- @@@
+-- @
 --
 asciiLiteral :: (ExpQ -> ExpQ -> ExpQ) -- ^ Construction function which receive a byte
                                        --   length 'Int' and a 'Addr#' 'LitE' expression.

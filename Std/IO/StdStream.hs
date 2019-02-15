@@ -13,21 +13,20 @@ Portability : non-portable
 
 This module provides stdin\/stderr\/stdout reading and writings. Usually you don't have to use 'stderr' or 'stderrBuf' directly, 'Std.IO.Logger' provides more logging utilities through @stderr@. While 'stdinBuf' and 'stdoutBuf' is useful when you write interactive programs, 'Std.IO.Buffered' module provide many reading and writing operations. Example:
 
-@@@
+@
 import Std.IO.LowResTimer
 import Std.IO.Buffered
-import Std.IO.StdStream (stdinBuf, stdoutBuf)
+import Std.IO.StdStream
 
 main = do
     -- read by '\n'
-    b1 <- readLine stdinBuf
+    b1 <- readLineStd
     -- read whatever user input in 3s, otherwise get Nothing
     b2 <- timeoutLowRes 30 $ readBuffered stdinBuf
     ...
-    writeBuffer stdoutBuf
-    flushBuffer stdoutBuf
+    putStd "hello world!"
 
-@@@
+@
 
 -}
 module Std.IO.StdStream
@@ -151,13 +150,13 @@ printStd s = do
     writeBuffer stdoutBuf (B.buildBytes . B.stringUTF8 . show $ s)
     flushBuffer stdoutBuf
 
--- | print a 'Builder' to stdout
+-- | print a 'Builder' and flush to stdout.
 putStd :: Builder a -> IO ()
 putStd b = do
     writeBuffer stdoutBuf (B.buildBytes b)
     flushBuffer stdoutBuf
 
--- | print a 'Builder' to stdout, with a linefeed
+-- | print a 'Builder' and flush to stdout stdout, with a linefeed.
 putLineStd :: Builder a -> IO ()
 putLineStd b = do
     writeBuffer stdoutBuf (B.buildBytes $ b >> B.char8 '\n')

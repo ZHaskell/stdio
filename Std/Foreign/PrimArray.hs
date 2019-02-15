@@ -29,7 +29,7 @@ Beside the @pinned/unpinned@ difference, we also have two types of FFI calls in 
 
   * Safe FFI call annotated with @safe@ keyword. These calls are executed on separated OS thread, which can be
     running concurrently with GHC garbage collector, thus we want to make sure only pinned arrays are passed.
-    The main use case for @safe@ FFIs are long running functions, for example, doing I/O polling.
+    The main use case for @safe@ FFIs are long running functions, for example, doing IO polling.
     Since these calls are running on separated OS thread, haskell thread on original OS thread will not be affected.
 
   * Unsafe FFI call annotated with @unsafe@ keyword. These calls are executed on the same OS thread which is

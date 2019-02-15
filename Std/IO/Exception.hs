@@ -21,10 +21,10 @@ User who want to catch certain type of exceptions can directly use exception typ
 which are modeled after @IOErrorType@ from "GHC.IO.Exception".
 
 
-Functions from this package will throw exceptions from this module only instead of the old 'IOError' on I/O exceptions.
+Functions from this package will throw exceptions from this module only instead of the old 'IOError' on IO exceptions.
 Exceptions from this module contain 'IOEInfo' which is pretty detailed, but this also require user of this module
 do some extra work to keep error message's quality(provide CallStack, device informations, etc.).
-New defined I/O exceptions are encouraged to include a 'IOEInfo', since it helps a lot when debugging.
+New defined IO exceptions are encouraged to include a 'IOEInfo', since it helps a lot when debugging.
 
 Example for library author defining new io exception:
 
