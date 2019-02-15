@@ -151,9 +151,9 @@ instance Monoid CBytes where
 instance Hashable CBytes where
     hashWithSalt salt (CBytesOnHeap pa@(PrimArray ba#)) =
         hashByteArrayWithSalt ba# 0 (sizeofPrimArray pa - 1) salt
-    hashWithSalt salt (CBytesLiteral p) = unsafeDupablePerformIO $ do
+    hashWithSalt salt (CBytesLiteral p@(Ptr addr#)) = unsafeDupablePerformIO $ do
         len <- c_strlen p
-        hashPtrWithSalt p (fromIntegral len) salt
+        V.c_fnv_hash_addr addr# (fromIntegral len) salt
 
 append :: CBytes -> CBytes -> CBytes
 {-# INLINABLE append #-}
@@ -365,8 +365,10 @@ withCBytes (CBytesLiteral ptr) f = f ptr
 
 --------------------------------------------------------------------------------
 
-foreign import ccall unsafe "string.h strcmp"
-    c_strcmp :: CString -> CString -> IO CInt
+c_strcmp :: CString -> CString -> IO CInt
+{-# INLINE c_strcmp #-}
+c_strcmp (Ptr a#) (Ptr b#) = V.c_strcmp a# b#
 
-foreign import ccall unsafe "string.h strlen"
-    c_strlen :: CString -> IO CSize
+c_strlen :: CString -> IO CSize
+{-# INLINE c_strlen #-}
+c_strlen (Ptr a#) = V.c_strlen a#

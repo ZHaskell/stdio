@@ -91,6 +91,8 @@ module Std.Data.Vector.Base (
   , c_strcmp
   , c_strlen
   , c_ascii_validate_addr
+  , c_fnv_hash_addr
+  , c_fnv_hash_ba
  ) where
 
 import           Control.DeepSeq
@@ -130,7 +132,7 @@ import           Prelude                       hiding (concat, concatMap,
                                                 foldl, foldl1, foldr, foldr1,
                                                 maximum, minimum, product, sum,
                                                 all, any, replicate, traverse)
-import           System.IO.Unsafe              (unsafePerformIO)
+import           System.IO.Unsafe              (unsafeDupablePerformIO)
 
 import           Std.Data.Array
 import           Std.Data.PrimArray.BitTwiddle (c_memchr)
@@ -431,7 +433,7 @@ instance  {-# OVERLAPPABLE #-}  (Hashable a, Prim a) => Hashable (PrimVector a) 
 instance {-# OVERLAPPING #-} Hashable (PrimVector Word8) where
     {-# INLINE hashWithSalt #-}
     hashWithSalt salt (PrimVector (PrimArray ba#) s l) =
-        hashByteArrayWithSalt ba# s l salt
+        unsafeDupablePerformIO (c_fnv_hash_ba ba# s l salt)
 
 --------------------------------------------------------------------------------
 
@@ -457,8 +459,8 @@ packStringLiteral = pack . fmap (fromIntegral . ord)
 packStringAddr :: Addr# -> Bytes
 packStringAddr addr# = validateAndCopy addr#
   where
-    len = fromIntegral . unsafePerformIO $ c_strlen addr#
-    valid = unsafePerformIO $ c_ascii_validate_addr addr# len
+    len = fromIntegral . unsafeDupablePerformIO $ c_strlen addr#
+    valid = unsafeDupablePerformIO $ c_ascii_validate_addr addr# len
     validateAndCopy addr#
         | valid == 0 = pack . fmap (fromIntegral . ord) $ unpackCString# addr#
         | otherwise = runST $ do
@@ -1235,3 +1237,9 @@ foreign import ccall unsafe "string.h strlen"
 
 foreign import ccall unsafe "text.h ascii_validate_addr"
     c_ascii_validate_addr :: Addr# -> Int -> IO Int
+
+foreign import ccall unsafe "bytes.h hs_fnv_hash_addr"
+    c_fnv_hash_addr :: Addr# -> Int -> Int -> IO Int
+
+foreign import ccall unsafe "bytes.h hs_fnv_hash"
+    c_fnv_hash_ba :: ByteArray# -> Int -> Int -> Int -> IO Int
