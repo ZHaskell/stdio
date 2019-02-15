@@ -81,12 +81,7 @@ buildText = Text . B.buildBytes . toBuilder
 
 -- | Turn 'String' into 'TextBuilder' with UTF8 encoding
 --
--- Illegal codepoints will be written as 'T.replacementChar's.
---
--- Note, if you're trying to write string literals builders,
--- please open 'OverloadedStrings' and use 'TextBuilder''s 'IsString' instance,
--- it will be rewritten into a memcpy, instead of encoding 'Char's in a loop like
--- what 'stringUTF8' do.
+-- Illegal codepoints will be written as 'T.replacementChar's. This function will be rewritten into a memcpy if possible, (running a fast UTF-8 validation at runtime first).
 stringUTF8 :: String -> TextBuilder ()
 {-# INLINE stringUTF8 #-}
 stringUTF8 = TextBuilder . B.stringUTF8

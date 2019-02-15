@@ -2,18 +2,13 @@
 {-# LANGUAGE NoCPP     #-}
 
 {-|
-Module      : Std.Data.Array.Checked
-Description : Bounded checked boxed and unboxed arrays
+Module      : Std.Data.Builder.Numeric.DigitTable
+Description : Numeric to ASCII digits table.
 Copyright   : (c) Dong Han, 2017-2019
 License     : BSD
 Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
-
-This module provides exactly the same API with "Std.Data.Array", but will throw an 'IndexOutOfBounds'
-'ArrayException' on bound check failure, it's useful when debugging array algorithms: just swap this
-module with "Std.Data.Array", segmentation faults caused by out bound access will be turned into exceptions
-with more informations.
 
 -}
 module Std.Data.Builder.Numeric.DigitTable where

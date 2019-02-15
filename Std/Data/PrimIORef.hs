@@ -11,20 +11,6 @@ Portability :  portable
 
 This package provide fast unboxed references for IO monad and atomic operations for 'Counter' type. Unboxed reference is implemented using single cell MutableByteArray s to eliminate indirection overhead which MutVar# s a carry, on the otherhand unboxed reference only support limited type(instances of Prim class).
 
-A simple diagram could show the difference between IORef Int with PrimIORef Int:
-
-data Foo = Foo {-# UNPACK #-} (IORef Int)
-
-        +-----------+    +-------------+    +---------+
-        | Foo |  *  +--->+ MutVar# | * +--->+ I# | i# |
-        +-----------+    +-------------+    +---------+
-
-data Bar = Bar {-# UNPACK #-} (PrimIORef Int)
-
-        +-----------+    +------------------------+
-        | Bar |  *  +--->+ MutableByteArray# | i# |
-        +-----------+    +------------------------+
-
 Atomic operations on 'Counter' type are implemented using fetch-and-add primitives, which is much faster than a CAS loop(@atomicModifyIORef@). Beside basic atomic counter usage, you can also leverage idempotence of @and 0@, @or (-1)@ to make a concurrent flag.
 -}
 

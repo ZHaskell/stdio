@@ -112,14 +112,12 @@ type BuildStep s = Buffer s -> ST s [V.Bytes]
 -- | @Builder@ is a monad to help compose @BuilderStep@. With next @BuilderStep@ continuation,
 -- we can do interesting things like perform some action, or interleave the build process.
 --
--- Notes on 'IsString' instance: 'Builder' '()''s 'IsString' instance use 'stringModifiedUTF8',
+-- Notes on 'IsString' instance: @Builder ()@'s 'IsString' instance use 'stringModifiedUTF8',
 -- which is different from 'stringUTF8' in that it DOES NOT PROVIDE UTF8 GUARANTEES! :
 --
 -- * @\NUL@ will be written as @\xC0 \x80@.
---
 -- * @\xD800@ ~ @\xDFFF@ will be encoded in three bytes as normal UTF-8 codepoints.
 --
--- Because this is also how ghc compile string literal into binaries.
 newtype Builder a = Builder
     { runBuilder :: forall s. AllocateStrategy s -> (a -> BuildStep s) -> BuildStep s}
 
@@ -159,7 +157,7 @@ instance (a ~ ()) => IsString (Builder a) where
     {-# INLINE fromString #-}
     fromString = stringModifiedUTF8
 
--- | but will be rewritten to a memcpy if possible.
+-- | Encode string with modified UTF-8 encoding, will be rewritten to a memcpy if possible.
 stringModifiedUTF8 :: String -> Builder ()
 {-# INLINE CONLIKE [1] stringModifiedUTF8 #-}
 {-# RULES
