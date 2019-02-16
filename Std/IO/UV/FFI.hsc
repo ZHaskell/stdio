@@ -41,6 +41,11 @@ import           GHC.Generics
 #endif
 
 --------------------------------------------------------------------------------
+-- libuv version
+foreign import ccall unsafe uv_version :: IO CUInt
+foreign import ccall unsafe uv_version_string :: IO CString
+
+--------------------------------------------------------------------------------
 -- Type alias
 type UVSlot = Int
 -- | UVSlotUnSafe wrap a slot which may not have a 'MVar' in blocking table, 

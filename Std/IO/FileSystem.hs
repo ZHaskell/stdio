@@ -194,6 +194,9 @@ instance Output UVFileWriter where
 -- be a problem if you are using multiple readers or writers in multiple threads.
 -- In that case you have to stop all reading or writing thread if you don't want to
 -- block the resource thread.
+--
+-- Note, on some versions of OSX, repeatly open and close same file 'Resource' may
+-- result in shared memory object error, use 'O_CREAT' to avoid that.
 initUVFile :: HasCallStack
            => CBytes
            -> UVFileFlag        -- ^ Opening flags, e.g. 'O_CREAT' @.|.@ 'O_RDWR'

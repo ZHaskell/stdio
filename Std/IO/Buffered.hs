@@ -25,6 +25,7 @@ module Std.IO.Buffered
   , newBufferedInput
   , readBuffer
   , unReadBuffer
+  , readParser
   , readExactly
   , readToMagic, readToMagic'
   , readLine, readLine'
@@ -50,6 +51,7 @@ import           Data.Word
 import           Foreign.Ptr
 import           Std.Data.Array
 import qualified Std.Data.Builder.Base       as B
+import qualified Std.Data.Parser             as P
 import qualified Std.Data.Vector             as V
 import qualified Std.Data.Vector.Base        as V
 import           Std.Data.PrimIORef
@@ -181,9 +183,30 @@ unReadBuffer :: (HasCallStack, Input i) => V.Bytes -> BufferedInput i -> IO ()
 unReadBuffer pb' BufferedInput{..} = do
     modifyIORef' bufPushBack $ \ pb -> pb' `V.append` pb
 
+-- | Result returned by 'readParser'.
+data ReadResult a
+    = ReadSuccess  a        -- ^ read and parse successfully
+    | ReadFailure String    -- ^ parse failed
+    | ReadEOF               -- ^ EOF reached
+  deriving Show
+
+-- | Read buffer and parse with 'Parser'.
+--
+readParser :: (HasCallStack, Input i) => P.Parser a -> BufferedInput i -> IO (ReadResult a)
+readParser p i = do
+    bs <- readBuffer i
+    if V.null bs
+    then return ReadEOF
+    else do
+        (rest, r) <- P.parseChunks (readBuffer i) p bs
+        unless (V.null rest) $ unReadBuffer rest i
+        case r of
+            Left err -> return (ReadFailure err)
+            Right a  -> return (ReadSuccess a)
+
 -- | Read until reach a magic bytes
 --
--- If EOF reached before meet a magic byte, the partial bytes are returned.
+-- If EOF is reached before meet a magic byte, partial bytes are returned.
 readToMagic :: (HasCallStack, Input i) => Word8 -> BufferedInput i -> IO V.Bytes
 readToMagic magic h = V.concat `fmap` (go h magic)
   where
@@ -202,7 +225,7 @@ readToMagic magic h = V.concat `fmap` (go h magic)
 
 -- | Read until reach a magic bytes
 --
--- If EOF reached before meet a magic byte, a 'ShortReadException' will be thrown.
+-- If EOF is reached before meet a magic byte, a 'ShortReadException' will be thrown.
 readToMagic' :: (HasCallStack, Input i) => Word8 -> BufferedInput i -> IO V.Bytes
 readToMagic' magic h = V.concat `fmap` (go h magic)
   where
@@ -222,7 +245,7 @@ readToMagic' magic h = V.concat `fmap` (go h magic)
 
 -- | Read to a linefeed ('\n' or '\r\n'), return 'Bytes' before it.
 --
--- If EOF reached before meet a magic byte, the partial bytes are returned.
+-- If EOF is reached before meet a magic byte, partial line is returned.
 readLine :: (HasCallStack, Input i) => BufferedInput i -> IO V.Bytes
 readLine i = do
     bs@(V.PrimVector arr s l) <- readToMagic 10 i
