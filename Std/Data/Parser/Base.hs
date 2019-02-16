@@ -34,7 +34,7 @@ module Std.Data.Parser.Base
   , decodePrim, decodePrimLE, decodePrimBE
     -- * More parsers
   , scan, scanChunks, peekMaybe, peek, satisfy, satisfyWith
-  , word8, anyWord8, endOfLine, skip, skipWhile, skipSpaces
+  , word8, char8, anyWord8, endOfLine, skip, skipWhile, skipSpaces
   , take, takeTill, takeWhile, takeWhile1, bytes, bytesCI
   , text
   ) where
@@ -377,6 +377,19 @@ word8 w' = do
         in if w == w'
             then k () (V.unsafeTail inp)
             else Failure inp "Std.Data.Parser.Base.word8")
+
+-- | Match a specific 8bit char.
+--
+char8 :: Char -> Parser ()
+{-# INLINE char8 #-}
+char8 c = do
+    let !w' = V.c2w c
+    ensureN 1
+    Parser (\ k inp ->
+        let w = V.unsafeHead inp
+        in if w == w'
+            then k () (V.unsafeTail inp)
+            else Failure inp "Std.Data.Parser.Base.char8")
 
 -- | Match any byte.
 --

@@ -31,6 +31,7 @@
 #include <Rts.h>
 
 HsInt ascii_validate(const char* p, HsInt off, HsInt len);
+HsInt ascii_validate_addr(const char* p, HsInt len);
 HsInt utf8_validate(const char* p, HsInt off, HsInt len);
 HsInt utf8_validate_addr(const char* p, HsInt len);
 
