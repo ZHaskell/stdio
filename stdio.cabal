@@ -31,18 +31,27 @@ extra-source-files:  ChangeLog.md
                      cbits/text.c
 
                      -- libuv C sources (for Windows)
+                     third_party/libuv/include/uv.h
+                     third_party/libuv/include/uv/win.h
+                     third_party/libuv/include/uv/tree.h
+                     third_party/libuv/include/uv/errno.h
+                     third_party/libuv/include/uv/threadpool.h
+                     third_party/libuv/include/uv/version.h
+                     third_party/libuv/include/uv/stdint-msvc2008.h
+
                      third_party/libuv/src/fs-poll.c 
                      third_party/libuv/src/heap-inl.h 
                      third_party/libuv/src/idna.c 
+                     third_party/libuv/src/idna.h
                      third_party/libuv/src/inet.c 
                      third_party/libuv/src/queue.h 
                      third_party/libuv/src/strscpy.c 
                      third_party/libuv/src/strscpy.h 
                      third_party/libuv/src/threadpool.c 
                      third_party/libuv/src/timer.c 
-                     third_party/libuv/src/uv-data-getter-setters.c 
                      third_party/libuv/src/uv-common.c 
                      third_party/libuv/src/uv-common.h 
+                     third_party/libuv/src/uv-data-getter-setters.c 
                      third_party/libuv/src/version.c
 
                      third_party/libuv/src/win/async.c 
@@ -51,8 +60,8 @@ extra-source-files:  ChangeLog.md
                      third_party/libuv/src/win/detect-wakeup.c 
                      third_party/libuv/src/win/dl.c 
                      third_party/libuv/src/win/error.c 
-                     third_party/libuv/src/win/fs-event.c 
                      third_party/libuv/src/win/fs.c 
+                     third_party/libuv/src/win/fs-event.c 
                      third_party/libuv/src/win/getaddrinfo.c 
                      third_party/libuv/src/win/getnameinfo.c 
                      third_party/libuv/src/win/handle.c 
@@ -61,10 +70,11 @@ extra-source-files:  ChangeLog.md
                      third_party/libuv/src/win/loop-watcher.c 
                      third_party/libuv/src/win/pipe.c 
                      third_party/libuv/src/win/poll.c 
-                     third_party/libuv/src/win/process-stdio.c 
                      third_party/libuv/src/win/process.c 
+                     third_party/libuv/src/win/process-stdio.c 
                      third_party/libuv/src/win/req-inl.h 
                      third_party/libuv/src/win/signal.c 
+                     third_party/libuv/src/win/snprintf.c 
                      third_party/libuv/src/win/stream.c 
                      third_party/libuv/src/win/stream-inl.h 
                      third_party/libuv/src/win/tcp.c 
