@@ -292,7 +292,7 @@ library
         -- third_party/libuv/src/win/winsock.h
 
       cc-options:        -Wall -Wextra -Wno-unused-parameter -Wstrict-prototypes -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0600 -march=native
-      cpp-options:       -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0600 -march=native
+      cpp-options:       -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0600
       include-dirs:      third_party/libuv/include
                          third_party/libuv/src
       -- The C runtime dependencies are imposed by libuv.
@@ -319,6 +319,25 @@ test-suite test
                   , word8
                   , scientific
                   , primitive
+
+    other-modules:
+        Std.Data.Builder.NumericSpec
+        Std.Data.CBytesSpec
+        Std.Data.Parser.BaseSpec
+        Std.Data.Parser.NumericSpec
+        Std.Data.PrimArray.UnalignedAccessSpec
+        Std.Data.Text.BaseSpec
+        Std.Data.Text.ExtraSpec
+        Std.Data.Text.SearchSpec
+        Std.Data.Vector.BaseSpec
+        Std.Data.Vector.ExtraSpec
+        Std.Data.Vector.SearchSpec
+        Std.Data.Vector.SortSpec
+        Std.IO.FileSystemSpec
+        Std.IO.FileSystemTSpec
+        Std.IO.LowResTimerSpec
+        Std.IO.ResourceSpec
+
 
   if flag(integer-simple)
     cpp-options: -DINTEGER_SIMPLE

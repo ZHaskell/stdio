@@ -662,9 +662,7 @@ packN n0 = \ ws0 -> runST (do let n = max 4 n0
                 writeArr marr' i x
                 return (IPair (i+1) marr')
 
--- | /O(n)/
---
--- Alias for @'packRN' 'defaultInitSize'@.
+-- | /O(n)/ Alias for @'packRN' 'defaultInitSize'@.
 --
 packR :: Vec v a => [a] -> v a
 {-# INLINE packR #-}
@@ -1086,7 +1084,7 @@ mapAccumR f z (Vec ba s l)
 -- | /O(n)/ 'replicate' @n x@ is a vector of length @n@ with @x@
 -- the value of every element.
 --
--- Note: 'replicate' will not force the element.
+-- Note: 'replicate' will not force the element in boxed vector case.
 replicate :: (Vec v a) => Int -> a -> v a
 {-# INLINE replicate #-}
 replicate n x | n <= 0    = empty

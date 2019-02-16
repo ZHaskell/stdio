@@ -44,18 +44,18 @@ spec = describe "text-extra" $ do
         prop "T.take == List.take" $ \ xs x ->
             (T.take x $ T.pack xs)  === (T.pack . List.take x $ xs)
 
-    describe "T.takeLast" $ do
-        prop "T.takeLast x == List.reverse . List.take x . List.reverse" $ \ xs x ->
-            (T.takeLast x $ T.pack xs)  ===
+    describe "T.takeR" $ do
+        prop "T.takeR x == List.reverse . List.take x . List.reverse" $ \ xs x ->
+            (T.takeR x $ T.pack xs)  ===
                 (T.pack . List.reverse . List.take x . List.reverse $ xs)
 
     describe "T.drop" $ do
         prop "T.drop == List.drop" $ \ xs x ->
             (T.drop x $ T.pack xs)  === (T.pack . List.drop x $ xs)
 
-    describe "T.dropLast" $ do
-        prop "T.dropLast x == List.reverse . List.drop x . List.reverse" $ \ xs x ->
-            (T.dropLast x $ T.pack xs)  ===
+    describe "T.dropR" $ do
+        prop "T.dropR x == List.reverse . List.drop x . List.reverse" $ \ xs x ->
+            (T.dropR x $ T.pack xs)  ===
                 (T.pack . List.reverse . List.drop x . List.reverse $ xs)
 
     describe "T.slice x y" $ do
@@ -72,18 +72,18 @@ spec = describe "text-extra" $ do
             (T.takeWhile x $ T.pack xs)  ===
                 (T.pack . List.takeWhile x $ xs)
 
-    describe "T.takeLastWhile" $ do
-        prop "T.takeLastWhile == reverse . List.takeWhile . reverse" $ \ xs (Fun _ x) ->
-            (T.takeLastWhile x $ T.pack xs)  ===
+    describe "T.takeWhileR" $ do
+        prop "T.takeWhileR == reverse . List.takeWhile . reverse" $ \ xs (Fun _ x) ->
+            (T.takeWhileR x $ T.pack xs)  ===
                 (T.pack . List.reverse . List.takeWhile x $ List.reverse xs)
 
     describe "T.dropWhile" $ do
         prop "T.dropWhile == List.dropWhile" $ \ xs (Fun _ x) ->
             (T.dropWhile x $ T.pack xs)  === (T.pack . List.dropWhile x $ xs)
 
-    describe "T.dropLastWhile" $ do
-        prop "T.dropLastWhile == reverse . List.dropWhile . reverse" $ \ xs (Fun _ x) ->
-            (T.dropLastWhile x $ T.pack xs)  ===
+    describe "T.dropWhileR" $ do
+        prop "T.dropWhileR == reverse . List.dropWhile . reverse" $ \ xs (Fun _ x) ->
+            (T.dropWhileR x $ T.pack xs)  ===
                 (T.pack . List.reverse . List.dropWhile x $ List.reverse xs)
 
     describe "T.break" $ do
@@ -101,15 +101,15 @@ spec = describe "text-extra" $ do
             (T.span x $ T.pack xs)  ===
                 (let (a,b) = List.span x $ xs in (T.pack a, T.pack b))
 
-    describe "T.breakEnd" $ do
-        prop "T.breakEnd == List.break in reverse driection" $ \ xs (Fun _ x) ->
-            (T.breakEnd x $ T.pack xs)  ===
+    describe "T.breakR" $ do
+        prop "T.breakR == List.break in reverse driection" $ \ xs (Fun _ x) ->
+            (T.breakR x $ T.pack xs)  ===
                 (let (b,a) = List.break x . List.reverse $ xs
                  in (T.reverse $ T.pack a, T.reverse $ T.pack b))
 
-    describe "T.spanEnd" $ do
-        prop "T.spanEnd == List.span in reverse driection" $ \ xs (Fun _ x) ->
-            (T.spanEnd x $ T.pack xs)  ===
+    describe "T.spanR" $ do
+        prop "T.spanR == List.span in reverse driection" $ \ xs (Fun _ x) ->
+            (T.spanR x $ T.pack xs)  ===
                 (let (b,a) = List.span x . List.reverse $ xs
                  in (T.reverse $ T.pack a, T.reverse $ T.pack b))
 

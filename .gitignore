@@ -25,3 +25,4 @@ bench/testbench/**
 .ghc.environment.*
 cabal.project.*
 .vscode/**
+uploadDocs.sh

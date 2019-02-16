@@ -6,7 +6,7 @@
 
 {-|
 Module      : Std.Data.Vector.Extra
-Description : Fast boxed and unboxed vector
+Description : Fast vector slice manipulation
 Copyright   : (c) Dong Han, 2017-2018
 License     : BSD
 Maintainer  : winterland1989@gmail.com
@@ -187,7 +187,7 @@ drop n v@(Vec arr s l)
     | n >= l    = empty
     | otherwise = fromArr arr (s+n) (l-n)
 
--- | /O(1)/ 'drop' @n xs@ returns the prefix of @xs@ before the last @n@
+-- | /O(1)/ 'dropR' @n xs@ returns the prefix of @xs@ before the last @n@
 -- elements, or @[]@ if @n > 'length' xs@.
 dropR :: Vec v a => Int -> v a -> v a
 {-# INLINE dropR #-}
@@ -266,6 +266,8 @@ dropAround :: Vec v a => (a -> Bool) -> v a -> v a
 {-# INLINE dropAround #-}
 dropAround f = dropWhile f . dropWhileR f
 
+
+-- | /O(n)/ Split the vector into the longest prefix of elements that do not satisfy the predicate and the rest without copying.
 break :: Vec v a => (a -> Bool) -> v a -> (v a, v a)
 {-# INLINE break #-}
 break f vs@(Vec arr s l) =
@@ -274,10 +276,14 @@ break f vs@(Vec arr s l) =
         !v2 = Vec arr (s+n) (l-n)
     in (v1, v2)
 
+-- | /O(n)/ Split the vector into the longest prefix of elements that satisfy the predicate and the rest without copying.
 span :: Vec v a => (a -> Bool) -> v a -> (v a, v a)
 {-# INLINE span #-}
 span f = break (not . f)
 
+-- | 'breakR' behaves like 'break' but from the end of the vector.
+--
+-- @breakR p == spanR (not.p)@
 breakR :: Vec v a => (a -> Bool) -> v a -> (v a, v a)
 {-# INLINE breakR #-}
 breakR f vs@(Vec arr s l) =
@@ -286,12 +292,13 @@ breakR f vs@(Vec arr s l) =
         !v2 = Vec arr (s+n+1) (l-1-n)
     in (v1, v2)
 
+-- | 'spanR' behaves like 'span' but from the end of the vector.
 spanR :: Vec v a => (a -> Bool) -> v a -> (v a, v a)
 {-# INLINE spanR #-}
 spanR f = breakR (not . f)
 
--- | Break a string on a substring, returning a pair of the part of the
--- string prior to the match, and the rest of the string, e.g.
+-- | Break a vector on a subvector, returning a pair of the part of the
+-- vector prior to the match, and the rest of the vector, e.g.
 --
 -- > break "wor" "hello, world" = ("hello, ", "world")
 --
@@ -304,6 +311,7 @@ breakOn needle = \ haystack@(Vec arr s l) ->
                  in (v1, v2)
         _     -> (haystack, empty)
   where search = indices needle
+
 
 group :: (Vec v a, Eq a) => v a -> [v a]
 {-# INLINE group #-}
@@ -330,6 +338,7 @@ stripPrefix v1@(Vec _ _ l1) v2@(Vec arr s l2)
    | v1 `isPrefixOf` v2 = Just (Vec arr (s+l1) (l2-l1))
    | otherwise = Nothing
 
+-- | The 'isPrefix' function returns 'True' if the first argument is a prefix of the second.
 isPrefixOf :: (Vec v a, Eq (v a))
            => v a       -- ^ the prefix to be tested
            -> v a -> Bool
@@ -349,6 +358,7 @@ isPrefixOf (Vec arrA sA lA) (Vec arrB sB lB)
 -- >>> commonPrefix "veeble" "fetzer"
 -- ("","veeble","fetzer")
 commonPrefix :: (Vec v a, Eq a) => v a -> v a -> (v a, v a, v a)
+{-# INLINE commonPrefix #-}
 commonPrefix vA@(Vec arrA sA lA) vB@(Vec arrB sB lB) = go sA sB
   where
     !endA = sA + lA
@@ -362,6 +372,7 @@ commonPrefix vA@(Vec arrA sA lA) vB@(Vec arrB sB lB) = go sA sB
                     !vC  = fromArr arrA sA (i-sA)
                 in (vC, vA', vB')
 
+-- | O(n) The 'stripSuffix' function takes two vectors and returns Just the remainder of the second iff the first is its suffix, and otherwise Nothing.
 stripSuffix :: (Vec v a, Eq (v a)) => v a -> v a -> Maybe (v a)
 {-# INLINE stripSuffix #-}
 stripSuffix v1@(Vec _ _ l1) v2@(Vec arr s l2)
@@ -369,7 +380,7 @@ stripSuffix v1@(Vec _ _ l1) v2@(Vec arr s l2)
    | otherwise = Nothing
 
 -- | /O(n)/ The 'isSuffixOf' function takes two vectors and returns 'True'
--- iff the first is a suffix of the second.
+-- if the first is a suffix of the second.
 isSuffixOf :: (Vec v a, Eq (v a)) => v a -> v a -> Bool
 {-# INLINE isSuffixOf #-}
 isSuffixOf (Vec arrA sA lA) (Vec arrB sB lB)
@@ -473,7 +484,7 @@ words (Vec arr s l) = go s s
                     let !v = fromArr arr s' (i-s') in v : go (i+1) (i+1)
               | otherwise = go s' (i+1)
 
--- | /O(n)/ Breaks a 'Bytes' up into a list of lines, delimited by ascii '\n'.
+-- | /O(n)/ Breaks a 'Bytes' up into a list of lines, delimited by ascii @\n@.
 lines ::  Bytes -> [Bytes]
 {-# INLINE lines #-}
 lines (Vec arr s l) = go s s
@@ -490,7 +501,7 @@ unwords :: [Bytes] -> Bytes
 {-# INLINE unwords #-}
 unwords = intercalateElem 32
 
--- | /O(n)/ Joins lines with ascii '\n'.
+-- | /O(n)/ Joins lines with ascii @\n@.
 unlines :: [Bytes] -> Bytes
 {-# INLINE unlines #-}
 unlines [] = empty
@@ -505,6 +516,7 @@ unlines vs = create (len vs 0) (copy 0 vs)
         writeArr marr i' 10
         copy (i'+1) vs marr
 
+-- | Add padding to the left so that the whole vector's length is at least n.
 padLeft :: Vec v a => Int -> a -> v a -> v a
 {-# INLINE padLeft #-}
 padLeft n x v@(Vec arr s l) | n <= l = v
@@ -512,6 +524,7 @@ padLeft n x v@(Vec arr s l) | n <= l = v
                                     setArr marr 0 (n-l) x
                                     copyArr marr (n-l) arr s l)
 
+-- | Add padding to the right so that the whole vector's length is at least n.
 padRight :: Vec v a => Int -> a -> v a -> v a
 {-# INLINE padRight #-}
 padRight n x v@(Vec arr s l) | n <= l = v

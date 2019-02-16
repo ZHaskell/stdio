@@ -153,7 +153,9 @@ import           Prelude                       hiding (concat, concatMap,
 
 -- | 'Text' represented as UTF-8 encoded 'Bytes'
 --
-newtype Text = Text { getUTF8Bytes :: Bytes }
+newtype Text = Text
+    { getUTF8Bytes :: Bytes -- ^ Extract UTF-8 encoded 'Bytes' from 'Text'
+    }
 
 instance Eq Text where
     Text b1 == Text b2 = b1 == b2
@@ -282,6 +284,9 @@ foreign import ccall unsafe "text.h utf8_validate_addr"
 
 --------------------------------------------------------------------------------
 
+-- | /O(n)/ Convert a string into a text
+--
+-- Alias for @'packN' 'defaultInitSize'@.
 pack :: String -> Text
 pack = packN V.defaultInitSize
 {-# INLINE CONLIKE [1] pack #-}
@@ -316,9 +321,7 @@ packN n0 = \ ws0 ->
             i' <- encodeChar marr' i c
             return (V.IPair i' marr')
 
--- | /O(n)/
---
--- Alias for @'packRN' 'defaultInitSize'@.
+-- | /O(n)/ Alias for @'packRN' 'defaultInitSize'@.
 --
 packR :: String -> Text
 {-# INLINE packR #-}
@@ -351,6 +354,11 @@ packRN n0 = \ ws0 -> runST (do let n = max 4 n0
                 encodeChar marr' i' c
                 return (V.IPair i' marr')
 
+-- | /O(n)/ Convert text to a char list.
+--
+-- Unpacking is done lazily. i.e. we will retain reference to the array until all element are consumed.
+--
+-- This function is a /good producer/ in the sense of build/foldr fusion.
 unpack :: Text -> String
 {-# INLINE [1] unpack #-}
 unpack (Text (V.PrimVector ba s l)) = go s
@@ -374,6 +382,9 @@ unpackFB (Text (V.PrimVector ba s l)) k z = go s
 "unpackFB" [1] forall t . unpackFB t (:) [] = unpack t
  #-}
 
+-- | /O(n)/ Convert text to a list in reverse order.
+--
+-- This function is a /good producer/ in the sense of build/foldr fusion.
 unpackR :: Text -> String
 {-# INLINE [1] unpackR #-}
 unpackR (Text (V.PrimVector ba s l)) = go (s+l-1)
@@ -395,16 +406,17 @@ unpackRFB (Text (V.PrimVector ba s l)) k z = go (s+l-1)
 "unpackRFB" [1] forall t . unpackRFB t (:) [] = unpackR t
  #-}
 
+-- | /O(1)/. Single char text.
 singleton :: Char -> Text
 {-# INLINABLE singleton #-}
 singleton c = Text $ V.createN 4 $ \ marr -> encodeChar marr 0 c
 
+-- | /O(1)/. Empty text.
 empty :: Text
 {-# INLINABLE empty #-}
 empty = Text V.empty
 
 -- | /O(n)/. Copy a text from slice.
---
 copy :: Text -> Text
 {-# INLINE copy #-}
 copy (Text bs) = Text (V.copy bs)
@@ -412,14 +424,20 @@ copy (Text bs) = Text (V.copy bs)
 --------------------------------------------------------------------------------
 -- * Basic interface
 
+-- | /O(m+n)/
+--
+-- There's no need to guard empty vector because we guard them for you, so
+-- appending empty text are no-ops.
 append :: Text -> Text -> Text
 append ta tb = Text ( getUTF8Bytes ta `V.append` getUTF8Bytes tb )
 {-# INLINE append #-}
 
+-- | /O(1)/ Test whether a text is empty.
 null :: Text -> Bool
 {-# INLINABLE null #-}
 null (Text bs) = V.null bs
 
+-- |  /O(n)/ The char length of a text.
 length :: Text -> Int
 {-# INLINABLE length #-}
 length (Text (V.PrimVector ba s l)) = go s 0
@@ -432,8 +450,7 @@ length (Text (V.PrimVector ba s l)) = go s 0
 -- * Transformations
 --
 -- | /O(n)/ 'map' @f@ @t@ is the 'Text' obtained by applying @f@ to
--- each element of @t@. Performs replacement on invalid scalar values.
---
+-- each char of @t@. Performs replacement on invalid scalar values.
 map' :: (Char -> Char) -> Text -> Text
 {-# INLINE map' #-}
 map' f (Text (V.PrimVector arr s l)) | l == 0 = empty
@@ -458,7 +475,7 @@ map' f (Text (V.PrimVector arr s l)) | l == 0 = empty
                 !marr' <- resizeMutablePrimArray marr siz'
                 go i' j' marr'
 
-
+-- | Strict mapping with index.
 imap' :: (Int -> Char -> Char) -> Text -> Text
 {-# INLINE imap' #-}
 imap' f (Text (V.PrimVector arr s l)) | l == 0 = empty
@@ -529,14 +546,20 @@ ifoldr' f z (Text (V.PrimVector arr s l)) = go z (s+l-1) 0
                   | otherwise = acc
 
 
+-- | /O(n)/ Concatenate a list of text.
+--
+-- Note: 'concat' have to force the entire list to filter out empty text and calculate
+-- the length for allocation.
 concat :: [Text] -> Text
 concat = Text . V.concat . coerce
 {-# INLINE concat #-}
 
+-- | Map a function over a text and concatenate the results
 concatMap :: (Char -> Text) -> Text -> Text
 {-# INLINE concatMap #-}
 concatMap f = concat . foldr' ((:) . f) []
 
+-- | /O(n)/ 'count' returns count of an element from a text.
 count :: Char -> Text -> Int
 {-# INLINE count #-}
 count c (Text v)
@@ -578,6 +601,8 @@ all f (Text (V.PrimVector arr s l))
 --
 -- Building text
 
+-- | /O(n)/ 'replicate' char n time.
+--
 replicate :: Int -> Char -> Text
 {-# INLINE replicate #-}
 replicate 0 _ = empty
@@ -591,7 +616,7 @@ replicate n c = Text (V.create siz (go 0))
               | otherwise = do copyChar' csiz marr i marr (i-csiz)
                                go (i+csiz) marr
 
-
+-- | /O(n*m)/ 'cycleN' a text n times.
 cycleN :: Int -> Text -> Text
 {-# INLINE cycleN #-}
 cycleN 0 _ = empty
@@ -600,6 +625,7 @@ cycleN n (Text v) = Text (V.cycleN n v)
 --------------------------------------------------------------------------------
 -- Convert between codepoint vector and text
 
+-- | /O(n)/ convert from a char vector.
 fromVector :: V.PrimVector Char -> Text
 {-# INLINE fromVector #-}
 fromVector (V.PrimVector arr s l) = Text (V.createN l (go s 0))
@@ -612,6 +638,7 @@ fromVector (V.PrimVector arr s l) = Text (V.createN l (go s 0))
             j' <- encodeChar marr j c
             go (i+1) j' marr
 
+-- | /O(n)/ convert to a char vector.
 toVector :: Text -> V.PrimVector Char
 {-# INLINE toVector #-}
 toVector (Text (V.PrimVector arr s l)) = V.createN (l*4) (go s 0)

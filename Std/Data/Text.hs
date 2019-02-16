@@ -49,12 +49,12 @@ module Std.Data.Text (
   , headMaybe, tailMayEmpty
   , lastMaybe, initMayEmpty
   , inits, tails
-  , take, drop, takeLast, dropLast
+  , take, drop, takeR, dropR
   , slice
   , splitAt
-  , takeWhile, takeLastWhile, dropWhile, dropLastWhile, dropAround
+  , takeWhile, takeWhileR, dropWhile, dropWhileR, dropAround
   , break, span
-  , breakEnd, spanEnd, breakOn
+  , breakR, spanR, breakOn, breakOnAll
   , group, groupBy
   , stripPrefix, stripSuffix
   , split, splitWith, splitOn
@@ -70,7 +70,7 @@ module Std.Data.Text (
   , transpose
   -- * Search
   -- ** element-wise search
-  , find, findLast
+  , find, findR
   , filter, partition
   -- * Unicode processing
     -- ** normalization

@@ -30,10 +30,10 @@ spec = describe "text-search" $ do
             (case T.find y . T.pack $ x of (i,_,_) -> i) ===
                 (maybe (List.length x) id $ List.findIndex y x)
 
-    describe "T.findLast" $ do
-        prop "T.find = findLast . reverse" $ \ (Fun _ y) x ->
+    describe "T.findR" $ do
+        prop "T.find = findR . reverse" $ \ (Fun _ y) x ->
             (case T.find y . T.pack $ x of (i,_,_) -> i) ===
-                (case T.findLast y . T.reverse $ T.pack x of (i,_,_) -> i)
+                (case T.findR y . T.reverse $ T.pack x of (i,_,_) -> i)
 
     describe "T.filter == List.filter" $ do
         prop "T.filter = List.filter" $ \ (Fun _ y) x ->

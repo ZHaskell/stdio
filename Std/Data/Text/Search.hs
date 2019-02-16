@@ -17,13 +17,13 @@ Portability : non-portable
 -}
 
 module Std.Data.Text.Search (
-  -- * Searching by equality
-    elem, notElem
   -- * element-wise search
+    elem, notElem
+  -- * Searching by equality
   , findIndices
-  , find, findLast
-  , findIndexOrEnd
-  , findLastIndexOrStart
+  , find, findR
+  , findIndex
+  , findIndexR
   , filter, partition
   ) where
 
@@ -65,9 +65,9 @@ find f (Text (V.PrimVector arr s l)) = go 0 s
 -- | /O(n)/ find the first char matching the predicate in a text
 -- from right to left, if there isn't one, return the index point to the end of the byte slice.
 --
-findLast :: (Char -> Bool) -> Text -> (Int, Int, Maybe Char)
-{-# INLINE findLast #-}
-findLast f (Text (V.PrimVector arr s l)) = go 0 (s+l-1)
+findR :: (Char -> Bool) -> Text -> (Int, Int, Maybe Char)
+{-# INLINE findR #-}
+findR f (Text (V.PrimVector arr s l)) = go 0 (s+l-1)
   where
     go !i !j | j < s     = (i, j, Nothing)
              | otherwise =
@@ -78,14 +78,19 @@ findLast f (Text (V.PrimVector arr s l)) = go 0 (s+l-1)
 
 --------------------------------------------------------------------------------
 
-findIndexOrEnd :: (Char -> Bool) -> Text -> Int
-{-# INLINE findIndexOrEnd #-}
-findIndexOrEnd f t = case find f t of (_, i, _) -> i
+-- | /O(n)/ find the index of the byte slice.
+findIndex :: (Char -> Bool) -> Text -> Int
+{-# INLINE findIndex #-}
+findIndex f t = case find f t of (_, i, _) -> i
 
-findLastIndexOrStart ::  (Char -> Bool) -> Text -> Int
-{-# INLINE findLastIndexOrStart #-}
-findLastIndexOrStart f t = case findLast f t of (_, i, _) -> i
+-- | /O(n)/ find the index of the byte slice in reverse order.
+findIndexR ::  (Char -> Bool) -> Text -> Int
+{-# INLINE findIndexR #-}
+findIndexR f t = case findR f t of (_, i, _) -> i
 
+-- | /O(n)/ 'filter', applied to a predicate and a text,
+-- returns a text containing those chars that satisfy the
+-- predicate.
 filter :: (Char -> Bool) -> Text -> Text
 {-# INLINE filter #-}
 filter f (Text (V.PrimVector arr s l)) = Text (V.createN l (go s 0))
@@ -132,7 +137,7 @@ elem :: Char -> Text -> Bool
 elem x t = case find (x==) t of (_,_,Nothing) -> False
                                 _             -> True
 
--- | /O(n)/ 'not . elem'
+-- | /O(n)/ @not . elem@
 notElem ::  Char -> Text -> Bool
 {-# INLINE notElem #-}
 notElem x = not . elem x
