@@ -4,7 +4,7 @@ Haskell stdio: haskell standard input and output
 [![Linux Build Status](https://img.shields.io/travis/haskell-stdio/stdio/master.svg?label=Linux%20build)](https://travis-ci.org/haskell-stdio/stdio)
 [![Windows Build Status](https://img.shields.io/appveyor/ci/winterland1989/stdio-7usux/master.svg?label=Windows%20build)](https://ci.appveyor.com/project/winterland1989/stdio-7usux/branch/master)
 
-Welcome! Haskell stdio is an complete I/O toolkit powered by libuv, it features a multiple core io multiplexer and various improvements on packed data types. This project is still in infancy. Please join in!
+Welcome! Haskell stdio is a complete I/O toolkit powered by libuv, it features a multi-core io multiplexer and various improvements on packed data types. This project is still in infancy. Please join in!
 
 ```
     __  _____   _____ __ __ ________    __       _______________  ________ 
@@ -17,7 +17,7 @@ Welcome! Haskell stdio is an complete I/O toolkit powered by libuv, it features 
 Install
 -------
 
-On windows we have bundled libuv source, so not extra steps to be taken.
+On windows we have bundled libuv source, so no extra steps to be taken.
 
 On \*nix platforms, you should install libuv library first, you can use your distribution's package manager if available, for example:
 

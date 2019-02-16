@@ -1,7 +1,7 @@
 name:                stdio
 version:             0.1.0.0
 synopsis:            A simple and high performance IO toolkit for Haskell
-description:         This package provides a simple and high performance IO toolkit for Haskell, icluding
+description:         This package provides a simple and high performance IO toolkit for Haskell, including
                      packed vectors, unicode texts, socket, file system, timers and more!
 license:             BSD3
 license-file:        LICENSE
