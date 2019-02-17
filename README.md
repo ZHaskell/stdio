@@ -49,7 +49,7 @@ After manually building and installing, you may need to modify your `LIBRARY_PAT
 cabal install stdio
 ```
 
-Now you can fire GHCi and play around, or read the [project overview](https://haskell-stdio.github.io/stdio), [haddock](https://haskell-stdio.github.io/stdio/haddock/).
+Now you can fire GHCi and play around, or read the [project overview](https://haskell-stdio.github.io/stdio), [haddock](http://hackage.haskell.org/package/stdio).
 
 Examples
 --------
