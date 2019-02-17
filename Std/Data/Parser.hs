@@ -21,7 +21,7 @@ You can use 'Alternative' instance to do backtracking, each branch will either s
 -}
 module Std.Data.Parser
   ( -- * Parser types
-    Result
+    Result(..)
   , Parser
     -- * Running a parser
   , parse, parse', parseChunk, parseChunks, finishParsing

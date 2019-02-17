@@ -338,9 +338,9 @@ traverseIO f (Vec arr s l)
 -- | Primitive vector
 --
 data PrimVector a = PrimVector
-    {-# UNPACK #-} !(PrimArray a) -- payload
-    {-# UNPACK #-} !Int         -- offset in elements of type a rather than in bytes
-    {-# UNPACK #-} !Int         -- length in elements of type a rather than in bytes
+    {-# UNPACK #-} !(PrimArray a)   -- ^ payload
+    {-# UNPACK #-} !Int             -- ^ offset in elements of type a rather than in bytes
+    {-# UNPACK #-} !Int             -- ^ length in elements of type a rather than in bytes
   deriving Typeable
 
 instance Prim a => Vec PrimVector a where
@@ -349,7 +349,7 @@ instance Prim a => Vec PrimVector a where
     {-# INLINE toArr #-}
     toArr (PrimVector arr s l) = (arr, s, l)
     {-# INLINE fromArr #-}
-    fromArr arr s l = PrimVector arr s l
+    fromArr = PrimVector
 
 instance (Prim a, Eq a) => Eq (PrimVector a) where
     {-# INLINE (==) #-}
@@ -952,7 +952,7 @@ maximum = foldl1' max
 
 -- | /O(n)/ 'maximum' returns the maximum value from a vector,
 --   return 'Nothing' in the case of an empty vector.
-maximumMaybe :: (Vec v a, Ord a, HasCallStack) => v a -> Maybe a
+maximumMaybe :: (Vec v a, Ord a) => v a -> Maybe a
 {-# INLINE maximumMaybe #-}
 maximumMaybe = foldl1Maybe' max
 
@@ -965,7 +965,7 @@ minimum = foldl1' min
 
 -- | /O(n)/ 'minimum' returns the minimum value from a vector,
 --   return 'Nothing' in the case of an empty vector.
-minimumMaybe :: (Vec v a, Ord a, HasCallStack) => v a -> Maybe a
+minimumMaybe :: (Vec v a, Ord a) => v a -> Maybe a
 {-# INLINE minimumMaybe #-}
 minimumMaybe = foldl1Maybe' min
 

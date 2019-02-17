@@ -76,7 +76,7 @@ specialized these functions, it should be regarded as a bug either in this libra
 
 module Std.Data.Vector (
   -- * The Vec typeclass
-    Vec
+    Vec(IArray, MArray)
   -- * Boxed and unboxed vector type
   , Vector
   , PrimVector
