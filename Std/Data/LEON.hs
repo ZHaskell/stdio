@@ -26,25 +26,33 @@ LEON (/L/ittle /E/ndian first /O/bject /N/otation) is an efficiently serializati
 
 -}
 
-module Std.Data.LEON where
+module Std.Data.LEON
+  ( LEON(..)
+  , BE(..)
+  ) where
 
 import           Control.Monad
 import           Data.Bits
+import           Data.Functor.Identity              (Identity (..))
+import qualified Data.List                          as List
+import qualified Data.List.NonEmpty                 as NE
+import qualified Data.Monoid                        as Monoid
+import           Data.Primitive
 import           Data.Primitive.PrimArray
+import qualified Data.Semigroup                     as Semigroup
 import           GHC.Generics
+import           GHC.Fingerprint
 import           GHC.Int
-import           GHC.Prim
+import           GHC.Natural
 import           GHC.Types
 import           GHC.Word
-import           GHC.Natural
-import           Std.Data.Builder as B
-import           Std.Data.Parser  as P
+import           Data.Version (Version(..))
+import           Std.Data.Builder                   as B
+import qualified Std.Data.CBytes                    as CBytes
+import           Std.Data.Parser                    as P
 import           Std.Data.PrimArray.UnalignedAccess
-import qualified Std.Data.Vector.Base as V
-import qualified Std.Data.Text.Base   as T
-import qualified Std.Data.CBytes      as CBytes
-import qualified Data.List as List
-import           Data.Primitive
+import qualified Std.Data.Text.Base                 as T
+import qualified Std.Data.Vector.Base               as V
 
 #include "MachDeps.h"
 
@@ -77,9 +85,15 @@ instance LEON Word8 where
 
 instance LEON Word where
     {-# INLINE encode #-}
-    encode x = encodePrim (fromIntegral x :: Word64)
+    encode x = encodePrimLE (fromIntegral x :: Word64)
     {-# INLINE decode #-}
-    decode = fromIntegral <$> (decodePrim :: Parser Word64)
+    decode = fromIntegral <$> (decodePrimLE :: Parser Word64)
+
+instance LEON (BE Word) where
+    {-# INLINE encode #-}
+    encode (BE x) = encodePrimBE (fromIntegral x :: Word64)
+    {-# INLINE decode #-}
+    decode = BE . fromIntegral <$> (decodePrimBE :: Parser Word64)
 
 instance LEON Int8 where
     {-# INLINE encode #-}
@@ -89,9 +103,15 @@ instance LEON Int8 where
 
 instance LEON Int where
     {-# INLINE encode #-}
-    encode x = encodePrim (fromIntegral x :: Int64)
+    encode x = encodePrimLE (fromIntegral x :: Int64)
     {-# INLINE decode #-}
-    decode = fromIntegral <$> (decodePrim :: Parser Int64)
+    decode = fromIntegral <$> (decodePrimLE :: Parser Int64)
+
+instance LEON (BE Int) where
+    {-# INLINE encode #-}
+    encode (BE x) = encodePrimBE (fromIntegral x :: Int64)
+    {-# INLINE decode #-}
+    decode = BE . fromIntegral <$> (decodePrimBE :: Parser Int64)
 
 instance LEON Bool where
     {-# INLINE encode #-}
@@ -100,6 +120,20 @@ instance LEON Bool where
     {-# INLINE decode #-}
     decode = decodePrim @Word8 >>= \ case 0 -> return False
                                           _ -> return True
+
+instance LEON Ordering where
+    {-# INLINE encode #-}
+    encode = encode @Word8 . fromOrd
+      where
+        fromOrd LT = 0
+        fromOrd EQ = 1
+        fromOrd GT = 2
+    {-# INLINE decode #-}
+    decode = decode @Word8 >>= toOrd
+      where
+        toOrd 0 = return LT
+        toOrd 1 = return EQ
+        toOrd _ = return GT
 
 #define LE_INST(type) instance LEON type where \
     {-# INLINE encode #-}; \
@@ -194,6 +228,12 @@ instance LEON a => LEON [a] where
         len <- decode @Int
         replicateM len decode
 
+instance LEON () where
+    {-# INLINE encode #-}
+    encode ()  = return ()
+    {-# INLINE decode #-}
+    decode     = return ()
+
 instance (LEON a, LEON b) => LEON (a,b) where
     {-# INLINE encode #-}
     encode (a,b)           = encode a >> encode b
@@ -260,6 +300,37 @@ instance (LEON a, LEON b, LEON c, LEON d, LEON e,
     {-# INLINE decode #-}
     decode                       = do (a,(b,c,d,e,f,g,h,i,j)) <- decode ; return (a,b,c,d,e,f,g,h,i,j)
 
+
+------------------------------------------------------------------------
+-- Container types
+
+instance LEON a => LEON (Identity a) where
+    {-# INLINE encode #-}
+    encode (Identity x) = encode x
+    {-# INLINE decode #-}
+    decode = Identity <$> decode
+
+instance (LEON a) => LEON (Maybe a) where
+    {-# INLINE encode #-}
+    encode Nothing  = encode @Word8 0
+    encode (Just x) = encode @Word8 1 >> encode x
+    {-# INLINE decode #-}
+    decode = do
+        w <- decode @Word8
+        case w of
+            0 -> return Nothing
+            _ -> fmap Just decode
+
+instance (LEON a, LEON b) => LEON (Either a b) where
+    {-# INLINE encode #-}
+    encode (Left  a) = encode @Word8 0 >> encode a
+    encode (Right b) = encode @Word8 1 >> encode b
+    {-# INLINE decode #-}
+    decode = do
+        w <- decode @Word8
+        case w of
+            0 -> fmap Left  decode
+            _ -> fmap Right decode
 
 --------------------------------------------------------------------------------
 -- Portable, and pretty efficient, serialisation of Integer
@@ -337,42 +408,132 @@ instance LEON Natural where
             _ -> do bytes <- decode
                     return $! roll bytes
 
---------------------------------------------------------------------------------
+------------------------------------------------------------------------
+-- Fingerprints
 
+-- | /Since: 0.7.6.0/
+instance LEON Fingerprint where
+    {-# INLINE encode #-}
+    encode (Fingerprint x1 x2) = encode x1 >> encode x2
+    {-# INLINE decode #-}
+    decode = do
+        x1 <- decode
+        x2 <- decode
+        return $! Fingerprint x1 x2
+
+------------------------------------------------------------------------
+-- Version
+
+-- | /Since: 0.8.0.0/
+instance LEON Version where
+    {-# INLINE encode #-}
+    encode (Version br tags) = encode br >> encode tags
+    {-# INLINE decode #-}
+    decode = Version <$> decode <*> decode
+
+------------------------------------------------------------------------
+-- Data.Monoid datatypes
+
+-- | /Since: 0.8.4.0/
+#define NT_INST0(nt, getnt) instance LEON nt where \
+    {-# INLINE decode #-}; \
+    decode = fmap nt decode; \
+    {-# INLINE encode #-}; \
+    encode = encode . getnt
+
+#define NT_INST1(nt, getnt) instance LEON a => LEON (nt a) where \
+    {-# INLINE decode #-}; \
+    decode = fmap nt decode; \
+    {-# INLINE encode #-}; \
+    encode = encode . getnt
+
+#define NT_INST2(nt, getnt) instance LEON (f a) => LEON (nt f a) where \
+    {-# INLINE decode #-}; \
+    decode = fmap nt decode; \
+    {-# INLINE encode #-}; \
+    encode = encode . getnt
+
+NT_INST1(Monoid.Dual    , Monoid.getDual)
+NT_INST1(Monoid.Sum     , Monoid.getSum)
+NT_INST1(Monoid.Product , Monoid.getProduct)
+NT_INST1(Monoid.First   , Monoid.getFirst)
+NT_INST1(Monoid.Last    , Monoid.getLast)
+NT_INST0(Monoid.All     , Monoid.getAll)
+NT_INST0(Monoid.Any     , Monoid.getAny)
+NT_INST2(Monoid.Alt     , Monoid.getAlt)
+
+NT_INST1(Semigroup.Min    , Semigroup.getMin)
+NT_INST1(Semigroup.Max    , Semigroup.getMax)
+NT_INST1(Semigroup.First  , Semigroup.getFirst)
+NT_INST1(Semigroup.Last   , Semigroup.getLast)
+NT_INST1(Semigroup.Option , Semigroup.getOption)
+
+instance LEON m => LEON (Semigroup.WrappedMonoid m) where
+    {-# INLINE decode #-}
+    decode = fmap Semigroup.WrapMonoid decode
+    {-# INLINE encode #-}
+    encode = encode . Semigroup.unwrapMonoid
+
+instance (LEON a, LEON b) => LEON (Semigroup.Arg a b) where
+    {-# INLINE decode #-}
+    decode                     = liftM2 Semigroup.Arg decode decode
+    {-# INLINE encode #-}
+    encode (Semigroup.Arg a b) = encode a >> encode b
+
+------------------------------------------------------------------------
+-- Non-empty lists
+
+instance LEON a => LEON (NE.NonEmpty a) where
+    {-# INLINE decode #-}
+    decode = fmap NE.fromList decode
+    {-# INLINE encode #-}
+    encode = encode . NE.toList
+
+--------------------------------------------------------------------------------
 
 -- Type without constructors
 instance GLEONEncode V1 where
+    {-# INLINE gencode #-}
     gencode _ = pure ()
 
 instance GLEONDecode V1 where
+    {-# INLINE gdecode #-}
     gdecode   = return undefined
 
 -- Constructor without arguments
 instance GLEONEncode U1 where
+    {-# INLINE gencode #-}
     gencode U1 = pure ()
 
 instance GLEONDecode U1 where
+    {-# INLINE gdecode #-}
     gdecode    = return U1
 
 -- Product: constructor with parameters
 instance (GLEONEncode a, GLEONEncode b) => GLEONEncode (a :*: b) where
+    {-# INLINE gencode #-}
     gencode (x :*: y) = gencode x >> gencode y
 
 instance (GLEONDecode a, GLEONDecode b) => GLEONDecode (a :*: b) where
+    {-# INLINE gdecode #-}
     gdecode = (:*:) <$> gdecode <*> gdecode
 
 -- Metadata (constructor name, etc)
 instance GLEONEncode a => GLEONEncode (M1 i c a) where
+    {-# INLINE gencode #-}
     gencode = gencode . unM1
 
 instance GLEONDecode a => GLEONDecode (M1 i c a) where
+    {-# INLINE gdecode #-}
     gdecode = M1 <$> gdecode
 
 -- Constants, additional parameters, and rank-1 recursion
 instance LEON a => GLEONEncode (K1 i a) where
+    {-# INLINE gencode #-}
     gencode = encode . unK1
 
 instance LEON a => GLEONDecode (K1 i a) where
+    {-# INLINE gdecode #-}
     gdecode = K1 <$> decode
 
 -- Borrowed from the cereal package.
@@ -390,6 +551,7 @@ instance LEON a => GLEONDecode (K1 i a) where
 
 instance ( GSumEncode  a, GSumEncode  b
          , SumSize    a, SumSize    b) => GLEONEncode (a :+: b) where
+    {-# INLINE gencode #-}
     gencode | PUTSUM(Word8) | PUTSUM(Word16) | PUTSUM(Word32) | PUTSUM(Word64)
          | otherwise = sizeError "encode" size
       where
@@ -397,6 +559,7 @@ instance ( GSumEncode  a, GSumEncode  b
 
 instance ( GSumDecode  a, GSumDecode  b
          , SumSize    a, SumSize    b) => GLEONDecode (a :+: b) where
+    {-# INLINE gdecode #-}
     gdecode | GETSUM(Word8) | GETSUM(Word16) | GETSUM(Word32) | GETSUM(Word64)
          | otherwise = sizeError "decode" size
       where
@@ -410,9 +573,9 @@ sizeError s size =
 
 checkGetSum :: (Ord word, Num word, Bits word, GSumDecode f)
             => word -> word -> Parser (f a)
+{-# INLINE checkGetSum #-}
 checkGetSum size code | code < size = decodeSum code size
                       | otherwise   = fail "Unknown encoding for constructor"
-{-# INLINE checkGetSum #-}
 
 class GSumDecode f where
     decodeSum :: (Ord word, Num word, Bits word) => word -> word -> Parser (f a)
@@ -421,6 +584,7 @@ class GSumEncode f where
     encodeSum :: (Num w, Bits w, LEON w) => w -> w -> f a -> Builder ()
 
 instance (GSumDecode a, GSumDecode b) => GSumDecode (a :+: b) where
+    {-# INLINE decodeSum #-}
     decodeSum !code !size | code < sizeL = L1 <$> decodeSum code           sizeL
                           | otherwise    = R1 <$> decodeSum (code - sizeL) sizeR
         where
@@ -428,6 +592,7 @@ instance (GSumDecode a, GSumDecode b) => GSumDecode (a :+: b) where
           sizeR = size - sizeL
 
 instance (GSumEncode a, GSumEncode b) => GSumEncode (a :+: b) where
+    {-# INLINE encodeSum #-}
     encodeSum !code !size s = case s of
                              L1 x -> encodeSum code           sizeL x
                              R1 x -> encodeSum (code + sizeL) sizeR x
@@ -436,9 +601,11 @@ instance (GSumEncode a, GSumEncode b) => GSumEncode (a :+: b) where
           sizeR = size - sizeL
 
 instance GLEONDecode a => GSumDecode (C1 c a) where
+    {-# INLINE decodeSum #-}
     decodeSum _ _ = gdecode
 
 instance GLEONEncode a => GSumEncode (C1 c a) where
+    {-# INLINE encodeSum #-}
     encodeSum !code _ x = encode code >> gencode x
 
 ------------------------------------------------------------------------
