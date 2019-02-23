@@ -34,7 +34,8 @@
 //
 // udp
 
-// This callback simply copy buffer from buffer table and buffer size table
+// We do batch read per uv_run, the buffer index keep decreasing until hit zero
+// then we call uv_udp_recv_stop to stop receiving.
 void hs_udp_alloc_cb(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf){
     HsInt slot = (HsInt)handle->data;
     hs_loop_data* loop_data = handle->loop->data;
@@ -53,7 +54,6 @@ void hs_udp_alloc_cb(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf){
     }
 }
 
-// We only do single read per uv_run with uv_read_stop
 void hs_udp_recv_cb (uv_udp_t* udp, ssize_t nread, const uv_buf_t* _buf
     , const struct sockaddr* addr, unsigned flags){
     if (nread ==0 && addr == NULL) return;
