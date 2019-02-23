@@ -61,7 +61,6 @@ import Std.IO.LowResTimer
 import Std.IO.StdStream
 import Std.IO.Buffered
 import System.IO.Unsafe (unsafePerformIO)
-import GHC.Stack
 import Data.Word8 (_space, _lf, _bracketleft, _bracketright)
 import Data.IORef
 import Control.Concurrent.MVar

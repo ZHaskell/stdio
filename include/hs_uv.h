@@ -55,7 +55,7 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 // CONSTANT
-#define ACCEPT_BUFFER_SIZE 1024
+#define ACCEPT_BUFFER_SIZE 1020
 #define INIT_LOOP_SIZE 128
 #define INIT_LOOP_SIZE_BIT 7
 
@@ -262,7 +262,7 @@ void hs_uv_accept_check_close(uv_check_t* check);
 
 ////////////////////////////////////////////////////////////////////////////////
 // tcp
-int hs_uv_tcp_open(uv_tcp_t* handle, int sock);
+int hs_uv_tcp_open(uv_tcp_t* handle, int32_t sock);
 HsInt hs_uv_tcp_connect(uv_tcp_t* handle, const struct sockaddr* addr);
 
 #if defined(_WIN32)
@@ -286,6 +286,12 @@ extern void uv_tcp_queue_accept(uv_tcp_t* handle, uv_tcp_accept_t* req);
 #else
 void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events);
 #endif
+
+////////////////////////////////////////////////////////////////////////////////
+// udp
+
+int hs_uv_udp_recv_start(uv_udp_t* handle);
+HsInt hs_uv_upd_send(uv_udp_t* handle, const struct sockaddr* addr, char* buf, HsInt buf_siz);
 
 ////////////////////////////////////////////////////////////////////////////////
 // fs

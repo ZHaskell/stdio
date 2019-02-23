@@ -72,7 +72,6 @@ import           Data.Typeable
 import           Foreign
 import           Foreign.C
 import           GHC.ForeignPtr        (mallocPlainForeignPtrAlignedBytes)
-import           GHC.Stack
 import           Numeric               (showHex)
 import           Std.Data.CBytes
 import qualified Std.Data.Vector       as V

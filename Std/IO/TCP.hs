@@ -3,6 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 {-|
 Module      : Std.IO.TCP
@@ -58,18 +59,21 @@ initTCPExStream family = initUVStream (\ loop handle ->
 
 --------------------------------------------------------------------------------
 
+-- | TCP Stream.
+newtype TCP = TCP UVStream deriving (Show, Input, Output)
+
 -- | A TCP client configuration
 --
 data ClientConfig = ClientConfig
-    { clientLocalAddr :: Maybe SockAddr
-    , clientTargetAddr :: SockAddr
-    , clientNoDelay :: Bool
+    { clientLocalAddr :: Maybe SockAddr -- ^ assign a local address, or let OS pick one
+    , clientTargetAddr :: SockAddr      -- ^ target address
+    , clientNoDelay :: Bool             -- ^ if we want to use @TCP_NODELAY@
     }
 
 defaultClientConfig :: ClientConfig
 defaultClientConfig = ClientConfig Nothing (SockAddrInet 8888 inetLoopback) True
 
-initClient :: HasCallStack => ClientConfig -> Resource UVStream
+initClient :: HasCallStack => ClientConfig -> Resource TCP
 initClient ClientConfig{..} = do
     uvm <- liftIO getUVManager
     client <- initTCPStream uvm
@@ -82,17 +86,18 @@ initClient ClientConfig{..} = do
         -- nodelay is safe without withUVManager
         when clientNoDelay $ throwUVIfMinus_ (uv_tcp_nodelay handle 1)
         withUVRequest uvm $ \ _ -> hs_uv_tcp_connect handle targetPtr
-    return client
+    return (TCP client)
 
 --------------------------------------------------------------------------------
 
 -- | A TCP server configuration
 --
 data ServerConfig = ServerConfig
-    { serverAddr       :: SockAddr
-    , serverBackLog    :: Int
-    , serverWorker     :: UVStream -> IO ()
-    , serverWorkerNoDelay :: Bool
+    { serverAddr       :: SockAddr      -- ^ listening address
+    , serverBackLog    :: Int           -- ^ listening socket's backlog size
+    , serverWorker     :: TCP -> IO ()  -- ^ worker which get an accepted TCP stream,
+                                            -- the socket will be closed upon exception or worker finishes.
+    , serverWorkerNoDelay :: Bool       -- ^ if we want to use @TCP_NODELAY@
     }
 
 -- | A default hello world server on localhost:8888
@@ -110,23 +115,23 @@ defaultServerConfig = ServerConfig
 --
 -- Fork new worker thread upon a new connection.
 --
-startServer :: ServerConfig -> IO ()
+startServer :: HasCallStack => ServerConfig -> IO ()
 startServer ServerConfig{..} = do
     serverManager <- getUVManager
     withResource (initTCPStream serverManager) $ \ (UVStream serverHandle serverSlot _ _) ->
         bracket
             (throwOOMIfNull $ hs_uv_accept_check_alloc serverHandle)
-            (hs_uv_accept_check_close) $ \ check -> do
+            hs_uv_accept_check_close $ \ check -> do
                 throwUVIfMinus_ $ hs_uv_accept_check_init check
                 withSockAddr serverAddr $ \ addrPtr -> do
                     m <- getBlockMVar serverManager serverSlot
                     acceptBuf <- newPinnedPrimArray ACCEPT_BUFFER_SIZE
-                    let acceptBufPtr = (coerce (mutablePrimArrayContents acceptBuf :: Ptr UVFD))
+                    let acceptBufPtr = coerce (mutablePrimArrayContents acceptBuf :: Ptr UVFD)
 
                     withUVManager_ serverManager $ do
                         pokeBufferTable serverManager serverSlot acceptBufPtr 0
                         throwUVIfMinus_ (uv_tcp_bind serverHandle addrPtr 0)
-                        throwUVIfMinus_ (hs_uv_listen serverHandle (fromIntegral serverBackLog))
+                        throwUVIfMinus_ (hs_uv_listen serverHandle (max 4 (fromIntegral serverBackLog)))
 
                     forever $ do
                         takeMVar m
@@ -156,7 +161,21 @@ startServer ServerConfig{..} = do
                                     when serverWorkerNoDelay . throwUVIfMinus_ $
                                         -- safe without withUVManager
                                         uv_tcp_nodelay (uvsHandle client) 1
-                                    serverWorker client
+                                    serverWorker (TCP client)
 
                         when (accepted == ACCEPT_BUFFER_SIZE) $
                             withUVManager_ serverManager (hs_uv_listen_resume serverHandle)
+
+-- The buffer passing of accept is a litte complicated here, to get maximum performance,
+-- we do batch accepting. i.e. recv multiple client inside libuv's event loop:
+--
+-- + we poke uvmanager's buffer table as a Ptr Word8, with byte size (ACCEPT_BUFFER_SIZE*sizeof(UVFD))
+-- + inside libuv event loop, we cast the buffer back to int32_t* pointer.
+-- + each accept callback push a new socket fd to the buffer, and increase a counter(buffer table's size).
+-- + ACCEPT_BUFFER_SIZE is large enough 1020, so under windows we can't possibly filled it up within one
+--   uv_run.
+-- + under unix we hacked uv internal to provide a stop and resume function, when ACCEPT_BUFFER_SIZE is
+--   reached, we will stop receiving.
+-- + once back to haskell side, we poked all the accepted sockets and fork worker threads.
+-- + if ACCEPT_BUFFER_SIZE is reached, we resume receiving from haskell side, which will affect next
+--   uv_run.

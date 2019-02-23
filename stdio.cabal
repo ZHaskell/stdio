@@ -27,6 +27,7 @@ extra-source-files:  ChangeLog.md
                      cbits/dtoa.c
                      cbits/hs_uv_base.c
                      cbits/hs_uv_stream.c
+                     cbits/hs_uv_udp.c
                      cbits/hs_uv_file.c
                      cbits/text.c
 
@@ -119,6 +120,7 @@ source-repository head
 flag no-pkg-config
   description: Don't use pkg-config to check for library dependences
   default: False
+  manual: True
 
 flag integer-simple
   description:
@@ -175,6 +177,7 @@ library
                             Std.IO.FileSystem
                             Std.IO.FileSystemT
                             Std.IO.TCP
+                            Std.IO.UDP
                             Std.IO.SockAddr
                             Std.IO.StdStream
 
@@ -231,6 +234,7 @@ library
                         cbits/text.c
                         cbits/hs_uv_base.c
                         cbits/hs_uv_stream.c
+                        cbits/hs_uv_udp.c
                         cbits/hs_uv_file.c
                         third_party/utf8rewind/source/unicodedatabase.c
                         third_party/utf8rewind/source/internal/casemapping.c
