@@ -25,6 +25,14 @@ module Std.IO.UDP (
   , UVUDPFlag(UV_UDP_DEFAULT, UV_UDP_IPV6ONLY, UV_UDP_REUSEADDR)
   , recvUDP
   , sendUDP
+  -- * multicast and broadcast
+  , UVMembership(UV_JOIN_GROUP, UV_LEAVE_GROUP)
+  , setMembership
+  , setMulticastLoop
+  , setMulticastTTL
+  , setMulticastInterface
+  , setBroadcast
+  , setTTL
   ) where
 
 import Data.Primitive.PrimArray as A
@@ -32,6 +40,8 @@ import           Data.Primitive.Ptr                 (copyPtrToMutablePrimArray)
 import Data.IORef
 import Std.Data.Array           as A
 import Std.Data.Vector.Base     as V
+import Std.Data.Vector.Extra    as V
+import Std.Data.CBytes          as CBytes
 import Std.IO.SockAddr
 import Std.Foreign.PrimArray
 import Std.IO.UV.FFI
@@ -48,7 +58,9 @@ import Foreign.Ptr (plusPtr)
 
 -- | UDP socket.
 --
--- UDP socket is not thread safe, don't use it among multiple thread!
+-- UDP socket is not thread safe, don't use it among multiple thread! UDP is not a sequential
+-- protocol, thus not an instance of 'Input/Output'. Message are received or sent individually,
+-- we do provide batch receiving to improve performance under high load.
 data UDP = UDP
     { udpHandle :: {-# UNPACK #-} !(Ptr UVHandle)
     , udpSlot    :: {-# UNPACK #-} !UVSlot
@@ -232,3 +244,46 @@ sendUDP (UDP handle slot uvm _ _ _ sbuf closed) addr (V.PrimVector ba s la) = ma
             -- OS will guarantee writing a socket will not
             -- hang forever anyway.
             throwUVIfMinus_  (uninterruptibleMask_ $ takeMVar m)
+
+--------------------------------------------------------------------------------
+
+setMembership :: HasCallStack => UDP -> CBytes -> CBytes -> UVMembership ->IO ()
+setMembership (UDP handle _ _ _ _ _ _ closed) gaddr iaddr member = do
+    c <- readIORef closed
+    when c throwECLOSED
+    withCBytes gaddr $ \ gaddrp ->
+        withCBytes iaddr $ \ iaddrp ->
+            throwUVIfMinus_ (uv_udp_set_membership handle gaddrp iaddrp member)
+
+setMulticastLoop :: HasCallStack => UDP -> Bool -> IO ()
+setMulticastLoop (UDP handle _ _ _ _ _ _ closed) loop = do
+    c <- readIORef closed
+    when c throwECLOSED
+    throwUVIfMinus_ (uv_udp_set_multicast_loop handle (if loop then 1 else 0))
+
+setMulticastTTL :: HasCallStack => UDP -> Int -> IO ()
+setMulticastTTL (UDP handle _ _ _ _ _ _ closed) ttl = do
+    c <- readIORef closed
+    when c throwECLOSED
+    throwUVIfMinus_ (uv_udp_set_multicast_ttl handle (fromIntegral ttl'))
+  where ttl' = V.rangeCut ttl 1 255
+
+setMulticastInterface :: HasCallStack => UDP -> CBytes ->IO ()
+setMulticastInterface (UDP handle _ _ _ _ _ _ closed) iaddr = do
+    c <- readIORef closed
+    when c throwECLOSED
+    withCBytes iaddr $ \ iaddrp ->
+        throwUVIfMinus_ (uv_udp_set_multicast_interface handle iaddrp)
+
+setBroadcast :: HasCallStack => UDP -> Bool -> IO ()
+setBroadcast (UDP handle _ _ _ _ _ _ closed) b = do
+    c <- readIORef closed
+    when c throwECLOSED
+    throwUVIfMinus_ (uv_udp_set_broadcast handle (if b then 1 else 0))
+
+setTTL :: HasCallStack => UDP -> Int -> IO ()
+setTTL (UDP handle _ _ _ _ _ _ closed) ttl = do
+    c <- readIORef closed
+    when c throwECLOSED
+    throwUVIfMinus_ (uv_udp_set_ttl handle (fromIntegral ttl'))
+  where ttl' = V.rangeCut ttl 1 255
