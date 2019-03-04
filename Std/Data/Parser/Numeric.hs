@@ -40,7 +40,6 @@ import           Control.Applicative
 import           Control.Monad
 import           Data.Bits
 import           Data.Int
-import qualified Data.Primitive.PrimArray as A
 import qualified Data.Scientific          as Sci
 import           Data.Word
 import           Foreign.Ptr              (IntPtr)

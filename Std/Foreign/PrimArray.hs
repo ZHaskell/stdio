@@ -139,6 +139,7 @@ type MBA# a = MutableByteArray# RealWorld
 -- USE THIS FUNCTION WITH UNSAFE FFI CALL ONLY.
 --
 withPrimArrayUnsafe :: (Prim a) => PrimArray a -> (BA# a -> Int -> IO b) -> IO b
+{-# INLINABLE withPrimArrayUnsafe #-}
 withPrimArrayUnsafe pa@(PrimArray ba#) f = f ba# (sizeofPrimArray pa)
 
 -- | Pass mutable primitive array to unsafe FFI as pointer.
@@ -149,11 +150,13 @@ withPrimArrayUnsafe pa@(PrimArray ba#) f = f ba# (sizeofPrimArray pa)
 --
 withMutablePrimArrayUnsafe :: (Prim a) => MutablePrimArray RealWorld a
                            -> (MBA# a -> Int -> IO b) -> IO b
+{-# INLINABLE withMutablePrimArrayUnsafe #-}
 withMutablePrimArrayUnsafe mpa@(MutablePrimArray mba#) f =
     getSizeofMutablePrimArray mpa >>= f mba#
 
 withMutableByteArrayUnsafe :: Int      -- ^ In bytes
                            -> (MBA# Word8 -> IO b) -> IO b
+{-# INLINABLE withMutableByteArrayUnsafe #-}
 withMutableByteArrayUnsafe len f = do
     (MutableByteArray mba#) <- newByteArray len
     f mba#
@@ -169,6 +172,7 @@ withMutableByteArrayUnsafe len f = do
 --
 withPrimVectorUnsafe :: (Prim a)
                      => PrimVector a -> (BA# a -> Int -> Int -> IO b) -> IO b
+{-# INLINABLE withPrimVectorUnsafe #-}
 withPrimVectorUnsafe (PrimVector arr s l) f = withPrimArrayUnsafe arr $ \ ba# _ -> f ba# s l
 
 
@@ -180,6 +184,7 @@ withPrimVectorUnsafe (PrimVector arr s l) f = withPrimArrayUnsafe arr $ \ ba# _ 
 --
 withPrimUnsafe :: (Prim a)
                => a -> (MBA# a -> IO b) -> IO (a, b)
+{-# INLINABLE withPrimUnsafe #-}
 withPrimUnsafe v f = do
     mpa@(MutablePrimArray mba#) <- newPrimArray 1    -- All heap objects are WORD aligned
     writePrimArray mpa 0 v
@@ -189,6 +194,7 @@ withPrimUnsafe v f = do
 
 withPrimUnsafe' :: (Prim a)
                => (MBA# a -> IO b) -> IO (a, b)
+{-# INLINABLE withPrimUnsafe' #-}
 withPrimUnsafe' f = do
     mpa@(MutablePrimArray mba#) <- newPrimArray 1    -- All heap objects are WORD aligned
     !b <- f mba#                                      -- so no need to do extra alignment
@@ -206,6 +212,7 @@ withPrimUnsafe' f = do
 --
 -- Don't pass a forever loop to this function, see <https://ghc.haskell.org/trac/ghc/ticket/14346 #14346>.
 withPrimArraySafe :: (Prim a) => PrimArray a -> (Ptr a -> Int -> IO b) -> IO b
+{-# INLINABLE withPrimArraySafe #-}
 withPrimArraySafe arr f
     | isPrimArrayPinned arr = do
         let siz = sizeofPrimArray arr
@@ -223,6 +230,7 @@ withPrimArraySafe arr f
 --
 -- Don't pass a forever loop to this function, see <https://ghc.haskell.org/trac/ghc/ticket/14346 #14346>.
 withMutablePrimArraySafe :: (Prim a) => MutablePrimArray RealWorld a -> (Ptr a -> Int -> IO b) -> IO b
+{-# INLINABLE withMutablePrimArraySafe #-}
 withMutablePrimArraySafe marr f
     | isMutablePrimArrayPinned marr = do
         siz <- getSizeofMutablePrimArray marr
@@ -234,6 +242,7 @@ withMutablePrimArraySafe marr f
         withMutablePrimArrayContents buf $ \ ptr -> f ptr siz
 
 withMutableByteArraySafe :: Int -> (Ptr Word8 -> IO b) -> IO b
+{-# INLINABLE withMutableByteArraySafe #-}
 withMutableByteArraySafe siz f = do
     buf <- newPinnedPrimArray siz
     withMutablePrimArrayContents buf f
@@ -245,6 +254,7 @@ withMutableByteArraySafe siz f = do
 --
 -- Don't pass a forever loop to this function, see <https://ghc.haskell.org/trac/ghc/ticket/14346 #14346>.
 withPrimVectorSafe :: forall a b. (Prim a) => PrimVector a -> (Ptr a -> Int -> IO b) -> IO b
+{-# INLINABLE withPrimVectorSafe #-}
 withPrimVectorSafe v@(PrimVector arr s l) f
     | isPrimArrayPinned arr =
         withPrimArrayContents arr $ \ ptr ->
@@ -260,6 +270,7 @@ withPrimVectorSafe v@(PrimVector arr s l) f
 --
 -- Don't pass a forever loop to this function, see <https://ghc.haskell.org/trac/ghc/ticket/14346 #14346>.
 withPrimSafe :: forall a b. Prim a => a -> (Ptr a -> IO b) -> IO (a, b)
+{-# INLINABLE withPrimSafe #-}
 withPrimSafe v f = do
     buf <- newAlignedPinnedPrimArray 1
     writePrimArray buf 0 v
@@ -268,6 +279,7 @@ withPrimSafe v f = do
     return (a, b)
 
 withPrimSafe' :: forall a b. Prim a => (Ptr a -> IO b) -> IO (a, b)
+{-# INLINABLE withPrimSafe' #-}
 withPrimSafe' f = do
     buf <- newAlignedPinnedPrimArray 1
     !b <- withMutablePrimArrayContents buf $ \ ptr -> f ptr
@@ -284,12 +296,15 @@ foreign import ccall unsafe "string.h" memset :: Ptr a -> CInt -> CSize -> IO ()
 -- should be given in bytes.
 --
 clearPtr :: Ptr a -> Int -> IO ()
+{-# INLINE clearPtr #-}
 clearPtr dest nbytes = memset dest 0 (fromIntegral nbytes)
 
 -- | Cast between raw address and tagged pointer.
 addrToPtr :: Addr -> Ptr a
+{-# INLINE addrToPtr #-}
 addrToPtr (Addr addr#) = Ptr addr#
 
 -- | Cast between tagged pointer and raw address.
 ptrToAddr :: Ptr a -> Addr
+{-# INLINE ptrToAddr #-}
 ptrToAddr (Ptr addr#) = Addr addr#

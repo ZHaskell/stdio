@@ -204,7 +204,7 @@ backslash:
         case 't': *d++ = '\t';goto standard;
         case 'u': DISPATCH(unicode1);;break;
         default:
-                  return -1;
+            return -1;
     }
 
 unicode1:

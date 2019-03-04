@@ -554,7 +554,6 @@ takeWhile1 p = do
     bs <- takeWhile p
     if V.null bs then failWithStack "unsatisfied byte" else return bs
 
-
 -- | @bytes s@ parses a sequence of bytes that identically match @s@.
 --
 bytes :: HasCallStack => V.Bytes -> Parser ()
