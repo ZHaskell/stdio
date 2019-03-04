@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns      #-}
+{-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE CPP                    #-}
 {-# LANGUAGE FlexibleContexts       #-}
 {-# LANGUAGE FlexibleInstances      #-}
@@ -100,6 +101,8 @@ uninitialized = throw (UndefinedElement "Data.Array.uninitialized")
 -- They are used across this package and perform identical to their monomophric counterpart.
 --
 class Arr (marr :: * -> * -> *) (arr :: * -> * ) a | arr -> marr, marr -> arr where
+    type IArr marr = (ar :: * -> *) | ar -> marr
+    type MArr arr = (mar :: * -> * -> *) | mar -> arr
 
     -- | Make a new array with given size.
     --
@@ -190,6 +193,8 @@ class Arr (marr :: * -> * -> *) (arr :: * -> * ) a | arr -> marr, marr -> arr wh
     sameArr :: arr a -> arr a -> Bool
 
 instance Arr MutableArray Array a where
+    type MArr Array = MutableArray
+    type IArr MutableArray = Array
     newArr n = newArray n uninitialized
     {-# INLINE newArr #-}
     newArrWith = newArray
@@ -274,6 +279,8 @@ instance Arr MutableArray Array a where
     {-# INLINE sameArr #-}
 
 instance Arr SmallMutableArray SmallArray a where
+    type MArr SmallArray = SmallMutableArray
+    type IArr SmallMutableArray = SmallArray
     newArr n = newSmallArray n uninitialized
     {-# INLINE newArr #-}
     newArrWith = newSmallArray
@@ -359,6 +366,8 @@ instance Arr SmallMutableArray SmallArray a where
     {-# INLINE sameArr #-}
 
 instance Prim a => Arr MutablePrimArray PrimArray a where
+    type MArr PrimArray = MutablePrimArray
+    type IArr MutablePrimArray = PrimArray
     newArr = newPrimArray
     {-# INLINE newArr #-}
     newArrWith n x = do
@@ -432,6 +441,8 @@ instance Prim a => Arr MutablePrimArray PrimArray a where
     {-# INLINE sameArr #-}
 
 instance PrimUnlifted a => Arr MutableUnliftedArray UnliftedArray a where
+    type MArr UnliftedArray = MutableUnliftedArray
+    type IArr MutableUnliftedArray = UnliftedArray
     newArr = unsafeNewUnliftedArray
     {-# INLINE newArr #-}
     newArrWith = newUnliftedArray

@@ -134,12 +134,14 @@ library
                             Std.Data.Vector.Search
                             Std.Data.Vector.Sort
                             Std.Data.Vector.QQ
+                            Std.Data.Vector.FlatMap
                             Std.Data.PrimArray.Cast
                             Std.Data.PrimArray.QQ
                             Std.Data.PrimArray.BitTwiddle
                             Std.Data.PrimArray.UnalignedAccess
                             Std.Data.Array
                             Std.Data.Array.Checked
+                            -- Std.Data.Array.Compound
                             Std.Data.CBytes
 
                             Std.Data.Text
@@ -164,6 +166,8 @@ library
                             Std.Data.PrimSTRef.Base
 
                             Std.Data.LEON
+                            --Std.Data.JSON.Base
+                            Std.Data.JSON.Value
 
                             Std.Foreign.PrimArray
 
@@ -190,7 +194,6 @@ library
                         ,   ghc-prim  >= 0.5.3 && <= 0.5.4
                         ,   primitive >= 0.6.4 && <= 0.6.5
                         ,   exceptions == 0.10.*
-                        ,   word8      == 0.1.*
                         ,   scientific == 0.3.*
                         ,   hashable   == 1.2.*
                         ,   case-insensitive == 1.2.*

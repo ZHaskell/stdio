@@ -37,6 +37,9 @@ module Std.IO.Buffered
   , flushBuffer
     -- * Exceptions
   , ShortReadException(..)
+    -- * common buffer size
+  , V.defaultChunkSize
+  , V.smallChunkSize
   ) where
 
 import           Control.Concurrent.MVar
@@ -54,6 +57,7 @@ import qualified Std.Data.Builder.Base       as B
 import qualified Std.Data.Parser             as P
 import qualified Std.Data.Vector             as V
 import qualified Std.Data.Vector.Base        as V
+import qualified Std.Data.Text               as T
 import           Std.Data.PrimIORef
 import           Std.Foreign.PrimArray
 import           Std.IO.Exception
@@ -186,7 +190,7 @@ unReadBuffer pb' BufferedInput{..} = do
 -- | Result returned by 'readParser'.
 data ReadResult a
     = ReadSuccess  a        -- ^ read and parse successfully
-    | ReadFailure String    -- ^ parse failed
+    | ReadFailure P.ParseError    -- ^ parse failed
     | ReadEOF               -- ^ EOF reached
   deriving Show
 
@@ -198,7 +202,7 @@ readParser p i = do
     if V.null bs
     then return ReadEOF
     else do
-        (rest, r) <- P.parseChunks (readBuffer i) p bs
+        (rest, r) <- P.parseChunks p (readBuffer i) bs
         unless (V.null rest) $ unReadBuffer rest i
         case r of
             Left err -> return (ReadFailure err)

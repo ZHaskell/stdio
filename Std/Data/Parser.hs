@@ -22,17 +22,20 @@ You can use 'Alternative' instance to do backtracking, each branch will either s
 module Std.Data.Parser
   ( -- * Parser types
     Result(..)
+  , ParseError
   , Parser
+  , HasCallStack
+  , failWithStack
     -- * Running a parser
-  , parse, parse', parseChunk, parseChunks, finishParsing
-  , runAndKeepTrack
+  , parse, parse_, parseChunk, parseChunks, finishParsing
+  , runAndKeepTrack, match
     -- * Basic parsers
   , ensureN, endOfInput
     -- * Primitive decoders
   , decodePrim, decodePrimLE, decodePrimBE
     -- * More parsers
   , scan, scanChunks, peekMaybe, peek, satisfy, satisfyWith
-  , word8, anyWord8, endOfLine, skip, skipWhile, skipSpaces
+  , word8, char8, anyWord8, endOfLine, skip, skipWhile, skipSpaces
   , take, takeTill, takeWhile, takeWhile1, bytes, bytesCI
   , text
     -- * Numeric parsers
@@ -45,6 +48,13 @@ module Std.Data.Parser
   , float, double
   , scientific
   , scientifically
+    -- * Stricter fractional(rfc8259)
+  , rational'
+  , float', double'
+  , scientific'
+  , scientifically'
+    -- * Misc
+  , isSpace, isHexDigit, isDigit
   ) where
 
 import           Std.Data.Parser.Base

@@ -7,3 +7,6 @@
 [submodule "third_party/fastvalidate-utf-8"]
 	path = third_party/fastvalidate-utf-8
 	url = https://github.com/lemire/fastvalidate-utf-8.git
+[submodule "test/JSONTestSuite"]
+	path = test/JSONTestSuite
+	url = https://github.com/nst/JSONTestSuite.git

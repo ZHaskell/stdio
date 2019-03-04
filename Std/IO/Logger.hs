@@ -62,7 +62,6 @@ import Std.IO.StdStream
 import Std.IO.Buffered
 import System.IO.Unsafe (unsafePerformIO)
 import GHC.Stack
-import Data.Word8 (_space, _lf, _bracketleft, _bracketright)
 import Data.IORef
 import Control.Concurrent.MVar
 import qualified Std.Data.Builder.Base as B
@@ -192,11 +191,11 @@ otherLevelWith logger level flushNow b = case logger of
         ts <- if showts then tscache else return ""
         when showdebug $ do
             pushLog blist lbsiz $ do
-                B.encodePrim _bracketleft
+                B.char8 '['
                 level
-                B.encodePrim _bracketright
-                B.encodePrim _space
-                when showts $ ts >> B.encodePrim _space
+                B.char8 ']'
+                B.char8 ' '
+                when showts $ ts >> B.char8 ' '
                 b
-                B.encodePrim _lf
+                B.char8 '\n'
             if flushNow then flush else throttledFlush

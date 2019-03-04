@@ -75,6 +75,7 @@ module Std.IO.Exception
     -- * Re-exports
   , module Control.Exception
   , HasCallStack
+  , CallStack
   , callStack
   ) where
 

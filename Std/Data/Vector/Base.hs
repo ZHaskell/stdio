@@ -110,7 +110,6 @@ import           Data.Hashable.Lifted          (Hashable1(..), hashWithSalt1)
 import qualified Data.List                     as List
 import           Data.Maybe
 import           Data.Monoid                   (Monoid (..))
-import           Data.Word8                    (toLower)
 import qualified Data.CaseInsensitive          as CI
 import           Data.Primitive
 import           Data.Primitive.PrimArray
@@ -141,6 +140,8 @@ import           Std.Data.PrimArray.Cast
 
 -- | Typeclass for box and unboxed vectors, which are created by slicing arrays.
 --
+-- Instead of providing a generalized vector with polymorphric array field, we use this typeclass
+-- so that instances use concrete array type can unpack their array payload.
 class (Arr (MArray v) (IArray v) a) => Vec v a where
     -- | Vector's mutable array type
     type MArray v = (marr :: * -> * -> *) | marr -> v
@@ -447,7 +448,14 @@ instance (a ~ Word8) => IsString (PrimVector a) where
 
 instance CI.FoldCase Bytes where
     {-# INLINE foldCase #-}
-    foldCase = map toLower
+    foldCase = map toLower8
+      where
+        toLower8 :: Word8 -> Word8
+        toLower8 w
+          |  65 <= w && w <=  90 ||
+            192 <= w && w <= 214 ||
+            216 <= w && w <= 222 = w + 32
+          | otherwise            = w
 
 packASCII :: String -> Bytes
 {-# INLINE CONLIKE [1] packASCII #-}
