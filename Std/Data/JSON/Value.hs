@@ -84,11 +84,17 @@ parseValueChunks = P.parseChunks value
 
 --------------------------------------------------------------------------------
 
+-- | The only valid whitespace in a JSON document is space, newline,
+-- carriage return, and tab.
+skipSpaces :: Parser ()
+skipSpaces = P.skipWhile $ \ w -> w == 0x20 || w == 0x0a || w == 0x0d || w == 0x09
+{-# INLINE skipSpaces #-}
+
 -- | JSON 'Value' parser.
 value :: HasCallStack => P.Parser Value
 {-# INLINABLE value #-}
 value = do
-    P.skipSpaces
+    skipSpaces
     w <- P.peek
     case w of
         DOUBLE_QUOTE    -> P.anyWord8 *> (String <$> string_)
@@ -109,7 +115,7 @@ array = P.word8 OPEN_SQUARE *> array_
 array_ :: HasCallStack => P.Parser (V.Vector Value)
 {-# INLINABLE array_ #-}
 array_ = do
-    P.skipSpaces
+    skipSpaces
     w <- P.peek
     if w == CLOSE_SQUARE
     then P.anyWord8 $> V.empty
@@ -118,11 +124,11 @@ array_ = do
     loop :: [Value] -> Int -> P.Parser (V.Vector Value)
     loop acc !len = do
         !v <- value
-        P.skipSpaces
+        skipSpaces
         let acc' = v:acc
         ch <- P.satisfy $ \w -> w == COMMA || w == CLOSE_SQUARE
         if ch == COMMA
-        then P.skipSpaces *> loop acc' (len+1)
+        then skipSpaces *> loop acc' (len+1)
         else return $! V.packRN len acc'
 
 -- | parse json array with leading OPEN_CURLY.
@@ -134,7 +140,7 @@ object = P.word8 OPEN_CURLY *> object_
 object_ :: HasCallStack => P.Parser (V.Vector (FM.TextKV Value))
 {-# INLINABLE object_ #-}
 object_ = do
-    P.skipSpaces
+    skipSpaces
     w <- P.peek
     if w == CLOSE_CURLY
     then P.anyWord8 $> V.empty
@@ -143,14 +149,14 @@ object_ = do
     loop :: [FM.TextKV Value] -> Int -> P.Parser (V.Vector (FM.TextKV Value))
     loop acc !n = do
         !k <- string
-        P.skipSpaces
+        skipSpaces
         P.word8 COLON
         !v <- value
-        P.skipSpaces
+        skipSpaces
         let acc' = FM.TextKV k v : acc
         ch <- P.satisfy $ \w -> w == COMMA || w == CLOSE_CURLY
         if ch == COMMA
-        then P.skipSpaces *> loop acc' (n+1)
+        then skipSpaces *> loop acc' (n+1)
         else return $! V.packRN n acc'
 
 --------------------------------------------------------------------------------

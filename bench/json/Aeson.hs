@@ -24,7 +24,7 @@ main = do
             | otherwise = do
           hSeek h AbsoluteSeek 0
           let refill = B.hGet h blkSize
-          result <- parseWith refill json' =<< refill
+          result <- parseWith refill json =<< refill
           case result of
             Done _ _ -> loop (good+1) bad
             _        -> loop good (bad+1)

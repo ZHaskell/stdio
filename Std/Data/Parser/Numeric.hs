@@ -30,8 +30,7 @@ module Std.Data.Parser.Numeric
   , scientific'
   , scientifically'
     -- * Misc
-  , w2iHex
-  , w2iDec
+  , hexLoop
   , decLoop
   , isHexDigit
   , isDigit
@@ -65,7 +64,7 @@ import           Std.IO.Exception
 -- 'parse hex "0xFF" == Right (-1 :: Int8)'
 --
 hex :: (HasCallStack, Integral a, Bits a) => Parser a
-{-# INLINE hex #-}
+{-# INLINABLE hex #-}
 {-# SPECIALIZE INLINE hex :: HasCallStack => Parser Int    #-}
 {-# SPECIALIZE INLINE hex :: HasCallStack => Parser Int64  #-}
 {-# SPECIALIZE INLINE hex :: HasCallStack => Parser Int32  #-}
@@ -76,66 +75,53 @@ hex :: (HasCallStack, Integral a, Bits a) => Parser a
 {-# SPECIALIZE INLINE hex :: HasCallStack => Parser Word32 #-}
 {-# SPECIALIZE INLINE hex :: HasCallStack => Parser Word16 #-}
 {-# SPECIALIZE INLINE hex :: HasCallStack => Parser Word8  #-}
+{-# SPECIALIZE INLINE hex :: HasCallStack => Parser Integer #-}
 {-# SPECIALIZE INLINE hex :: HasCallStack => Parser IntPtr #-}
-hex = do
-    (V.Vec arr s l) <- P.takeWhile1 isHexDigit
-    return $! hexLoop arr s (l-1) 0
-  where
-    hexLoop arr !i !j !acc
-        | j == 0 = acc .|. w2iHex (A.indexPrimArray arr i)
-        | otherwise =
-            let acc' = acc .|. w2iHex (A.indexPrimArray arr i) `unsafeShiftL` (j*4)
-            in hexLoop arr (i+1) (j-1) acc'
+hex = hexLoop 0 <$> P.takeWhile1 isHexDigit
 
-w2iHex :: (Integral a) => Word8 -> a
-{-# INLINE w2iHex #-}
-w2iHex w
-    | w <= 57              = fromIntegral w - 48
-    | w <= 70   = fromIntegral w - 55
-    | w <= 102  = fromIntegral w - 87
+-- | decode hex digits sequence within an array.
+hexLoop :: (Integral a, Bits a)
+        => a    -- ^ accumulator, usually start from 0
+        -> V.Bytes
+        -> a
+{-# INLINE hexLoop #-}
+hexLoop = V.foldl' step
+  where
+    step a w = a `unsafeShiftL` 4 + fromIntegral (w2iHex w)
+    w2iHex w
+        | w <= 57   = w - 48
+        | w <= 70   = w - 55
+        | w <= 102  = w - 87
 
 -- | A fast digit predicate.
 isHexDigit :: Word8 -> Bool
-isHexDigit w = w - 48 <= 9 || w - 65 <= 5 || w - 97 <= 5
 {-# INLINE isHexDigit #-}
+isHexDigit w = w - 48 <= 9 || w - 65 <= 5 || w - 97 <= 5
 
 -- | Parse and decode an unsigned decimal number.
 uint :: (HasCallStack, Integral a) => Parser a
-{-# INLINE uint #-}
-{-# SPECIALIZE INLINE uint :: HasCallStack => Parser Int    #-}
-{-# SPECIALIZE INLINE uint :: HasCallStack => Parser Int64  #-}
-{-# SPECIALIZE INLINE uint :: HasCallStack => Parser Int32  #-}
-{-# SPECIALIZE INLINE uint :: HasCallStack => Parser Int16  #-}
-{-# SPECIALIZE INLINE uint :: HasCallStack => Parser Int8   #-}
-{-# SPECIALIZE INLINE uint :: HasCallStack => Parser Word   #-}
-{-# SPECIALIZE INLINE uint :: HasCallStack => Parser Word64 #-}
-{-# SPECIALIZE INLINE uint :: HasCallStack => Parser Word32 #-}
-{-# SPECIALIZE INLINE uint :: HasCallStack => Parser Word16 #-}
-{-# SPECIALIZE INLINE uint :: HasCallStack => Parser Word8  #-}
-uint = do
-    (V.Vec arr s l) <- P.takeWhile1 isDigit
-    return $! decLoop arr s (l-1) 0
+{-# INLINABLE uint #-}
+{-# SPECIALIZE uint :: HasCallStack => Parser Int    #-}
+{-# SPECIALIZE uint :: HasCallStack => Parser Int64  #-}
+{-# SPECIALIZE uint :: HasCallStack => Parser Int32  #-}
+{-# SPECIALIZE uint :: HasCallStack => Parser Int16  #-}
+{-# SPECIALIZE uint :: HasCallStack => Parser Int8   #-}
+{-# SPECIALIZE uint :: HasCallStack => Parser Word   #-}
+{-# SPECIALIZE uint :: HasCallStack => Parser Word64 #-}
+{-# SPECIALIZE uint :: HasCallStack => Parser Word32 #-}
+{-# SPECIALIZE uint :: HasCallStack => Parser Word16 #-}
+{-# SPECIALIZE uint :: HasCallStack => Parser Word8  #-}
+{-# SPECIALIZE uint :: HasCallStack => Parser Integer #-}
+uint = decLoop 0 <$> P.takeWhile1 isDigit
 
 -- | decode digits sequence within an array.
 decLoop :: Integral a
-        => A.PrimArray Word8    -- ^ the array
-        -> Int  -- ^ start offset
-        -> Int  -- ^ length
-        -> a    -- ^ accumulator, usually start from 0
+        => a    -- ^ accumulator, usually start from 0
+        -> V.Bytes
         -> a
 {-# INLINE decLoop #-}
-decLoop arr i j = go i
-  where
-    !end = i+j
-    go !i !acc
-        | i >= end = acc*10 + w2iDec (A.indexPrimArray arr i)
-        | otherwise =
-            let acc' = acc*10 + w2iDec (A.indexPrimArray arr i)
-            in go (i+1) acc'
-
-w2iDec :: (Integral a) => Word8 -> a
-{-# INLINE w2iDec #-}
-w2iDec w = fromIntegral w - 48
+decLoop = V.foldl' step
+  where step a w = a * 10 + fromIntegral (w - 48)
 
 -- | A fast digit predicate.
 isDigit :: Word8 -> Bool
@@ -145,17 +131,18 @@ isDigit w = w - 48 <= 9
 -- | Parse a decimal number with an optional leading @\'+\'@ or @\'-\'@ sign
 -- character.
 int :: (HasCallStack, Integral a) => Parser a
-{-# INLINE int #-}
-{-# SPECIALIZE INLINE int :: HasCallStack => Parser Int    #-}
-{-# SPECIALIZE INLINE int :: HasCallStack => Parser Int64  #-}
-{-# SPECIALIZE INLINE int :: HasCallStack => Parser Int32  #-}
-{-# SPECIALIZE INLINE int :: HasCallStack => Parser Int16  #-}
-{-# SPECIALIZE INLINE int :: HasCallStack => Parser Int8   #-}
-{-# SPECIALIZE INLINE int :: HasCallStack => Parser Word   #-}
-{-# SPECIALIZE INLINE int :: HasCallStack => Parser Word64 #-}
-{-# SPECIALIZE INLINE int :: HasCallStack => Parser Word32 #-}
-{-# SPECIALIZE INLINE int :: HasCallStack => Parser Word16 #-}
-{-# SPECIALIZE INLINE int :: HasCallStack => Parser Word8  #-}
+{-# INLINABLE int #-}
+{-# SPECIALIZE int :: HasCallStack => Parser Int    #-}
+{-# SPECIALIZE int :: HasCallStack => Parser Int64  #-}
+{-# SPECIALIZE int :: HasCallStack => Parser Int32  #-}
+{-# SPECIALIZE int :: HasCallStack => Parser Int16  #-}
+{-# SPECIALIZE int :: HasCallStack => Parser Int8   #-}
+{-# SPECIALIZE int :: HasCallStack => Parser Word   #-}
+{-# SPECIALIZE int :: HasCallStack => Parser Word64 #-}
+{-# SPECIALIZE int :: HasCallStack => Parser Word32 #-}
+{-# SPECIALIZE int :: HasCallStack => Parser Word16 #-}
+{-# SPECIALIZE int :: HasCallStack => Parser Word8  #-}
+{-# SPECIALIZE int :: HasCallStack => Parser Integer #-}
 int = do
     w <- P.peek
     if w == MINUS
@@ -235,10 +222,9 @@ scientifically h = do
     !intPart <- uint
     -- backtrace here is neccessary to avoid eating dot or e
     -- attoparsec is doing it wrong here: https://github.com/bos/attoparsec/issues/112
-    !sci <- (do (V.Vec arr s l) <- P.word8 DOT *> P.takeWhile1 isDigit
-                let !intPart' = intPart * (10 ^ l)
-                    !fracPart = decLoop arr s (l-1) 0
-                parseE (intPart' + fracPart) l
+    !sci <- (do fracPartBs <- P.word8 DOT *> P.takeWhile1 isDigit
+                let !intPart' = decLoop intPart fracPartBs
+                parseE intPart' (V.length fracPartBs)
             ) <|> (parseE intPart 0)
 
     if sign /= MINUS then return $! h sci else return $! h (negate sci)
@@ -316,6 +302,7 @@ scientific' = scientifically' id
 --
 -- The syntax accepted by this parser is the same as for 'double''.
 scientifically' :: HasCallStack => (Sci.Scientific -> a) -> P.Parser a
+{-# INLINE scientifically' #-}
 scientifically' h = do
     sign <- P.peek
     when (sign == MINUS) (void $ P.anyWord8) -- no leading plus is allowed
@@ -323,10 +310,9 @@ scientifically' h = do
     mdot <- P.peekMaybe
     !sci <- case mdot of
         Just DOT -> do
-            (V.Vec arr s l) <- P.anyWord8 *> P.takeWhile1 isDigit
-            let !intPart' = intPart * (10 ^ l)
-                !fracPart = decLoop arr s (l-1) 0
-            parseE (intPart' + fracPart) l
+            fracPartBs <- P.anyWord8 *> P.takeWhile1 isDigit
+            let !intPart' = decLoop intPart fracPartBs
+            parseE intPart' (V.length fracPartBs)
         _ -> parseE intPart 0
     if sign /= MINUS then return $! h sci else return $! h (negate sci)
   where

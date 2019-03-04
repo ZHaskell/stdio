@@ -492,6 +492,7 @@ skipSpaces :: Parser ()
 {-# INLINE skipSpaces #-}
 skipSpaces = skipWhile isSpace
 
+-- | @isSpace w = w == 32 || w - 9 <= 4 || w == 0xA0@
 isSpace :: Word8 -> Bool
 {-# INLINE isSpace #-}
 isSpace w = w == 32 || w - 9 <= 4 || w == 0xA0
