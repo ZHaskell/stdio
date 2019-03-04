@@ -86,7 +86,7 @@ parseValueChunks = P.parseChunks value
 
 -- | The only valid whitespace in a JSON document is space, newline,
 -- carriage return, and tab.
-skipSpaces :: Parser ()
+skipSpaces :: P.Parser ()
 skipSpaces = P.skipWhile $ \ w -> w == 0x20 || w == 0x0a || w == 0x0d || w == 0x09
 {-# INLINE skipSpaces #-}
 
@@ -122,14 +122,14 @@ array_ = do
     else loop [] 1
   where
     loop :: [Value] -> Int -> P.Parser (V.Vector Value)
-    loop acc !len = do
+    loop acc !n = do
         !v <- value
         skipSpaces
         let acc' = v:acc
         ch <- P.satisfy $ \w -> w == COMMA || w == CLOSE_SQUARE
         if ch == COMMA
-        then skipSpaces *> loop acc' (len+1)
-        else return $! V.packRN len acc'
+        then skipSpaces *> loop acc' (n+1)
+        else return $! V.packRN n acc'
 
 -- | parse json array with leading OPEN_CURLY.
 object :: HasCallStack => P.Parser (V.Vector (FM.TextKV Value))
