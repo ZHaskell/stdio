@@ -10,3 +10,6 @@
 [submodule "test/JSONTestSuite"]
 	path = test/JSONTestSuite
 	url = https://github.com/nst/JSONTestSuite.git
+[submodule "bench/json/nativejson-benchmark"]
+	path = bench/json/nativejson-benchmark
+	url = https://github.com/miloyip/nativejson-benchmark.git

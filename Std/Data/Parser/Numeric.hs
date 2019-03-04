@@ -40,6 +40,7 @@ import           Control.Applicative
 import           Control.Monad
 import           Data.Bits
 import           Data.Int
+import qualified Data.Primitive.PrimArray  as A
 import qualified Data.Scientific          as Sci
 import           Data.Word
 import           Foreign.Ptr              (IntPtr)
@@ -48,6 +49,8 @@ import qualified Std.Data.Parser.Base     as P
 import qualified Std.Data.Vector.Base     as V
 import qualified Std.Data.Vector.Extra    as V
 import           Std.IO.Exception
+
+#include "MachDeps.h"
 
 #define PLUS     43
 #define MINUS    45
@@ -113,14 +116,31 @@ uint :: (HasCallStack, Integral a) => Parser a
 {-# SPECIALIZE uint :: HasCallStack => Parser Integer #-}
 uint = decLoop 0 <$> P.takeWhile1 isDigit
 
+#if WORD_SIZE_IN_BITS == 64
+#define INT_MAX_DIGIT_LEN 18
+#elif WORD_SIZE_IN_BITS == 32
+#define INT_MAX_DIGIT_LEN 9
+#endif
+
 -- | decode digits sequence within an array.
 decLoop :: Integral a
         => a    -- ^ accumulator, usually start from 0
         -> V.Bytes
         -> a
 {-# INLINE decLoop #-}
-decLoop = V.foldl' step
-  where step a w = a * 10 + fromIntegral (w - 48)
+decLoop a bs@(V.PrimVector arr s l)
+#ifdef INT_MAX_DIGIT_LEN
+    | l <= INT_MAX_DIGIT_LEN = go (fromIntegral a) s
+#endif
+    | otherwise = V.foldl' step a bs
+  where
+    step a w = a * 10 + fromIntegral (w - 48)
+    end = s + l
+    go :: Integral a => Word -> Int -> a
+    go !acc !i
+        | i >= end = fromIntegral acc
+        | otherwise = go (acc*10 + fromIntegral (A.indexPrimArray arr i - 48)) (i+1)
+
 
 -- | A fast digit predicate.
 isDigit :: Word8 -> Bool
@@ -217,21 +237,21 @@ scientifically :: HasCallStack => (Sci.Scientific -> a) -> Parser a
 {-# INLINE scientifically #-}
 scientifically h = do
     !sign <- P.peek
-    when (sign == PLUS || sign == MINUS) (void $ P.anyWord8)
+    when (sign == PLUS || sign == MINUS) (void P.anyWord8)
     !intPart <- uint
     -- backtrace here is neccessary to avoid eating dot or e
     -- attoparsec is doing it wrong here: https://github.com/bos/attoparsec/issues/112
     !sci <- (do fracPartBs <- P.word8 DOT *> P.takeWhile1 isDigit
                 let !intPart' = decLoop intPart fracPartBs
                 parseE intPart' (V.length fracPartBs)
-            ) <|> (parseE intPart 0)
+            ) <|> parseE intPart 0
 
-    if sign /= MINUS then return $! h sci else return $! h (negate sci)
+    return $! if sign /= MINUS then h sci else h (negate sci)
   where
     {-# INLINE parseE #-}
     parseE c e =
         (do _ <- P.satisfy (\w -> w ==  LITTLE_E || w == BIG_E)
-            (Sci.scientific c . (subtract e) <$> int)) <|> return (Sci.scientific c (negate e))
+            Sci.scientific c . subtract e <$> int) <|> return (Sci.scientific c (negate e))
 
 --------------------------------------------------------------------------------
 
@@ -304,23 +324,21 @@ scientifically' :: HasCallStack => (Sci.Scientific -> a) -> P.Parser a
 {-# INLINE scientifically' #-}
 scientifically' h = do
     sign <- P.peek
-    when (sign == MINUS) (void $ P.anyWord8) -- no leading plus is allowed
+    when (sign == MINUS) (void P.anyWord8) -- no leading plus is allowed
     !intPart <- uint
     mdot <- P.peekMaybe
     !sci <- case mdot of
         Just DOT -> do
             fracPartBs <- P.anyWord8 *> P.takeWhile1 isDigit
-            let !intPart' = decLoop intPart fracPartBs
+            let intPart' = decLoop intPart fracPartBs
             parseE intPart' (V.length fracPartBs)
         _ -> parseE intPart 0
-    if sign /= MINUS then return $! h sci else return $! h (negate sci)
+    return $! if sign /= MINUS then h sci else h (negate sci)
   where
     {-# INLINE parseE #-}
-    parseE c exp = do
+    parseE !c !exp = do
         me <- P.peekMaybe
-        case me of
-            Just e | e == LITTLE_E || e == BIG_E -> do
-                _ <- P.anyWord8
-                exp' <- int
-                return (Sci.scientific c (exp' - exp))
-            _ -> return (Sci.scientific c (negate exp))
+        exp' <- case me of
+            Just e | e == LITTLE_E || e == BIG_E -> P.anyWord8 *> int
+            _ -> return 0
+        return $! Sci.scientific c (exp' - exp)
