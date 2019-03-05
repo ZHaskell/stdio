@@ -51,8 +51,8 @@ import           System.IO.Unsafe         (unsafeDupablePerformIO)
 -- The 'Object''s payload is a key-value vector instead of a map, which parsed
 -- directly from JSON document. This design choice has following advantages:
 --
---    * Different strategy handling duplicated keys.
---    * Different 'Map' type to do further parsing, e.g. 'FM.FlatMap' from stdio.
+--    * Allow different strategies handling duplicated keys.
+--    * Allow different 'Map' type to do further parsing, e.g. 'FM.FlatMap' from stdio.
 --    * Roundtrip without touching the original key-value order.
 --    * Save time if constructing map is not neccessary, e.g.
 --      using a linear scan to find a key if only that key is needed.
@@ -87,8 +87,10 @@ parseValueChunks = P.parseChunks value
 -- | The only valid whitespace in a JSON document is space, newline,
 -- carriage return, and tab.
 skipSpaces :: P.Parser ()
-skipSpaces = P.skipWhile $ \ w -> w == 0x20 || w == 0x0a || w == 0x0d || w == 0x09
 {-# INLINE skipSpaces #-}
+skipSpaces = P.skipWhile (\ w ->
+    w <= 0x20 && (w == 0x20 || w == 0x0a || w == 0x0d || w == 0x09))
+    -- fast path for non-whitespace
 
 -- | JSON 'Value' parser.
 value :: HasCallStack => P.Parser Value
@@ -119,7 +121,7 @@ array_ = do
     w <- P.peek
     if w == CLOSE_SQUARE
     then P.anyWord8 $> V.empty
-    else loop [] 1
+    else loop [] 0
   where
     loop :: [Value] -> Int -> P.Parser (V.Vector Value)
     loop acc !n = do
@@ -144,7 +146,7 @@ object_ = do
     w <- P.peek
     if w == CLOSE_CURLY
     then P.anyWord8 $> V.empty
-    else loop [] 1
+    else loop [] 0
  where
     loop :: [FM.TextKV Value] -> Int -> P.Parser (V.Vector (FM.TextKV Value))
     loop acc !n = do

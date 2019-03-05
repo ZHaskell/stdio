@@ -10,7 +10,7 @@ var start = new Date().getTime()
 filenames.map(function(filename){
     for (var n=0; n < parseInt(count); n++){
         var inp = fs.readFileSync(filename)
-        r = JSON.parse(inp)
+        JSON.parse(inp)
     }
 });
 

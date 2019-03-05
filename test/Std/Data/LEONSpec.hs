@@ -44,24 +44,24 @@ spec :: Spec
 spec = describe "LEON instance roundtrip" . modifyMaxSuccess (*10) . modifyMaxSize (*10) $ do
     prop "Test1 roundtrip" $ \ a b c d e f g h i j ->
         let t = Test1 a b c d e f g h i j
-        in P.parse LEON.decode (B.buildBytes $ LEON.encode t) === Right t
+        in P.parse_ LEON.decode (B.buildBytes $ LEON.encode t) === Right t
 
     prop "Test2 roundtrip" $ \ a b c d  ->
         let t = Test2 (LEON.BE a) (LEON.BE b) (LEON.BE c) (LEON.BE d)
-        in P.parse LEON.decode (B.buildBytes $ LEON.encode t) === Right t
+        in P.parse_ LEON.decode (B.buildBytes $ LEON.encode t) === Right t
 
     prop "Test3 roundtrip" $ \ a b (Positive c) ->
         let t = if a then Test3Integer b else Test3Natural (fromIntegral (c :: Integer))
-        in P.parse LEON.decode (B.buildBytes $ LEON.encode t) === Right t
+        in P.parse_ LEON.decode (B.buildBytes $ LEON.encode t) === Right t
 
     prop "Test4 roundtrip" $ \ xs ->
         let t = Test4 xs
-        in P.parse LEON.decode (B.buildBytes $ LEON.encode t) === Right t
+        in P.parse_ LEON.decode (B.buildBytes $ LEON.encode t) === Right t
 
     prop "Test5 roundtrip" $ \ a b ->
         let t = Test5 a b
-        in P.parse LEON.decode (B.buildBytes $ LEON.encode t) === Right t
+        in P.parse_ LEON.decode (B.buildBytes $ LEON.encode t) === Right t
 
     prop "Test6 roundtrip" $ \ xs ys zs ts bs ->
         let t = Test6 (V.pack xs) (V.pack ys) (V.pack zs) (T.pack ts) (CB.pack bs)
-        in P.parse LEON.decode (B.buildBytes $ LEON.encode t) === Right t
+        in P.parse_ LEON.decode (B.buildBytes $ LEON.encode t) === Right t

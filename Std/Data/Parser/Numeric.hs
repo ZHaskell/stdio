@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE CPP #-}
 
 {-|
@@ -50,7 +51,7 @@ import qualified Std.Data.Vector.Base     as V
 import qualified Std.Data.Vector.Extra    as V
 import           Std.IO.Exception
 
-#include "MachDeps.h"
+#define WORD64_MAX_DIGITS_LEN 18
 
 #define PLUS     43
 #define MINUS    45
@@ -116,30 +117,14 @@ uint :: (HasCallStack, Integral a) => Parser a
 {-# SPECIALIZE uint :: HasCallStack => Parser Integer #-}
 uint = decLoop 0 <$> P.takeWhile1 isDigit
 
-#if WORD_SIZE_IN_BITS == 64
-#define INT_MAX_DIGIT_LEN 18
-#elif WORD_SIZE_IN_BITS == 32
-#define INT_MAX_DIGIT_LEN 9
-#endif
-
 -- | decode digits sequence within an array.
 decLoop :: Integral a
         => a    -- ^ accumulator, usually start from 0
         -> V.Bytes
         -> a
 {-# INLINE decLoop #-}
-decLoop a bs@(V.PrimVector arr s l)
-#ifdef INT_MAX_DIGIT_LEN
-    | l <= INT_MAX_DIGIT_LEN = go (fromIntegral a) s
-#endif
-    | otherwise = V.foldl' step a bs
-  where
-    step a w = a * 10 + fromIntegral (w - 48)
-    end = s + l
-    go :: Integral a => Word -> Int -> a
-    go !acc !i
-        | i >= end = fromIntegral acc
-        | otherwise = go (acc*10 + fromIntegral (A.indexPrimArray arr i - 48)) (i+1)
+decLoop a bs@(V.PrimVector arr s l) = V.foldl' step a bs
+  where step a w = a * 10 + fromIntegral (w - 48)
 
 
 -- | A fast digit predicate.
@@ -232,19 +217,38 @@ scientific = scientifically id
 -- | Parse a scientific number and convert to result using a user supply function.
 --
 -- The syntax accepted by this parser is the same as for 'double'.
---
 scientifically :: HasCallStack => (Sci.Scientific -> a) -> Parser a
 {-# INLINE scientifically #-}
 scientifically h = do
     !sign <- P.peek
     when (sign == PLUS || sign == MINUS) (void P.anyWord8)
-    !intPart <- uint
+    !intPart <- P.takeWhile1 isDigit
     -- backtrace here is neccessary to avoid eating dot or e
     -- attoparsec is doing it wrong here: https://github.com/bos/attoparsec/issues/112
-    !sci <- (do fracPartBs <- P.word8 DOT *> P.takeWhile1 isDigit
-                let !intPart' = decLoop intPart fracPartBs
-                parseE intPart' (V.length fracPartBs)
-            ) <|> parseE intPart 0
+    !sci <- (do
+        fracPart <- P.word8 DOT *> P.takeWhile1 isDigit
+        let !ilen = V.length intPart
+            !flen = V.length fracPart
+            !base =
+                if ilen + flen <= WORD64_MAX_DIGITS_LEN
+                then fromIntegral (decLoop @Word64 (decLoop @Word64 0 intPart) fracPart)
+                else
+                    let int =
+                            if ilen <= WORD64_MAX_DIGITS_LEN
+                            then fromIntegral (decLoop @Word64 0 intPart)
+                            else decLoop @Integer 0 intPart
+                        frac =
+                            if flen <= WORD64_MAX_DIGITS_LEN
+                            then fromIntegral (decLoop @Word64 0 fracPart)
+                            else decLoop @Integer 0 fracPart
+                    in int * 10 ^ flen + frac
+        parseE base flen) <|> (do
+        let !ilen = V.length intPart
+            !base =
+                if ilen <= WORD64_MAX_DIGITS_LEN
+                then fromIntegral (decLoop @Word64 0 intPart)
+                else decLoop @Integer 0 intPart
+        parseE base 0)
 
     return $! if sign /= MINUS then h sci else h (negate sci)
   where
@@ -325,14 +329,36 @@ scientifically' :: HasCallStack => (Sci.Scientific -> a) -> P.Parser a
 scientifically' h = do
     sign <- P.peek
     when (sign == MINUS) (void P.anyWord8) -- no leading plus is allowed
-    !intPart <- uint
+    !intPart <- P.takeWhile1 isDigit
     mdot <- P.peekMaybe
     !sci <- case mdot of
         Just DOT -> do
-            fracPartBs <- P.anyWord8 *> P.takeWhile1 isDigit
-            let intPart' = decLoop intPart fracPartBs
-            parseE intPart' (V.length fracPartBs)
-        _ -> parseE intPart 0
+            !fracPart <- P.anyWord8 *> P.takeWhile1 isDigit
+            -- during number parsing we want to use machine word as much as possible
+            -- so as long as range permit, we use Word64 instead of final Integer
+            let !ilen = V.length intPart
+                !flen = V.length fracPart
+                !base =
+                    if ilen + flen <= WORD64_MAX_DIGITS_LEN
+                    then fromIntegral (decLoop @Word64 (decLoop @Word64 0 intPart) fracPart)
+                    else
+                        let int =
+                                if ilen <= WORD64_MAX_DIGITS_LEN
+                                then fromIntegral (decLoop @Word64 0 intPart)
+                                else decLoop @Integer 0 intPart
+                            frac =
+                                if flen <= WORD64_MAX_DIGITS_LEN
+                                then fromIntegral (decLoop @Word64 0 fracPart)
+                                else decLoop @Integer 0 fracPart
+                        in int * 10 ^ flen + frac
+            parseE base flen
+        _ ->
+            let !ilen = V.length intPart
+                !base =
+                    if ilen <= WORD64_MAX_DIGITS_LEN
+                    then fromIntegral (decLoop @Word64 0 intPart)
+                    else decLoop @Integer 0 intPart
+            in parseE base 0
     return $! if sign /= MINUS then h sci else h (negate sci)
   where
     {-# INLINE parseE #-}

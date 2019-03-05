@@ -153,7 +153,6 @@ HsInt decode_json_string(char *dest, const char *src, HsInt srcoff, HsInt srclen
     const char *s      = src + srcoff;
     const char *srcend = s + srclen;
 
-    HsInt dlen;
     uint32_t state = UTF8_ACCEPT;
     unsigned char cur_byte;
 
@@ -185,9 +184,8 @@ standard:
             *d++ = cur_byte;
         }
     }
-    dlen = d - dest;
     // Exit point, use sign bit to indicate utf8 validation error
-    return (state == UTF8_ACCEPT) ? dlen : (-dlen);
+    return (state == UTF8_ACCEPT) ? (d - dest) : (dest - d);
 
 backslash:
     switch (cur_byte) {

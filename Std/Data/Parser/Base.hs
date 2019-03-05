@@ -86,7 +86,15 @@ data Result a
     | Failure !V.Bytes ParseError
     | Partial (V.Bytes -> Result a)
 
-data ParseError = ParseError { parserStack :: CallStack, parserError :: T.Text } deriving Typeable
+data ParseError = ParseError
+    { parserStack :: CallStack
+    , parserError :: T.Text
+    } deriving Typeable
+
+-- | This instance is for testing so that @Eq a => Eq (Either ParseError a)@
+instance Eq ParseError where
+    (ParseError cs1 msg1) == (ParseError cs2 msg2) =
+        (getCallStack cs1) == (getCallStack cs2) && msg1 == msg2
 
 instance Show ParseError where
     show (ParseError stack err) =
@@ -230,7 +238,7 @@ match p = do
     (r, bss) <- runAndKeepTrack p
     Parser (\ k _ ->
         case r of
-            Success input' r'  -> let consumed = V.dropR (V.length input') (V.concat (reverse bss))
+            Success input' r'  -> let !consumed = V.dropR (V.length input') (V.concat (reverse bss))
                                   in k (consumed , r') input'
             Failure input' err -> Failure input' err
             Partial k          -> error "Std.Data.Parser.Base: impossible")
@@ -246,7 +254,7 @@ ensureN n0 = Parser $ \ ks input -> do
     then ks () input
     else Partial (go n0 ks [input] l)
   where
-    go n0 ks acc l = \ !input' -> do
+    go n0 ks acc l = \ input' -> do
         let l' = V.length input'
         if l' == 0
         then Failure
@@ -257,7 +265,7 @@ ensureN n0 = Parser $ \ ks input -> do
             if l'' < n0
             then Partial (go n0 ks (input':acc) l'')
             else do
-                let input'' = V.concat (reverse (input':acc))
+                let !input'' = V.concat (reverse (input':acc))
                 ks () input''
 
 -- | Test whether all input has been consumed, i.e. there are no remaining
@@ -459,14 +467,14 @@ skip n =
     Parser (\ k inp ->
         let l = V.length inp
         in if l >= n'
-            then k () (V.unsafeDrop n' inp)
+            then k () $! V.unsafeDrop n' inp
             else Partial (go k (n'-l)))
   where
     !n' = max n 0
     go k !n inp =
         let l = V.length inp
         in if l >= n'
-            then k () (V.unsafeDrop n' inp)
+            then k () $! V.unsafeDrop n' inp
             else if l == 0
                 then Failure inp (ParseError callStack "not enough bytes")
                 else Partial (go k (n'-l))
@@ -483,8 +491,8 @@ skipWhile p =
             else k () rest)
   where
     go k p inp =
-        let rest = V.dropWhile p inp    -- If we ever enter 'Partial', empty input
-        in k () rest                    -- means 'endOfInput'
+        let !rest = V.dropWhile p inp   -- If we ever enter 'Partial', empty input
+        in k () rest                    -- means 'endOfInput', so just feed () to k
 
 -- | Skip over white space using 'isSpace'.
 --
@@ -500,8 +508,12 @@ isSpace w = w == 32 || w - 9 <= 4 || w == 0xA0
 take :: HasCallStack => Int -> Parser V.Bytes
 {-# INLINE take #-}
 take n = do
-    ensureN (max 0 n)  -- we use unsafe slice, guard negative n here
-    Parser (\ k inp -> k (V.unsafeTake n inp) (V.unsafeDrop n inp))
+    ensureN n' -- we use unsafe slice, guard negative n here
+    Parser (\ k inp ->
+        let !r = V.unsafeTake n' inp
+            !inp' = V.unsafeDrop n' inp
+        in k r inp')
+  where !n' = max 0 n
 
 -- | Consume input as long as the predicate returns 'False' or reach the end of input,
 -- and return the consumed input.
@@ -516,13 +528,13 @@ takeTill p = Parser (\ k inp ->
   where
     go k acc inp =
         if V.null inp
-        then k (V.concat (reverse acc)) inp
+        then let !r = V.concat (reverse acc) in k r inp
         else
             let (want, rest) = V.break p inp
                 acc' = want : acc
             in if V.null rest
                 then Partial (go k acc')
-                else k (V.concat (reverse acc')) rest
+                else let !r = V.concat (reverse acc') in k r rest
 
 -- | Consume input as long as the predicate returns 'True' or reach the end of input,
 -- and return the consumed input.
@@ -537,13 +549,13 @@ takeWhile p = Parser (\ k inp ->
   where
     go k acc inp =
         if V.null inp
-        then k (V.concat (reverse acc)) inp
+        then let !r = V.concat (reverse acc) in k r inp
         else
             let (want, rest) = V.span p inp
                 acc' = want : acc
             in if V.null rest
                 then Partial (go k acc')
-                else k (V.concat (reverse acc')) rest
+                else let !r = V.concat (reverse acc') in k r rest
 
 -- | Similar to 'takeWhile', but requires the predicate to succeed on at least one byte
 -- of input: it will fail if the predicate never returns 'True' or reach the end of input
@@ -562,8 +574,8 @@ bytes bs = do
     let n = V.length bs
     ensureN n
     Parser (\ k inp ->
-        if bs == (V.unsafeTake n inp)
-        then k () (V.unsafeDrop n inp)
+        if bs == V.unsafeTake n inp
+        then k () $! V.unsafeDrop n inp
         else Failure inp (ParseError callStack "mismatch bytes"))
 
 
@@ -575,7 +587,7 @@ bytesCI bs = do
     ensureN n   -- casefold an ASCII string should not change it's length
     Parser (\ k inp ->
         if bs' == CI.foldCase (V.unsafeTake n inp)
-        then k () (V.unsafeDrop n inp)
+        then k () $! V.unsafeDrop n inp
         else Failure inp (ParseError callStack "mismatch bytes"))
   where
     bs' = CI.foldCase bs

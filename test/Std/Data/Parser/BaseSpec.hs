@@ -20,12 +20,12 @@ import           Test.Hspec.QuickCheck
 
 
 parse' :: P.Parser a -> [Word8] -> Maybe a
-parse' p str = case P.parse p (V.pack str) of
+parse' p str = case P.parse_ p (V.pack str) of
     Left msg -> Nothing
     Right a  -> Just a
 
 parse'' :: P.Parser a -> [Word8] -> Maybe (V.Bytes, a)
-parse'' p str = case P.parse' p (V.pack str) of
+parse'' p str = case P.parse p (V.pack str) of
     (rest, Right a)  -> Just (rest, a)
     _                -> Nothing
 
@@ -109,7 +109,7 @@ spec = describe "parsers" . modifyMaxSuccess (*10) . modifyMaxSize (*10)  $ do
         prop "scan" $ \ s l ->
             let go l  _ | l <= 0    = Nothing
                         | otherwise = Just (l-1)
-            in parse' (P.scan l go) s === Just (V.pack $ L.take l s)
+            in (fst <$> parse' (P.scan l go) s) === Just (V.pack $ L.take l s)
 
         prop "endOfLine" $ \ s ->
             let r = fromIntegral (fromEnum '\r')
