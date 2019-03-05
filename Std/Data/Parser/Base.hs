@@ -248,25 +248,25 @@ match p = do
 -- computation will escape with 'Partial'.
 ensureN :: HasCallStack => Int -> Parser ()
 {-# INLINE ensureN #-}
-ensureN n0 = Parser $ \ ks input -> do
+ensureN n0 = Parser $ \ k input -> do
     let l = V.length input
     if l >= n0
-    then ks () input
-    else Partial (go n0 ks [input] l)
-  where
-    go !n0 ks acc !l = \ inp -> do
-        let l' = V.length inp
-        if l' == 0
-        then Failure
-            (V.concat (reverse (inp:acc)))
-            (ParseError callStack "not enough bytes")
-        else do
-            let l'' = l + l'
-            if l'' < n0
-            then Partial (go n0 ks (inp:acc) l'')
-            else do
-                let !inp' = V.concat (reverse (inp:acc))
-                ks () inp'
+    then k () input
+    else
+        let go acc !l = \ inp -> do
+                let l' = V.length inp
+                if l' == 0
+                then Failure
+                    (V.concat (reverse (inp:acc)))
+                    (ParseError callStack "not enough bytes")
+                else do
+                    let l'' = l + l'
+                    if l'' < n0
+                    then Partial (go (inp:acc) l'')
+                    else
+                        let !inp' = V.concat (reverse (inp:acc))
+                        in k () inp'
+        in Partial (go [input] l)
 
 -- | Test whether all input has been consumed, i.e. there are no remaining
 -- undecoded bytes.
@@ -358,17 +358,17 @@ scanChunks :: s -> (s -> V.Bytes -> Either s (V.Bytes, V.Bytes, s)) -> Parser (V
 scanChunks s consume = Parser (\ k inp ->
     case consume s inp of
         Right (want, rest, s') -> k (want, s') rest
-        Left s' -> Partial (go consume s' [inp] k))
-  where
-    go consume s acc k = \ inp ->
-        if V.null inp
-        then k (V.concat (reverse acc), s) inp
-        else case consume s inp of
-                Left s' -> do
-                    let acc' = inp : acc
-                    Partial (go consume s' acc' k)
-                Right (want,rest,s') ->
-                    k (V.concat (reverse (want:acc)), s') rest
+        Left s' ->
+            let go s acc = \ inp ->
+                    if V.null inp
+                    then k (V.concat (reverse acc), s) inp
+                    else case consume s inp of
+                            Left s' -> do
+                                let acc' = inp : acc
+                                Partial (go s' acc')
+                            Right (want,rest,s') ->
+                                k (V.concat (reverse (want:acc)), s') rest
+            in Partial (go s' [inp]))
 
 --------------------------------------------------------------------------------
 
@@ -466,18 +466,18 @@ skip :: HasCallStack => Int -> Parser ()
 skip n =
     Parser (\ k inp ->
         let l = V.length inp
+            !n' = max n 0
         in if l >= n'
             then k () $! V.unsafeDrop n' inp
-            else Partial (go k (n'-l)))
-  where
-    !n' = max n 0
-    go k !n = \ inp ->
-        let l = V.length inp
-        in if l >= n'
-            then k () $! V.unsafeDrop n' inp
-            else if l == 0
-                then Failure inp (ParseError callStack "not enough bytes")
-                else Partial (go k (n'-l))
+            else
+                let go !n = \ inp ->
+                        let l = V.length inp
+                        in if l >= n'
+                            then k () $! V.unsafeDrop n' inp
+                            else if l == 0
+                                then Failure inp (ParseError callStack "not enough bytes")
+                                else Partial (go (n'-l))
+                in Partial (go (n'-l)))
 
 -- | Skip past input for as long as the predicate returns 'True'.
 --
@@ -487,17 +487,15 @@ skipWhile p =
     Parser (\ k inp ->
         let rest = V.dropWhile p inp
         in if V.null rest
-            then Partial (go k p)
+            then
+                let go = \ inp ->
+                        if V.null inp
+                        then k () inp
+                        else
+                            let !rest = V.dropWhile p inp
+                            in if V.null rest then Partial go else k () rest
+                in Partial go
             else k () rest)
-  where
-    go k p = \ inp ->
-        if V.null inp
-        then k () inp
-        else
-            let !rest = V.dropWhile p inp
-            in if V.null rest
-                then Partial (go k p)
-                else k () rest
 
 -- | Skip over white space using 'isSpace'.
 --
@@ -528,18 +526,18 @@ takeTill :: (Word8 -> Bool) -> Parser V.Bytes
 takeTill p = Parser (\ k inp ->
     let (want, rest) = V.break p inp
     in if V.null rest
-        then Partial (go p k [want])
+        then
+            let go acc = \ inp ->
+                    if V.null inp
+                    then let !r = V.concat (reverse acc) in k r inp
+                    else
+                        let (want, rest) = V.break p inp
+                            acc' = want : acc
+                        in if V.null rest
+                            then Partial (go acc')
+                            else let !r = V.concat (reverse acc') in k r rest
+            in Partial (go [want])
         else k want rest)
-  where
-    go p k acc = \ inp ->
-        if V.null inp
-        then let !r = V.concat (reverse acc) in k r inp
-        else
-            let (want, rest) = V.break p inp
-                acc' = want : acc
-            in if V.null rest
-                then Partial (go p k acc')
-                else let !r = V.concat (reverse acc') in k r rest
 
 -- | Consume input as long as the predicate returns 'True' or reach the end of input,
 -- and return the consumed input.
@@ -549,18 +547,18 @@ takeWhile :: (Word8 -> Bool) -> Parser V.Bytes
 takeWhile p = Parser (\ k inp ->
     let (want, rest) = V.span p inp
     in if V.null rest
-        then Partial (go p k [want])
+        then
+            let go acc = \ inp ->
+                    if V.null inp
+                    then let !r = V.concat (reverse acc) in k r inp
+                    else
+                        let (want, rest) = V.span p inp
+                            acc' = want : acc
+                        in if V.null rest
+                            then Partial (go acc')
+                            else let !r = V.concat (reverse acc') in k r rest
+            in Partial (go [want])
         else k want rest)
-  where
-    go p k acc = \ inp ->
-        if V.null inp
-        then let !r = V.concat (reverse acc) in k r inp
-        else
-            let (want, rest) = V.span p inp
-                acc' = want : acc
-            in if V.null rest
-                then Partial (go p k acc')
-                else let !r = V.concat (reverse acc') in k r rest
 
 -- | Similar to 'takeWhile', but requires the predicate to succeed on at least one byte
 -- of input: it will fail if the predicate never returns 'True' or reach the end of input

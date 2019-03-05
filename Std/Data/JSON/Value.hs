@@ -121,7 +121,7 @@ array_ = do
     w <- P.peek
     if w == CLOSE_SQUARE
     then P.skip 1 $> V.empty
-    else loop [] 0
+    else loop [] 1
   where
     loop :: [Value] -> Int -> P.Parser (V.Vector Value)
     loop acc !n = do
@@ -131,7 +131,7 @@ array_ = do
         ch <- P.satisfy $ \w -> w == COMMA || w == CLOSE_SQUARE
         if ch == COMMA
         then skipSpaces *> loop acc' (n+1)
-        else return $! V.packRN n acc'
+        else return $! V.packRN n acc'  -- n start from 1, so no need to +1 here
 
 -- | parse json array with leading OPEN_CURLY.
 object :: HasCallStack => P.Parser (V.Vector (FM.TextKV Value))
@@ -146,7 +146,7 @@ object_ = do
     w <- P.peek
     if w == CLOSE_CURLY
     then P.skip 1 $> V.empty
-    else loop [] 0
+    else loop [] 1
  where
     loop :: [FM.TextKV Value] -> Int -> P.Parser (V.Vector (FM.TextKV Value))
     loop acc !n = do
@@ -159,7 +159,7 @@ object_ = do
         ch <- P.satisfy $ \w -> w == COMMA || w == CLOSE_CURLY
         if ch == COMMA
         then skipSpaces *> loop acc' (n+1)
-        else return $! V.packRN n acc'
+        else return $! V.packRN n acc'  -- n start from 1, so no need to +1 here
 
 --------------------------------------------------------------------------------
 
