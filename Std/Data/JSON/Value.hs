@@ -99,9 +99,9 @@ value = do
     skipSpaces
     w <- P.peek
     case w of
-        DOUBLE_QUOTE    -> P.anyWord8 *> (String <$> string_)
-        OPEN_CURLY      -> P.anyWord8 *> (Object <$> object_)
-        OPEN_SQUARE     -> P.anyWord8 *> (Array <$> array_)
+        DOUBLE_QUOTE    -> P.skip 1 *> (String <$> string_)
+        OPEN_CURLY      -> P.skip 1 *> (Object <$> object_)
+        OPEN_SQUARE     -> P.skip 1 *> (Array <$> array_)
         C_f             -> P.bytes "false" $> (Bool False)
         C_t             -> P.bytes "true" $> (Bool True)
         C_n             -> P.bytes "null" $> Null
@@ -120,7 +120,7 @@ array_ = do
     skipSpaces
     w <- P.peek
     if w == CLOSE_SQUARE
-    then P.anyWord8 $> V.empty
+    then P.skip 1 $> V.empty
     else loop [] 0
   where
     loop :: [Value] -> Int -> P.Parser (V.Vector Value)
@@ -145,7 +145,7 @@ object_ = do
     skipSpaces
     w <- P.peek
     if w == CLOSE_CURLY
-    then P.anyWord8 $> V.empty
+    then P.skip 1 $> V.empty
     else loop [] 0
  where
     loop :: [FM.TextKV Value] -> Int -> P.Parser (V.Vector (FM.TextKV Value))
@@ -183,7 +183,7 @@ string_ = do
                 else return Nothing)
             else (T.validateMaybe bs)
     case mt of
-        Just t -> P.anyWord8 $> t
+        Just t -> P.skip 1 $> t
         _  -> P.failWithStack "utf8 validation or unescaping failed"
   where
     go :: Word32 -> V.Bytes -> Either Word32 (V.Bytes, V.Bytes, Word32)

@@ -248,25 +248,25 @@ match p = do
 -- computation will escape with 'Partial'.
 ensureN :: HasCallStack => Int -> Parser ()
 {-# INLINE ensureN #-}
-ensureN n0 = Parser $ \ ks input -> do
+ensureN !n0 = Parser $ \ ks input -> do
     let l = V.length input
     if l >= n0
     then ks () input
     else Partial (go n0 ks [input] l)
   where
-    go n0 ks acc l = \ input' -> do
-        let l' = V.length input'
+    go !n0 ks acc !l = \ inp -> do
+        let l' = V.length inp
         if l' == 0
         then Failure
-            (V.concat (reverse (input':acc)))
+            (V.concat (reverse (inp:acc)))
             (ParseError callStack "not enough bytes")
         else do
             let l'' = l + l'
             if l'' < n0
-            then Partial (go n0 ks (input':acc) l'')
+            then Partial (go n0 ks (inp:acc) l'')
             else do
-                let !input'' = V.concat (reverse (input':acc))
-                ks () input''
+                let !inp' = V.concat (reverse (inp:acc))
+                ks () inp'
 
 -- | Test whether all input has been consumed, i.e. there are no remaining
 -- undecoded bytes.
@@ -358,15 +358,15 @@ scanChunks :: s -> (s -> V.Bytes -> Either s (V.Bytes, V.Bytes, s)) -> Parser (V
 scanChunks s consume = Parser (\ k inp ->
     case consume s inp of
         Right (want, rest, s') -> k (want, s') rest
-        Left s' -> Partial (go s' [inp] k))
+        Left s' -> Partial (go consume s' [inp] k))
   where
-    go s acc k inp
-        | V.null inp = k (V.concat (reverse acc), s) inp
-        | otherwise =
-            case consume s inp of
+    go consume s acc k = \ inp ->
+        if V.null inp
+        then k (V.concat (reverse acc), s) inp
+        else case consume s inp of
                 Left s' -> do
                     let acc' = inp : acc
-                    Partial (go s' acc' k)
+                    Partial (go consume s' acc' k)
                 Right (want,rest,s') ->
                     k (V.concat (reverse (want:acc)), s') rest
 
@@ -471,7 +471,7 @@ skip n =
             else Partial (go k (n'-l)))
   where
     !n' = max n 0
-    go k !n inp =
+    go k !n = \ inp ->
         let l = V.length inp
         in if l >= n'
             then k () $! V.unsafeDrop n' inp
@@ -490,7 +490,7 @@ skipWhile p =
             then Partial (go k p)
             else k () rest)
   where
-    go k p inp =
+    go k p = \ inp ->
         let !rest = V.dropWhile p inp   -- If we ever enter 'Partial', empty input
         in k () rest                    -- means 'endOfInput', so just feed () to k
 
@@ -523,17 +523,17 @@ takeTill :: (Word8 -> Bool) -> Parser V.Bytes
 takeTill p = Parser (\ k inp ->
     let (want, rest) = V.break p inp
     in if V.null rest
-        then Partial (go k [want])
+        then Partial (go p k [want])
         else k want rest)
   where
-    go k acc inp =
+    go p k acc = \ inp ->
         if V.null inp
         then let !r = V.concat (reverse acc) in k r inp
         else
             let (want, rest) = V.break p inp
                 acc' = want : acc
             in if V.null rest
-                then Partial (go k acc')
+                then Partial (go p k acc')
                 else let !r = V.concat (reverse acc') in k r rest
 
 -- | Consume input as long as the predicate returns 'True' or reach the end of input,
@@ -544,17 +544,17 @@ takeWhile :: (Word8 -> Bool) -> Parser V.Bytes
 takeWhile p = Parser (\ k inp ->
     let (want, rest) = V.span p inp
     in if V.null rest
-        then Partial (go k [want])
+        then Partial (go p k [want])
         else k want rest)
   where
-    go k acc inp =
+    go p k acc = \ inp ->
         if V.null inp
         then let !r = V.concat (reverse acc) in k r inp
         else
             let (want, rest) = V.span p inp
                 acc' = want : acc
             in if V.null rest
-                then Partial (go k acc')
+                then Partial (go p k acc')
                 else let !r = V.concat (reverse acc') in k r rest
 
 -- | Similar to 'takeWhile', but requires the predicate to succeed on at least one byte
