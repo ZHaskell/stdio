@@ -248,7 +248,7 @@ match p = do
 -- computation will escape with 'Partial'.
 ensureN :: HasCallStack => Int -> Parser ()
 {-# INLINE ensureN #-}
-ensureN !n0 = Parser $ \ ks input -> do
+ensureN n0 = Parser $ \ ks input -> do
     let l = V.length input
     if l >= n0
     then ks () input
@@ -491,8 +491,13 @@ skipWhile p =
             else k () rest)
   where
     go k p = \ inp ->
-        let !rest = V.dropWhile p inp   -- If we ever enter 'Partial', empty input
-        in k () rest                    -- means 'endOfInput', so just feed () to k
+        if V.null inp
+        then k () inp
+        else
+            let !rest = V.dropWhile p inp
+            in if V.null rest
+                then Partial (go k p)
+                else k () rest
 
 -- | Skip over white space using 'isSpace'.
 --
@@ -564,7 +569,7 @@ takeWhile1 :: HasCallStack => (Word8 -> Bool) -> Parser V.Bytes
 {-# INLINE takeWhile1 #-}
 takeWhile1 p = do
     bs <- takeWhile p
-    if V.null bs then failWithStack "unsatisfied byte" else return bs
+    if V.null bs then failWithStack "no satisfied byte" else return bs
 
 -- | @bytes s@ parses a sequence of bytes that identically match @s@.
 --
