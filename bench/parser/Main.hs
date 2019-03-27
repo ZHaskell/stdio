@@ -12,6 +12,7 @@ import Data.Word
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import Std.Data.Parser
+-- import qualified Std.Data.Decoder.Base as Dec
 import qualified Std.Data.Vector.Base as V
 import Control.Monad
 import qualified Foreign.Ptr as AP (castPtr, minusPtr, plusPtr)
@@ -37,6 +38,16 @@ data Test = Test
     {-# UNPACK #-} !Word16
     {-# UNPACK #-} !Word16
   deriving Show
+
+{-
+decTest :: Dec.Decoder Test
+decTest = Test <$> Dec.decodePrim
+              <*> Dec.decodePrim
+              <*> Dec.decodePrim
+              <*> Dec.decodePrim
+              <*> Dec.decodePrim
+              <*> Dec.decodePrim
+-}
 
 apTest :: AP.Parser Test
 apTest = Test <$> storable
@@ -85,6 +96,13 @@ main = do
         let !b = B.replicate 120000000 (fromIntegral i)
         print $ last $ C.decodeExWith (replicateM 10000000 peekTest) b
     print "Store end"
+{-
+    print "Decoder start"
+    forM_ [0..10] $ \ i -> do
+        let !b = V.replicate 120000000 (fromIntegral i)
+        print $ last $ Dec.decode (replicateM 10000000 decTest) b
+    print "Decoder end"
+-}
     print "Std.Data.Parser start"
     forM_ [0..10] $ \ i -> do
         let !v = V.replicate 120000000 (fromIntegral i)

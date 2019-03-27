@@ -84,7 +84,7 @@ import           GHC.Stack
 data Result a
     = Success !V.Bytes a
     | Failure !V.Bytes ParseError
-    | Partial (V.Bytes -> Result a)
+    | Partial (ParseStep a)
 
 data ParseError = ParseError
     { parserStack :: CallStack
@@ -252,21 +252,28 @@ ensureN n0 = Parser $ \ k input -> do
     let l = V.length input
     if l >= n0
     then k () input
-    else
-        let go acc !l = \ inp -> do
-                let l' = V.length inp
-                if l' == 0
-                then Failure
-                    (V.concat (reverse (inp:acc)))
-                    (ParseError callStack "not enough bytes")
-                else do
-                    let l'' = l + l'
-                    if l'' < n0
-                    then Partial (go (inp:acc) l'')
-                    else
-                        let !inp' = V.concat (reverse (inp:acc))
-                        in k () inp'
-        in Partial (go [input] l)
+    else Partial (ensureNPartial n0 l input k)
+
+-- It's important to seperate this closure out of 'ensureN', which
+-- is used in many other parsers, to reduce code size. GHC will not
+-- inline it due to it's recursive.
+ensureNPartial :: HasCallStack => Int -> Int -> V.Bytes -> (() -> ParseStep r) -> ParseStep r
+{-# INLINABLE ensureNPartial #-}
+ensureNPartial n0 l input k =
+    let go acc !l = \ inp -> do
+            let l' = V.length inp
+            if l' == 0
+            then Failure
+                (V.concat (reverse (inp:acc)))
+                (ParseError callStack "not enough bytes")
+            else do
+                let l'' = l + l'
+                if l'' < n0
+                then Partial (go (inp:acc) l'')
+                else
+                    let !inp' = V.concat (reverse (inp:acc))
+                    in k () inp'
+    in go [input] l
 
 -- | Test whether all input has been consumed, i.e. there are no remaining
 -- undecoded bytes.
@@ -358,17 +365,21 @@ scanChunks :: s -> (s -> V.Bytes -> Either s (V.Bytes, V.Bytes, s)) -> Parser (V
 scanChunks s consume = Parser (\ k inp ->
     case consume s inp of
         Right (want, rest, s') -> k (want, s') rest
-        Left s' ->
-            let go s acc = \ inp ->
-                    if V.null inp
-                    then k (V.concat (reverse acc), s) inp
-                    else case consume s inp of
-                            Left s' -> do
-                                let acc' = inp : acc
-                                Partial (go s' acc')
-                            Right (want,rest,s') ->
-                                k (V.concat (reverse (want:acc)), s') rest
-            in Partial (go s' [inp]))
+        Left s' -> Partial (scanChunksPartial s' k inp))
+  where
+    -- we want to inline consume if possible
+    {-# INLINABLE scanChunksPartial #-}
+    scanChunksPartial s' k inp =
+        let go s acc = \ inp ->
+                if V.null inp
+                then k (V.concat (reverse acc), s) inp
+                else case consume s inp of
+                        Left s' -> do
+                            let acc' = inp : acc
+                            Partial (go s' acc')
+                        Right (want,rest,s') ->
+                            let !r = V.concat (reverse (want:acc)) in k (r, s') rest
+        in go s' [inp]
 
 --------------------------------------------------------------------------------
 
@@ -469,15 +480,20 @@ skip n =
             !n' = max n 0
         in if l >= n'
             then k () $! V.unsafeDrop n' inp
-            else
-                let go !n = \ inp ->
-                        let l = V.length inp
-                        in if l >= n'
-                            then k () $! V.unsafeDrop n' inp
-                            else if l == 0
-                                then Failure inp (ParseError callStack "not enough bytes")
-                                else Partial (go (n'-l))
-                in Partial (go (n'-l)))
+            else Partial (skipPartial (n'-l) k))
+
+-- for the same reason as ensureNPartial, we move this closure out.
+skipPartial :: HasCallStack => Int -> (() -> ParseStep r) -> ParseStep r
+{-# INLINABLE skipPartial #-}
+skipPartial n k =
+    let go !n' = \ inp ->
+            let l = V.length inp
+            in if l >= n'
+                then k () $! V.unsafeDrop n' inp
+                else if l == 0
+                    then Failure inp (ParseError callStack "not enough bytes")
+                    else Partial (go (n'-l))
+    in go n
 
 -- | Skip past input for as long as the predicate returns 'True'.
 --
@@ -487,15 +503,18 @@ skipWhile p =
     Parser (\ k inp ->
         let rest = V.dropWhile p inp
         in if V.null rest
-            then
-                let go = \ inp ->
-                        if V.null inp
-                        then k () inp
-                        else
-                            let !rest = V.dropWhile p inp
-                            in if V.null rest then Partial go else k () rest
-                in Partial go
+            then Partial (skipWhilePartial k)
             else k () rest)
+  where
+    -- we want to inline p if possible
+    {-# INLINABLE skipWhilePartial #-}
+    skipWhilePartial k = go
+      where go = \ inp ->
+                if V.null inp
+                then k () inp
+                else
+                    let !rest = V.dropWhile p inp
+                    in if V.null rest then Partial go else k () rest
 
 -- | Skip over white space using 'isSpace'.
 --
@@ -526,18 +545,21 @@ takeTill :: (Word8 -> Bool) -> Parser V.Bytes
 takeTill p = Parser (\ k inp ->
     let (want, rest) = V.break p inp
     in if V.null rest
-        then
-            let go acc = \ inp ->
-                    if V.null inp
-                    then let !r = V.concat (reverse acc) in k r inp
-                    else
-                        let (want, rest) = V.break p inp
-                            acc' = want : acc
-                        in if V.null rest
-                            then Partial (go acc')
-                            else let !r = V.concat (reverse acc') in k r rest
-            in Partial (go [want])
+        then Partial (takeTillPartial k want)
         else k want rest)
+  where
+    {-# INLINABLE takeTillPartial #-}
+    takeTillPartial k want =
+        let go acc = \ inp ->
+                if V.null inp
+                then let !r = V.concat (reverse acc) in k r inp
+                else
+                    let (want, rest) = V.break p inp
+                        acc' = want : acc
+                    in if V.null rest
+                        then Partial (go acc')
+                        else let !r = V.concat (reverse acc') in k r rest
+        in go [want]
 
 -- | Consume input as long as the predicate returns 'True' or reach the end of input,
 -- and return the consumed input.
@@ -547,18 +569,21 @@ takeWhile :: (Word8 -> Bool) -> Parser V.Bytes
 takeWhile p = Parser (\ k inp ->
     let (want, rest) = V.span p inp
     in if V.null rest
-        then
-            let go acc = \ inp ->
-                    if V.null inp
-                    then let !r = V.concat (reverse acc) in k r inp
-                    else
-                        let (want, rest) = V.span p inp
-                            acc' = want : acc
-                        in if V.null rest
-                            then Partial (go acc')
-                            else let !r = V.concat (reverse acc') in k r rest
-            in Partial (go [want])
+        then Partial (takeWhilePartial k want)
         else k want rest)
+  where
+    {-# INLINABLE takeWhilePartial #-}
+    takeWhilePartial k want =
+        let go acc = \ inp ->
+                if V.null inp
+                then let !r = V.concat (reverse acc) in k r inp
+                else
+                    let (want, rest) = V.span p inp
+                        acc' = want : acc
+                    in if V.null rest
+                        then Partial (go acc')
+                        else let !r = V.concat (reverse acc') in k r rest
+        in go [want]
 
 -- | Similar to 'takeWhile', but requires the predicate to succeed on at least one byte
 -- of input: it will fail if the predicate never returns 'True' or reach the end of input

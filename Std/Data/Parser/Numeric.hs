@@ -150,8 +150,8 @@ int :: (HasCallStack, Integral a) => Parser a
 int = do
     w <- P.peek
     if w == MINUS
-    then P.anyWord8 *> (negate <$> uint)
-    else if w == PLUS then P.anyWord8 *> uint else uint
+    then P.skip 1 *> (negate <$> uint)
+    else if w == PLUS then P.skip 1 *> uint else uint
 
 -- | Parse a rational number.
 --
@@ -221,12 +221,12 @@ scientifically :: HasCallStack => (Sci.Scientific -> a) -> Parser a
 {-# INLINE scientifically #-}
 scientifically h = do
     !sign <- P.peek
-    when (sign == PLUS || sign == MINUS) (void P.anyWord8)
+    when (sign == PLUS || sign == MINUS) (P.skip 1)
     !intPart <- P.takeWhile1 isDigit
     -- backtrace here is neccessary to avoid eating dot or e
     -- attoparsec is doing it wrong here: https://github.com/bos/attoparsec/issues/112
     !sci <- (do
-        fracPart <- P.word8 DOT *> P.takeWhile1 isDigit
+        !fracPart <- P.word8 DOT *> P.takeWhile1 isDigit
         let !ilen = V.length intPart
             !flen = V.length fracPart
             !base =
@@ -328,12 +328,12 @@ scientifically' :: HasCallStack => (Sci.Scientific -> a) -> P.Parser a
 {-# INLINE scientifically' #-}
 scientifically' h = do
     sign <- P.peek
-    when (sign == MINUS) (void P.anyWord8) -- no leading plus is allowed
+    when (sign == MINUS) (P.skip 1) -- no leading plus is allowed
     !intPart <- P.takeWhile1 isDigit
     mdot <- P.peekMaybe
     !sci <- case mdot of
         Just DOT -> do
-            !fracPart <- P.anyWord8 *> P.takeWhile1 isDigit
+            !fracPart <- P.skip 1 *> P.takeWhile1 isDigit
             -- during number parsing we want to use machine word as much as possible
             -- so as long as range permit, we use Word64 instead of final Integer
             let !ilen = V.length intPart
@@ -365,6 +365,6 @@ scientifically' h = do
     parseE !c !exp = do
         me <- P.peekMaybe
         exp' <- case me of
-            Just e | e == LITTLE_E || e == BIG_E -> P.anyWord8 *> int
+            Just e | e == LITTLE_E || e == BIG_E -> P.skip 1 *> int
             _ -> return 0
         return $! Sci.scientific c (exp' - exp)

@@ -88,8 +88,7 @@ parseValueChunks = P.parseChunks value
 -- carriage return, and tab.
 skipSpaces :: P.Parser ()
 {-# INLINE skipSpaces #-}
-skipSpaces = P.skipWhile (\ w ->
-    w <= 0x20 && (w == 0x20 || w == 0x0a || w == 0x0d || w == 0x09))
+skipSpaces = P.skipWhile (\ w -> w == 0x20 || w == 0x0a || w == 0x0d || w == 0x09)
     -- fast path for non-whitespace
 
 -- | JSON 'Value' parser.
