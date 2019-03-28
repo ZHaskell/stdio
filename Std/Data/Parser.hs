@@ -25,7 +25,7 @@ module Std.Data.Parser
   , ParseError
   , Parser
   , HasCallStack
-  , failWithStack
+  , failWithStack, (<?>)
     -- * Running a parser
   , parse, parse_, parseChunk, parseChunks, finishParsing
   , runAndKeepTrack, match

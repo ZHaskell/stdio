@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE CPP #-}
 
@@ -45,7 +46,7 @@ import qualified Data.Primitive.PrimArray  as A
 import qualified Data.Scientific          as Sci
 import           Data.Word
 import           Foreign.Ptr              (IntPtr)
-import           Std.Data.Parser.Base     (Parser)
+import           Std.Data.Parser.Base     (Parser, (<?>))
 import qualified Std.Data.Parser.Base     as P
 import qualified Std.Data.Vector.Base     as V
 import qualified Std.Data.Vector.Extra    as V
@@ -147,7 +148,7 @@ int :: (HasCallStack, Integral a) => Parser a
 {-# SPECIALIZE int :: Parser Word16 #-}
 {-# SPECIALIZE int :: Parser Word8  #-}
 {-# SPECIALIZE int :: Parser Integer #-}
-int = do
+int = "int" <?> do
     w <- P.peek
     if w == MINUS
     then P.skip 1 *> (negate <$> uint)
@@ -326,7 +327,7 @@ scientific' = scientifically' id
 -- The syntax accepted by this parser is the same as for 'double''.
 scientifically' :: (Sci.Scientific -> a) -> P.Parser a
 {-# INLINE scientifically' #-}
-scientifically' h = do
+scientifically' h = "scientifically'" <?> do
     sign <- P.peek
     when (sign == MINUS) (P.skip 1) -- no leading plus is allowed
     !intPart <- P.takeWhile1 isDigit

@@ -18,6 +18,7 @@ import           Data.Word
 import           GHC.Generics
 import           GHC.Stack
 import qualified Std.Data.Parser          as P
+import           Std.Data.Parser          ((<?>))
 import qualified Std.Data.Parser.Numeric  as P
 import qualified Std.Data.Text            as T
 import qualified Std.Data.Text.Base       as T
@@ -94,7 +95,7 @@ skipSpaces = P.skipWhile (\ w -> w == 0x20 || w == 0x0a || w == 0x0d || w == 0x0
 -- | JSON 'Value' parser.
 value :: HasCallStack => P.Parser Value
 {-# INLINABLE value #-}
-value = do
+value = "value" <?> do
     skipSpaces
     w <- P.peek
     case w of

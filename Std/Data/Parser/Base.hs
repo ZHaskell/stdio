@@ -37,7 +37,7 @@ module Std.Data.Parser.Base
   , ParseStep
   , Parser(..)
   , HasCallStack
-  , failWithStack
+  , failWithStack, (<?>)
     -- * Running a parser
   , parse, parse_, parseChunk, parseChunks, finishParsing
   , runAndKeepTrack, match
@@ -86,7 +86,7 @@ data Result a
     | Failure !V.Bytes ParseError
     | Partial (ParseStep a)
 
-type ParseError = [Text]
+type ParseError = [T.Text]
 
 instance Functor Result where
     fmap f (Success s a)   = Success s (f a)
@@ -102,7 +102,7 @@ type ParseStep r = V.Bytes -> Result r
 
 -- | Simple CPSed parser
 --
-newtype Parser a = Parser { runParser :: forall r .  ([Text] -> ParseStep r) -> (a -> ParseStep r) -> ParseStep r }
+newtype Parser a = Parser { runParser :: forall r .  ([T.Text] -> ParseStep r) -> (a -> ParseStep r) -> ParseStep r }
 
 
 -- It seems eta-expand one layer to ensure parser are saturated is helpful
@@ -133,7 +133,7 @@ instance Monad Parser where
     {-# INLINE fail #-}
 
 instance Fail.MonadFail Parser where
-    fail str = Parser (\ kf _ inp -> ))
+    fail str = Parser (\ kf _ inp -> kf [T.pack str] inp)
     {-# INLINE fail #-}
 
 instance MonadPlus Parser where
@@ -143,8 +143,7 @@ instance MonadPlus Parser where
     {-# INLINE mplus #-}
 
 instance Alternative Parser where
-    empty = Parser (\ kf _ input -> Failure input
-        (ParseError callStack "Std.Data.Parser.Base(Alternative).empty"))
+    empty = Parser (\ kf _ input -> Failure input ["Std.Data.Parser.Base(Alternative).empty"])
     {-# INLINE empty #-}
     f <|> g = do
         (r, bss) <- runAndKeepTrack f
@@ -158,15 +157,14 @@ instance Alternative Parser where
 -- | Don't call fail if possible since it does not provide callStacks, use
 -- 'failWithStack' instead.
 failWithStack :: T.Text -> Parser a
-failWithStack msg = Parser (\ kf _ input ->
-    Failure input (ParseError (popCallStack callStack) msg))    -- itself's stack is erased
+failWithStack msg = Parser (\ kf _ input -> kf [msg] input)
 
 -- | Parse the complete input, without resupplying
 parse_ :: Parser a -> V.Bytes -> Either ParseError a
 {-# INLINE parse_ #-}
 parse_ (Parser p) input = snd $ finishParsing (p failK (flip Success) input)
 
-failK _ = "xxxx"
+failK msg inp = Failure inp msg
 
 -- | Parse the complete input, without resupplying, return the rest bytes
 parse :: Parser a -> V.Bytes -> (V.Bytes, Either ParseError a)
@@ -204,6 +202,10 @@ parseChunks (Parser p) m input = go m (p failK (flip Success) input)
         Success rest a    -> return (rest, Right a)
         Failure rest errs -> return (rest, Left errs)
 
+(<?>) :: T.Text -> Parser a -> Parser a
+{-# INLINE (<?>) #-}
+msg <?> (Parser p) = Parser (\ kf -> p (kf . (msg:)))
+
 -- | Run a parser and keep track of all the input chunks it consumes.
 -- Once it's finished, return the final result (always 'Success' or 'Failure') and
 -- all consumed chunks.
@@ -211,7 +213,10 @@ parseChunks (Parser p) m input = go m (p failK (flip Success) input)
 runAndKeepTrack :: Parser a -> Parser (Result a, [V.Bytes])
 {-# INLINE runAndKeepTrack #-}
 runAndKeepTrack (Parser pa) = Parser $ \ kf k0 input ->
-    let r0 = pa kf (\ a input' -> Success input' a) input in go [input] r0 k0
+    let kf' msg inp = case kf msg inp of
+            Failure rest errs -> Failure rest errs
+            _                 -> error "impossible"
+        r0 = pa kf' (\ a input' -> Success input' a) input in go [input] r0 k0
   where
     go !acc r k0 = case r of
         Partial k        -> Partial (\ input -> go (input:acc) (k input) k0)
@@ -245,15 +250,13 @@ ensureN n0 = Parser $ \ kf k input -> do
 -- It's important to seperate this closure out of 'ensureN', which
 -- is used in many other parsers, to reduce code size. GHC will not
 -- inline it due to it's recursive.
-ensureNPartial :: Int -> Int -> V.Bytes -> (() -> String) -> (() -> ParseStep r) -> ParseStep r
+ensureNPartial :: Int -> Int -> V.Bytes -> ([T.Text] -> ParseStep r) -> (() -> ParseStep r) -> ParseStep r
 {-# INLINABLE ensureNPartial #-}
 ensureNPartial !n0 l input kf k =
     let go acc !l = \ inp -> do
             let l' = V.length inp
             if l' == 0
-            then Failure
-                (V.concat (reverse (inp:acc)))
-                (ParseError callStack "not enough bytes")
+            then kf ["not enough bytes"] (V.concat (reverse (inp:acc)))
             else do
                 let l'' = l + l'
                 if l'' < n0
@@ -405,7 +408,7 @@ satisfy p = do
         let w = V.unsafeHead inp
         in if p w
             then k w (V.unsafeTail inp)
-            else Failure inp (ParseError callStack "unsatisfied byte"))
+            else Failure inp ["unsatisfied byte"])
 
 -- | The parser @satisfyWith f p@ transforms a byte, and succeeds if
 -- the predicate @p@ returns 'True' on the transformed value. The
@@ -419,7 +422,7 @@ satisfyWith f p = do
         let w = f (V.unsafeHead inp)
         in if p w
             then k w (V.unsafeTail inp)
-            else Failure inp (ParseError callStack "unsatisfied byte"))
+            else Failure inp ["unsatisfied byte"])
 
 -- | Match a specific byte.
 --
@@ -431,7 +434,7 @@ word8 w' = do
         let w = V.unsafeHead inp
         in if w == w'
             then k () (V.unsafeTail inp)
-            else Failure inp (ParseError callStack "mismatch byte"))
+            else Failure inp ["mismatch byte"])
 
 -- | Match a specific 8bit char.
 --
@@ -479,7 +482,7 @@ skipPartial n k =
             in if l >= n'
                 then k () $! V.unsafeDrop n' inp
                 else if l == 0
-                    then Failure inp (ParseError callStack "not enough bytes")
+                    then Failure inp ["not enough bytes"]
                     else Partial (go (n'-l))
     in go n
 
@@ -592,7 +595,7 @@ bytes bs = do
     Parser (\ kf k inp ->
         if bs == V.unsafeTake n inp
         then k () $! V.unsafeDrop n inp
-        else Failure inp (ParseError callStack "mismatch bytes"))
+        else Failure inp ["mismatch bytes"])
 
 
 -- | Same as 'bytes' but ignoring case.
@@ -604,7 +607,7 @@ bytesCI bs = do
     Parser (\ kf k inp ->
         if bs' == CI.foldCase (V.unsafeTake n inp)
         then k () $! V.unsafeDrop n inp
-        else Failure inp (ParseError callStack "mismatch bytes"))
+        else Failure inp ["mismatch bytes"])
   where
     bs' = CI.foldCase bs
 
