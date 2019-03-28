@@ -68,18 +68,18 @@ import           Std.IO.Exception
 --
 hex :: (HasCallStack, Integral a, Bits a) => Parser a
 {-# INLINABLE hex #-}
-{-# SPECIALIZE INLINE hex :: HasCallStack => Parser Int    #-}
-{-# SPECIALIZE INLINE hex :: HasCallStack => Parser Int64  #-}
-{-# SPECIALIZE INLINE hex :: HasCallStack => Parser Int32  #-}
-{-# SPECIALIZE INLINE hex :: HasCallStack => Parser Int16  #-}
-{-# SPECIALIZE INLINE hex :: HasCallStack => Parser Int8   #-}
-{-# SPECIALIZE INLINE hex :: HasCallStack => Parser Word   #-}
-{-# SPECIALIZE INLINE hex :: HasCallStack => Parser Word64 #-}
-{-# SPECIALIZE INLINE hex :: HasCallStack => Parser Word32 #-}
-{-# SPECIALIZE INLINE hex :: HasCallStack => Parser Word16 #-}
-{-# SPECIALIZE INLINE hex :: HasCallStack => Parser Word8  #-}
-{-# SPECIALIZE INLINE hex :: HasCallStack => Parser Integer #-}
-{-# SPECIALIZE INLINE hex :: HasCallStack => Parser IntPtr #-}
+{-# SPECIALIZE INLINE hex :: Parser Int    #-}
+{-# SPECIALIZE INLINE hex :: Parser Int64  #-}
+{-# SPECIALIZE INLINE hex :: Parser Int32  #-}
+{-# SPECIALIZE INLINE hex :: Parser Int16  #-}
+{-# SPECIALIZE INLINE hex :: Parser Int8   #-}
+{-# SPECIALIZE INLINE hex :: Parser Word   #-}
+{-# SPECIALIZE INLINE hex :: Parser Word64 #-}
+{-# SPECIALIZE INLINE hex :: Parser Word32 #-}
+{-# SPECIALIZE INLINE hex :: Parser Word16 #-}
+{-# SPECIALIZE INLINE hex :: Parser Word8  #-}
+{-# SPECIALIZE INLINE hex :: Parser Integer #-}
+{-# SPECIALIZE INLINE hex :: Parser IntPtr #-}
 hex = hexLoop 0 <$> P.takeWhile1 isHexDigit
 
 -- | decode hex digits sequence within an array.
@@ -104,17 +104,17 @@ isHexDigit w = w - 48 <= 9 || w - 65 <= 5 || w - 97 <= 5
 -- | Parse and decode an unsigned decimal number.
 uint :: (HasCallStack, Integral a) => Parser a
 {-# INLINABLE uint #-}
-{-# SPECIALIZE uint :: HasCallStack => Parser Int    #-}
-{-# SPECIALIZE uint :: HasCallStack => Parser Int64  #-}
-{-# SPECIALIZE uint :: HasCallStack => Parser Int32  #-}
-{-# SPECIALIZE uint :: HasCallStack => Parser Int16  #-}
-{-# SPECIALIZE uint :: HasCallStack => Parser Int8   #-}
-{-# SPECIALIZE uint :: HasCallStack => Parser Word   #-}
-{-# SPECIALIZE uint :: HasCallStack => Parser Word64 #-}
-{-# SPECIALIZE uint :: HasCallStack => Parser Word32 #-}
-{-# SPECIALIZE uint :: HasCallStack => Parser Word16 #-}
-{-# SPECIALIZE uint :: HasCallStack => Parser Word8  #-}
-{-# SPECIALIZE uint :: HasCallStack => Parser Integer #-}
+{-# SPECIALIZE uint :: Parser Int    #-}
+{-# SPECIALIZE uint :: Parser Int64  #-}
+{-# SPECIALIZE uint :: Parser Int32  #-}
+{-# SPECIALIZE uint :: Parser Int16  #-}
+{-# SPECIALIZE uint :: Parser Int8   #-}
+{-# SPECIALIZE uint :: Parser Word   #-}
+{-# SPECIALIZE uint :: Parser Word64 #-}
+{-# SPECIALIZE uint :: Parser Word32 #-}
+{-# SPECIALIZE uint :: Parser Word16 #-}
+{-# SPECIALIZE uint :: Parser Word8  #-}
+{-# SPECIALIZE uint :: Parser Integer #-}
 uint = decLoop 0 <$> P.takeWhile1 isDigit
 
 -- | decode digits sequence within an array.
@@ -136,17 +136,17 @@ isDigit w = w - 48 <= 9
 -- character.
 int :: (HasCallStack, Integral a) => Parser a
 {-# INLINABLE int #-}
-{-# SPECIALIZE int :: HasCallStack => Parser Int    #-}
-{-# SPECIALIZE int :: HasCallStack => Parser Int64  #-}
-{-# SPECIALIZE int :: HasCallStack => Parser Int32  #-}
-{-# SPECIALIZE int :: HasCallStack => Parser Int16  #-}
-{-# SPECIALIZE int :: HasCallStack => Parser Int8   #-}
-{-# SPECIALIZE int :: HasCallStack => Parser Word   #-}
-{-# SPECIALIZE int :: HasCallStack => Parser Word64 #-}
-{-# SPECIALIZE int :: HasCallStack => Parser Word32 #-}
-{-# SPECIALIZE int :: HasCallStack => Parser Word16 #-}
-{-# SPECIALIZE int :: HasCallStack => Parser Word8  #-}
-{-# SPECIALIZE int :: HasCallStack => Parser Integer #-}
+{-# SPECIALIZE int :: Parser Int    #-}
+{-# SPECIALIZE int :: Parser Int64  #-}
+{-# SPECIALIZE int :: Parser Int32  #-}
+{-# SPECIALIZE int :: Parser Int16  #-}
+{-# SPECIALIZE int :: Parser Int8   #-}
+{-# SPECIALIZE int :: Parser Word   #-}
+{-# SPECIALIZE int :: Parser Word64 #-}
+{-# SPECIALIZE int :: Parser Word32 #-}
+{-# SPECIALIZE int :: Parser Word16 #-}
+{-# SPECIALIZE int :: Parser Word8  #-}
+{-# SPECIALIZE int :: Parser Integer #-}
 int = do
     w <- P.peek
     if w == MINUS
@@ -195,14 +195,14 @@ rational = scientifically realToFrac
 -- This function does not accept string representations of \"NaN\" or
 -- \"Infinity\".
 --
-double :: HasCallStack => Parser Double
+double :: Parser Double
 {-# INLINE double #-}
 double = scientifically Sci.toRealFloat
 
 -- | Parse a rational number and round to 'Float'.
 --
 -- Single precision version of 'double'.
-float :: HasCallStack => Parser Float
+float :: Parser Float
 {-# INLINE float #-}
 float = scientifically Sci.toRealFloat
 
@@ -210,14 +210,14 @@ float = scientifically Sci.toRealFloat
 --
 -- The syntax accepted by this parser is the same as for 'double'.
 --
-scientific :: HasCallStack => Parser Sci.Scientific
+scientific :: Parser Sci.Scientific
 {-# INLINE scientific #-}
 scientific = scientifically id
 
 -- | Parse a scientific number and convert to result using a user supply function.
 --
 -- The syntax accepted by this parser is the same as for 'double'.
-scientifically :: HasCallStack => (Sci.Scientific -> a) -> Parser a
+scientifically :: (Sci.Scientific -> a) -> Parser a
 {-# INLINE scientifically #-}
 scientifically h = do
     !sign <- P.peek
@@ -303,28 +303,28 @@ rational' = scientifically' realToFrac
 -- This function does not accept string representations of \"NaN\" or
 -- \"Infinity\".
 -- reference: https://tools.ietf.org/html/rfc8259#section-6
-double' :: HasCallStack => Parser Double
+double' :: Parser Double
 {-# INLINE double' #-}
 double' = scientifically' Sci.toRealFloat
 
 -- | Parse a rational number and round to 'Float' using stricter grammer.
 --
 -- Single precision version of 'double''.
-float' :: HasCallStack => Parser Float
+float' :: Parser Float
 {-# INLINE float' #-}
 float' = scientifically' Sci.toRealFloat
 
 -- | Parse a scientific number.
 --
 -- The syntax accepted by this parser is the same as for 'double''.
-scientific' :: HasCallStack => Parser Sci.Scientific
+scientific' :: Parser Sci.Scientific
 {-# INLINE scientific' #-}
 scientific' = scientifically' id
 
 -- | Parse a scientific number and convert to result using a user supply function.
 --
 -- The syntax accepted by this parser is the same as for 'double''.
-scientifically' :: HasCallStack => (Sci.Scientific -> a) -> P.Parser a
+scientifically' :: (Sci.Scientific -> a) -> P.Parser a
 {-# INLINE scientifically' #-}
 scientifically' h = do
     sign <- P.peek
