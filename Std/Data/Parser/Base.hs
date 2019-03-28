@@ -86,21 +86,7 @@ data Result a
     | Failure !V.Bytes ParseError
     | Partial (ParseStep a)
 
-data ParseError = ParseError
-    { parserStack :: CallStack
-    , parserError :: T.Text
-    } deriving Typeable
-
--- | This instance is for testing so that @Eq a => Eq (Either ParseError a)@
-instance Eq ParseError where
-    (ParseError cs1 msg1) == (ParseError cs2 msg2) =
-        (getCallStack cs1) == (getCallStack cs2) && msg1 == msg2
-
-instance Show ParseError where
-    show (ParseError stack err) =
-        List.intercalate "." (List.reverse $ List.map fst (getCallStack stack)) ++ ": " ++ T.unpack err
-
-instance Exception ParseError
+type ParseError = [Text]
 
 instance Functor Result where
     fmap f (Success s a)   = Success s (f a)
@@ -116,7 +102,7 @@ type ParseStep r = V.Bytes -> Result r
 
 -- | Simple CPSed parser
 --
-newtype Parser a = Parser { runParser :: forall r .  (() -> String) -> (a -> ParseStep r) -> ParseStep r }
+newtype Parser a = Parser { runParser :: forall r .  ([Text] -> ParseStep r) -> (a -> ParseStep r) -> ParseStep r }
 
 
 -- It seems eta-expand one layer to ensure parser are saturated is helpful
@@ -147,7 +133,7 @@ instance Monad Parser where
     {-# INLINE fail #-}
 
 instance Fail.MonadFail Parser where
-    fail str = Parser (\ kf _ inp -> Failure inp (ParseError callStack (T.pack str)))
+    fail str = Parser (\ kf _ inp -> ))
     {-# INLINE fail #-}
 
 instance MonadPlus Parser where
@@ -254,14 +240,14 @@ ensureN n0 = Parser $ \ kf k input -> do
     let l = V.length input
     if l >= n0
     then k () input
-    else Partial (ensureNPartial n0 l input k)
+    else Partial (ensureNPartial n0 l input kf k)
 
 -- It's important to seperate this closure out of 'ensureN', which
 -- is used in many other parsers, to reduce code size. GHC will not
 -- inline it due to it's recursive.
-ensureNPartial :: Int -> Int -> V.Bytes -> (() -> ParseStep r) -> ParseStep r
+ensureNPartial :: Int -> Int -> V.Bytes -> (() -> String) -> (() -> ParseStep r) -> ParseStep r
 {-# INLINABLE ensureNPartial #-}
-ensureNPartial n0 l input k =
+ensureNPartial !n0 l input kf k =
     let go acc !l = \ inp -> do
             let l' = V.length inp
             if l' == 0
