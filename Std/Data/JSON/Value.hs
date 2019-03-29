@@ -16,6 +16,7 @@ module Std.Data.JSON.Value
   , object
   , array
   , string
+  , skipSpaces
   ) where
 
 import           Control.Monad
@@ -194,7 +195,7 @@ string_ = do
             else (T.validateMaybe bs)
     case mt of
         Just t -> P.skip 1 $> t
-        _  -> fail "utf8 validation or unescaping failed"
+        _  -> fail "Std.Data.JSON.Value.string_: utf8 validation or unescaping failed"
   where
     go :: Word32 -> V.Bytes -> Either Word32 (V.Bytes, V.Bytes, Word32)
     go !state v =

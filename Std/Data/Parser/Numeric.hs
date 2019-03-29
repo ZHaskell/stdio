@@ -224,7 +224,7 @@ scientifically h = "Std.Data.Parser.Numeric.scientifically" <?> do
     !sign <- P.peek
     when (sign == PLUS || sign == MINUS) (P.skip 1)
     !intPart <- P.takeWhile1 isDigit
-    -- backtrace here is neccessary to avoid eating dot or e
+    -- backtrack here is neccessary to avoid eating dot or e
     -- attoparsec is doing it wrong here: https://github.com/bos/attoparsec/issues/112
     !sci <- (do
         !fracPart <- P.word8 DOT *> P.takeWhile1 isDigit
@@ -279,8 +279,8 @@ rational' = scientifically' realToFrac
 -- | More strict number parsing(rfc8259).
 --
 -- 'scientific' support parse @2314.@ and @21321exyz@ without eating extra dot or @e@ via
--- backtrace, this is not allowed in some strict grammer such as JSON, so we make an
--- non-backtrace strict number parser separately using LL(1) lookahead. This parser also
+-- backtrack, this is not allowed in some strict grammer such as JSON, so we make an
+-- non-backtrack strict number parser separately using LL(1) lookahead. This parser also
 -- agree with 'read' on extra dot or e handling:
 --
 -- >parse_ double "3.foo" == Left ParseError
@@ -328,7 +328,7 @@ scientific' = scientifically' id
 scientifically' :: (Sci.Scientific -> a) -> P.Parser a
 {-# INLINE scientifically' #-}
 scientifically' h = "Std.Data.Parser.Numeric.scientifically'" <?> do
-    sign <- P.peek
+    !sign <- P.peek
     when (sign == MINUS) (P.skip 1) -- no leading plus is allowed
     !intPart <- P.takeWhile1 isDigit
     mdot <- P.peekMaybe
