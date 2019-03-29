@@ -121,6 +121,9 @@ type BuildStep s = Buffer s -> ST s [V.Bytes]
 newtype Builder a = Builder
     { runBuilder :: forall s. AllocateStrategy s -> (a -> BuildStep s) -> BuildStep s}
 
+instance Show (Builder a) where
+    show = show . buildBytes
+
 instance Functor Builder where
     {-# INLINE fmap #-}
     fmap f (Builder b) = Builder (\ al k -> b al (k . f))

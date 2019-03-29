@@ -20,8 +20,6 @@ This module provide a simple resumable 'Parser', which is suitable for binary pr
 
 You can use 'Alternative' instance to do backtracking, each branch will either succeed and may consume some input, or fail without consume anything. It's recommend to use 'peek' or 'peekMaybe' to avoid backtracking if possible to get high performance.
 
-To help debugging, please prepend 'HasCallStack' constraint in your parsers, we don't provide manual labeling. The default output format for 'ParseError' only shows combinators' unqualified name for simplicity:
-
 @
     >parse int "foo"
     ([102,111,111],Left int.uint.takeWhile1: unsatisfied byte)
@@ -46,7 +44,7 @@ module Std.Data.Parser.Base
   , decodePrim, decodePrimLE, decodePrimBE
     -- * More parsers
   , scan, scanChunks, peekMaybe, peek, satisfy, satisfyWith
-  , word8, char8, anyWord8, endOfLine, skip, skipWhile, skipSpaces
+  , word8, char8, skipWord8, endOfLine, skip, skipWhile, skipSpaces
   , take, takeTill, takeWhile, takeWhile1, bytes, bytesCI
   , text
     -- * Misc
@@ -229,32 +227,31 @@ match p = do
 
 -- | Ensure that there are at least @n@ bytes available. If not, the
 -- computation will escape with 'Partial'.
-ensureN :: Int -> Parser ()
+--
+-- Since this parser is used in many other parsers, an extra error param is provide
+-- to attach custom error info.
+ensureN :: Int -> ParseError -> Parser ()
 {-# INLINE ensureN #-}
-ensureN n0 = Parser $ \ kf k inp -> do
+ensureN n0 err = Parser $ \ kf k inp -> do
     let l = V.length inp
     if l >= n0
     then k () inp
-    else Partial (ensureNPartial n0 l inp kf k)
-
--- It's important to seperate this closure out of 'ensureN', which
--- is used in many other parsers, to reduce code size. GHC will not
--- inline it due to it's recursive.
-ensureNPartial :: Int -> Int -> V.Bytes -> (ParseError -> ParseStep r) -> (() -> ParseStep r) -> ParseStep r
-{-# INLINABLE ensureNPartial #-}
-ensureNPartial !n0 l inp kf k =
-    let go acc !l = \ inp -> do
-            let l' = V.length inp
-            if l' == 0
-            then kf ["Std.Data.Parser.Base.ensureN: not enough bytes"] (V.concat (reverse (inp:acc)))
-            else do
-                let l'' = l + l'
-                if l'' < n0
-                then Partial (go (inp:acc) l'')
-                else
-                    let !inp' = V.concat (reverse (inp:acc))
-                    in k () inp'
-    in go [inp] l
+    else Partial (ensureNPartial l inp kf k)
+  where
+    {-# INLINABLE ensureNPartial #-}
+    ensureNPartial l inp kf k =
+        let go acc !l = \ inp -> do
+                let l' = V.length inp
+                if l' == 0
+                then kf err (V.concat (reverse (inp:acc)))
+                else do
+                    let l'' = l + l'
+                    if l'' < n0
+                    then Partial (go (inp:acc) l'')
+                    else
+                        let !inp' = V.concat (reverse (inp:acc))
+                        in k () inp'
+        in go [inp] l
 
 -- | Test whether all input has been consumed, i.e. there are no remaining
 -- undecoded bytes.
@@ -278,14 +275,14 @@ decodePrim :: forall a. (UnalignedAccess a) => Parser a
 {-# SPECIALIZE INLINE decodePrim :: Parser Int16 #-}
 {-# SPECIALIZE INLINE decodePrim :: Parser Int8  #-}
 decodePrim = do
-    ensureN n
+    ensureN n ["Std.Data.Parser.Base.decodePrim: not enough bytes"]
     Parser (\ _ k (V.PrimVector (A.PrimArray ba#) i@(I# i#) len) ->
         let !r = indexWord8ArrayAs ba# i#
         in k r (V.PrimVector (A.PrimArray ba#) (i+n) (len-n)))
   where
-    n = (getUnalignedSize (unalignedSize :: UnalignedSize a))
+    n = getUnalignedSize (unalignedSize :: UnalignedSize a)
 
-decodePrimLE :: (UnalignedAccess (LE a)) => Parser a
+decodePrimLE :: forall a. (UnalignedAccess (LE a)) => Parser a
 {-# INLINE decodePrimLE #-}
 {-# SPECIALIZE INLINE decodePrimLE :: Parser Word   #-}
 {-# SPECIALIZE INLINE decodePrimLE :: Parser Word64 #-}
@@ -295,9 +292,15 @@ decodePrimLE :: (UnalignedAccess (LE a)) => Parser a
 {-# SPECIALIZE INLINE decodePrimLE :: Parser Int64 #-}
 {-# SPECIALIZE INLINE decodePrimLE :: Parser Int32 #-}
 {-# SPECIALIZE INLINE decodePrimLE :: Parser Int16 #-}
-decodePrimLE = getLE <$> decodePrim
+decodePrimLE = do
+    ensureN n ["Std.Data.Parser.Base.decodePrimLE: not enough bytes"]
+    Parser (\ _ k (V.PrimVector (A.PrimArray ba#) i@(I# i#) len) ->
+        let !r = indexWord8ArrayAs ba# i#
+        in k (getLE r) (V.PrimVector (A.PrimArray ba#) (i+n) (len-n)))
+  where
+    n = getUnalignedSize (unalignedSize :: UnalignedSize (LE a))
 
-decodePrimBE :: (UnalignedAccess (BE a)) => Parser a
+decodePrimBE :: forall a. (UnalignedAccess (BE a)) => Parser a
 {-# INLINE decodePrimBE #-}
 {-# SPECIALIZE INLINE decodePrimBE :: Parser Word   #-}
 {-# SPECIALIZE INLINE decodePrimBE :: Parser Word64 #-}
@@ -307,7 +310,13 @@ decodePrimBE :: (UnalignedAccess (BE a)) => Parser a
 {-# SPECIALIZE INLINE decodePrimBE :: Parser Int64 #-}
 {-# SPECIALIZE INLINE decodePrimBE :: Parser Int32 #-}
 {-# SPECIALIZE INLINE decodePrimBE :: Parser Int16 #-}
-decodePrimBE = getBE <$> decodePrim
+decodePrimBE = do
+    ensureN n ["Std.Data.Parser.Base.decodePrimBE: not enough bytes"]
+    Parser (\ _ k (V.PrimVector (A.PrimArray ba#) i@(I# i#) len) ->
+        let !r = indexWord8ArrayAs ba# i#
+        in k (getBE r) (V.PrimVector (A.PrimArray ba#) (i+n) (len-n)))
+  where
+    n = getUnalignedSize (unalignedSize :: UnalignedSize (BE a))
 
 -- | A stateful scanner.  The predicate consumes and transforms a
 -- state argument, and each transformed state is passed to successive
@@ -369,19 +378,27 @@ scanChunks s consume = Parser (\ _ k inp ->
 --
 peekMaybe :: Parser (Maybe Word8)
 {-# INLINE peekMaybe #-}
-peekMaybe = do
-    e <- endOfInput
-    if e then return Nothing
-         else Just <$> peek
+peekMaybe =
+    Parser $ \ _ k inp ->
+        if V.null inp
+        then Partial (\ inp' -> k (if V.null inp'
+            then Nothing
+            else Just (V.unsafeHead inp)) inp')
+        else k (Just (V.unsafeHead inp)) inp
 
 -- | Match any byte, to perform lookahead.  Does not consume any
 -- input, but will fail if end of input has been reached.
 --
 peek :: Parser Word8
 {-# INLINE peek #-}
-peek = do
-    ensureN 1
-    Parser (\ _ k inp -> k (V.unsafeHead inp) inp)
+peek =
+    Parser $ \ kf k inp ->
+        if V.null inp
+        then Partial (\ inp' ->
+            if V.null inp'
+            then kf ["Std.Data.Parser.Base.peek: not enough bytes"] inp'
+            else k (V.unsafeHead inp') inp')
+        else k (V.unsafeHead inp) inp
 
 -- | The parser @satisfy p@ succeeds for any byte for which the
 -- predicate @p@ returns 'True'. Returns the byte that is actually
@@ -393,12 +410,12 @@ peek = do
 satisfy :: (Word8 -> Bool) -> Parser Word8
 {-# INLINE satisfy #-}
 satisfy p = do
-    ensureN 1
-    Parser (\ _ k inp ->
+    ensureN 1 ["Std.Data.Parser.Base.satisfy: not enough bytes"]
+    Parser $ \ kf k inp ->
         let w = V.unsafeHead inp
         in if p w
             then k w (V.unsafeTail inp)
-            else Failure ["Std.Data.Parser.Base.satisfy: unsatisfied byte"] inp)
+            else kf ["Std.Data.Parser.Base.satisfy: unsatisfied byte"] (V.unsafeTail inp)
 
 -- | The parser @satisfyWith f p@ transforms a byte, and succeeds if
 -- the predicate @p@ returns 'True' on the transformed value. The
@@ -407,24 +424,24 @@ satisfy p = do
 satisfyWith :: (Word8 -> a) -> (a -> Bool) -> Parser a
 {-# INLINE satisfyWith #-}
 satisfyWith f p = do
-    ensureN 1
-    Parser (\ _ k inp ->
-        let w = f (V.unsafeHead inp)
-        in if p w
-            then k w (V.unsafeTail inp)
-            else Failure ["Std.Data.Parser.Base.satisfyWith: unsatisfied byte"] inp)
+    ensureN 1 ["Std.Data.Parser.Base.satisfyWith: not enough bytes"]
+    Parser $ \ kf k inp ->
+        let a = f (V.unsafeHead inp)
+        in if p a
+            then k a (V.unsafeTail inp)
+            else kf ["Std.Data.Parser.Base.satisfyWith: unsatisfied byte"] (V.unsafeTail inp)
 
 -- | Match a specific byte.
 --
 word8 :: Word8 -> Parser ()
 {-# INLINE word8 #-}
 word8 w' = do
-    ensureN 1
-    Parser (\ _ k inp ->
+    ensureN 1 ["Std.Data.Parser.Base.word8: not enough bytes"]
+    Parser (\ kf k inp ->
         let w = V.unsafeHead inp
         in if w == w'
             then k () (V.unsafeTail inp)
-            else Failure ["Std.Data.Parser.Base.word8: mismatch byte"] inp)
+            else kf ["Std.Data.Parser.Base.word8: mismatch byte"] inp)
 
 -- | Match a specific 8bit char.
 --
@@ -432,11 +449,6 @@ char8 :: Char -> Parser ()
 {-# INLINE char8 #-}
 char8 = word8 . V.c2w
 
--- | Match any byte.
---
-anyWord8 :: Parser Word8
-{-# INLINE anyWord8 #-}
-anyWord8 = decodePrim
 
 -- | Match either a single newline byte @\'\\n\'@, or a carriage
 -- return followed by a newline byte @\"\\r\\n\"@.
@@ -447,7 +459,7 @@ endOfLine = do
     case w of
         10 -> return ()
         13 -> word8 10
-        _  -> fail "mismatch byte"
+        _  -> fail "Std.Data.Parser.Base.endOfLine: mismatch byte"
 
 --------------------------------------------------------------------------------
 
@@ -456,25 +468,37 @@ endOfLine = do
 skip :: Int -> Parser ()
 {-# INLINE skip #-}
 skip n =
-    Parser (\ _ k inp ->
+    Parser (\ kf k inp ->
         let l = V.length inp
             !n' = max n 0
         in if l >= n'
             then k () $! V.unsafeDrop n' inp
-            else Partial (skipPartial (n'-l) k))
+            else Partial (skipPartial (n'-l) kf k))
 
--- for the same reason as ensureNPartial, we move this closure out.
-skipPartial :: Int -> (() -> ParseStep r) -> ParseStep r
+skipPartial :: Int -> (ParseError -> ParseStep r) -> (() -> ParseStep r) -> ParseStep r
 {-# INLINABLE skipPartial #-}
-skipPartial n k =
+skipPartial n kf k =
     let go !n' = \ inp ->
             let l = V.length inp
             in if l >= n'
                 then k () $! V.unsafeDrop n' inp
                 else if l == 0
-                    then Failure ["Std.Data.Parser.Base.skip: not enough bytes"] inp
+                    then kf ["Std.Data.Parser.Base.skip: not enough bytes"] inp
                     else Partial (go (n'-l))
     in go n
+
+-- | Skip a byte.
+--
+skipWord8 :: Parser ()
+{-# INLINE skipWord8 #-}
+skipWord8 =
+    Parser $ \ kf k inp ->
+        if V.null inp
+        then Partial (\ inp' ->
+            if V.null inp'
+            then kf ["Std.Data.Parser.Base.skipWord8: not enough bytes"] inp'
+            else k () (V.unsafeTail inp'))
+        else k () (V.unsafeTail inp)
 
 -- | Skip past input for as long as the predicate returns 'True'.
 --
@@ -512,7 +536,8 @@ isSpace w = w == 32 || w - 9 <= 4 || w == 0xA0
 take :: Int -> Parser V.Bytes
 {-# INLINE take #-}
 take n = do
-    ensureN n' -- we use unsafe slice, guard negative n here
+    -- we use unsafe slice, guard negative n here
+    ensureN n' ["Std.Data.Parser.Base.take: not enough bytes"]
     Parser (\ _ k inp ->
         let !r = V.unsafeTake n' inp
             !inp' = V.unsafeDrop n' inp
@@ -585,11 +610,11 @@ bytes :: V.Bytes -> Parser ()
 {-# INLINE bytes #-}
 bytes bs = do
     let n = V.length bs
-    ensureN n
-    Parser (\ _ k inp ->
+    ensureN n ["Std.Data.Parser.Base.bytes: not enough bytes"]
+    Parser (\ kf k inp ->
         if bs == V.unsafeTake n inp
         then k () $! V.unsafeDrop n inp
-        else Failure ["Std.Data.Parser.Base.bytes: mismatch bytes"] inp)
+        else kf ["Std.Data.Parser.Base.bytes: mismatch bytes"] inp)
 
 
 -- | Same as 'bytes' but ignoring case.
@@ -597,11 +622,12 @@ bytesCI :: V.Bytes -> Parser ()
 {-# INLINE bytesCI #-}
 bytesCI bs = do
     let n = V.length bs
-    ensureN n   -- casefold an ASCII string should not change it's length
-    Parser (\ _ k inp ->
+    -- casefold an ASCII string should not change it's length
+    ensureN n ["Std.Data.Parser.Base.bytesCI: not enough bytes"]
+    Parser (\ kf k inp ->
         if bs' == CI.foldCase (V.unsafeTake n inp)
         then k () $! V.unsafeDrop n inp
-        else Failure ["Std.Data.Parser.Base.bytesCI: mismatch bytes"] inp)
+        else kf ["Std.Data.Parser.Base.bytesCI: mismatch bytes"] inp)
   where
     bs' = CI.foldCase bs
 

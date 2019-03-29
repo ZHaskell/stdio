@@ -7,8 +7,10 @@
 {-# LANGUAGE UnliftedFFITypes   #-}
 
 module Std.Data.JSON.Value
-  ( -- * parse into JSON Value
-    parseValue
+  ( -- * Value type
+    Value(..)
+    -- * parse into JSON Value
+  , parseValue
   , parseValue_
   , parseValueChunks
     -- * Value Parsers
@@ -27,10 +29,8 @@ import           Data.Scientific          (Scientific)
 import           Data.Typeable
 import           Data.Word
 import           GHC.Generics
-import           GHC.Stack
 import qualified Std.Data.Parser          as P
 import           Std.Data.Parser          ((<?>))
-import qualified Std.Data.Parser.Numeric  as P
 import qualified Std.Data.Text            as T
 import qualified Std.Data.Text.Base       as T
 import           Std.Data.Vector.Base     as V
@@ -90,9 +90,10 @@ parseValue_ :: V.Bytes -> Either P.ParseError Value
 {-# INLINE parseValue_ #-}
 parseValue_ = P.parse_ value
 
-parseValueChunks :: (Monad m, HasCallStack) => m V.Bytes -> V.Bytes -> m (V.Bytes, Either P.ParseError Value)
+parseValueChunks :: Monad m => m V.Bytes -> V.Bytes -> m (V.Bytes, Either P.ParseError Value)
 {-# INLINE parseValueChunks #-}
 parseValueChunks = P.parseChunks value
+
 
 --------------------------------------------------------------------------------
 
@@ -101,7 +102,6 @@ parseValueChunks = P.parseChunks value
 skipSpaces :: P.Parser ()
 {-# INLINE skipSpaces #-}
 skipSpaces = P.skipWhile (\ w -> w == 0x20 || w == 0x0a || w == 0x0d || w == 0x09)
-    -- fast path for non-whitespace
 
 -- | JSON 'Value' parser.
 value :: P.Parser Value
@@ -110,14 +110,14 @@ value = "Std.Data.JSON.Value.value" <?> do
     skipSpaces
     w <- P.peek
     case w of
-        DOUBLE_QUOTE    -> P.skip 1 *> (String <$> string_)
-        OPEN_CURLY      -> P.skip 1 *> (Object <$> object_)
-        OPEN_SQUARE     -> P.skip 1 *> (Array <$> array_)
+        DOUBLE_QUOTE    -> P.skipWord8 *> (String <$> string_)
+        OPEN_CURLY      -> P.skipWord8 *> (Object <$> object_)
+        OPEN_SQUARE     -> P.skipWord8 *> (Array <$> array_)
         C_f             -> P.bytes "false" $> (Bool False)
         C_t             -> P.bytes "true" $> (Bool True)
         C_n             -> P.bytes "null" $> Null
         _   | w >= 48 && w <= 57 || w == MINUS -> Number <$> P.scientific'
-            | otherwise -> fail "not a valid json value"
+            | otherwise -> fail "Std.Data.JSON.Value.value: not a valid json value"
 
 -- | parse json array with leading OPEN_SQUARE.
 array :: P.Parser (V.Vector Value)
@@ -131,7 +131,7 @@ array_ = do
     skipSpaces
     w <- P.peek
     if w == CLOSE_SQUARE
-    then P.skip 1 $> V.empty
+    then P.skipWord8 $> V.empty
     else loop [] 1
   where
     loop :: [Value] -> Int -> P.Parser (V.Vector Value)
@@ -156,7 +156,7 @@ object_ = do
     skipSpaces
     w <- P.peek
     if w == CLOSE_CURLY
-    then P.skip 1 $> V.empty
+    then P.skipWord8 $> V.empty
     else loop [] 1
  where
     loop :: [FM.TextKV Value] -> Int -> P.Parser (V.Vector (FM.TextKV Value))
@@ -194,7 +194,7 @@ string_ = do
                 else return Nothing)
             else (T.validateMaybe bs)
     case mt of
-        Just t -> P.skip 1 $> t
+        Just t -> P.skipWord8 $> t
         _  -> fail "Std.Data.JSON.Value.string_: utf8 validation or unescaping failed"
   where
     go :: Word32 -> V.Bytes -> Either Word32 (V.Bytes, V.Bytes, Word32)

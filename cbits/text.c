@@ -304,6 +304,67 @@ HsInt find_json_string_end(uint32_t* state, const char* ba, HsInt offset, HsInt 
     return (-1);
 }
 
+HsInt escape_json_string_length(const unsigned char *src, HsInt srcoff, HsInt srclen){
+    HsInt rv = 2; // for start and end quotes 
+    const unsigned char *i = src + srcoff;
+    const unsigned char *srcend = i + srclen;
+    for (; i < srcend; i++) {
+        switch (*i) {
+            case '\b': rv += 2; break;
+            case '\f': rv += 2; break;
+            case '\n': rv += 2; break;
+            case '\r': rv += 2; break;
+            case '\t': rv += 2; break;
+            case '\"': rv += 2; break;
+            case '\\': rv += 2; break;
+            case '/': rv += 2; break;
+            default:
+                if (*i <= 0x1F) {
+                    rv += 6;
+                } else {
+                    rv += 1;
+                }
+        }
+    }
+    return rv;
+}
+
+static const unsigned char DEC2HEX[16] = {
+    '0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'
+};
+
+HsInt escape_json_string(const unsigned char *src, HsInt srcoff, HsInt srclen, unsigned char *dest, HsInt desoff){
+    const unsigned char *i = src + srcoff;
+    const unsigned char *srcend = i + srclen;
+    unsigned char *j = dest + desoff;
+    *j++ = '\"'; // start quote
+    for (; i < srcend; i++){
+        switch (*i) {
+            case '\b': *j++ = '\\'; *j++ = 'b'; break;
+            case '\f': *j++ = '\\'; *j++ = 'f'; break;
+            case '\n': *j++ = '\\'; *j++ = 'n'; break;
+            case '\r': *j++ = '\\'; *j++ = 'r'; break;
+            case '\t': *j++ = '\\'; *j++ = 't'; break;
+            case '\"': *j++ = '\\'; *j++ = '\"'; break;
+            case '\\': *j++ = '\\'; *j++ = '\\'; break;
+            case '/': *j++ = '\\'; *j++ = '/'; break;
+            default: 
+                if (*i <= 0x1F) {
+                    *j++ = '\\';
+                    *j++ = 'u';
+                    *j++ = '0';
+                    *j++ = '0';
+                    *j++ = DEC2HEX[*i >> 4];
+                    *j++ = DEC2HEX[*i & 0xF];
+                } else {
+                    *j++ = *i;
+                }
+        }
+    }
+    *j++ = '\"'; // end quote
+    return (HsInt)(j-dest);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 HsInt utf8_isnormalized(const char* p, HsInt off, HsInt len, size_t flag){

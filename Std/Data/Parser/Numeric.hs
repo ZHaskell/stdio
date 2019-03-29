@@ -68,7 +68,7 @@ import           Std.IO.Exception
 -- 'parse hex "0xFF" == Right (-1 :: Int8)'
 --
 hex :: (Integral a, Bits a) => Parser a
-{-# INLINABLE hex #-}
+{-# INLINE hex #-}
 {-# SPECIALIZE INLINE hex :: Parser Int    #-}
 {-# SPECIALIZE INLINE hex :: Parser Int64  #-}
 {-# SPECIALIZE INLINE hex :: Parser Int32  #-}
@@ -104,18 +104,18 @@ isHexDigit w = w - 48 <= 9 || w - 65 <= 5 || w - 97 <= 5
 
 -- | Parse and decode an unsigned decimal number.
 uint :: (Integral a) => Parser a
-{-# INLINABLE uint #-}
-{-# SPECIALIZE uint :: Parser Int    #-}
-{-# SPECIALIZE uint :: Parser Int64  #-}
-{-# SPECIALIZE uint :: Parser Int32  #-}
-{-# SPECIALIZE uint :: Parser Int16  #-}
-{-# SPECIALIZE uint :: Parser Int8   #-}
-{-# SPECIALIZE uint :: Parser Word   #-}
-{-# SPECIALIZE uint :: Parser Word64 #-}
-{-# SPECIALIZE uint :: Parser Word32 #-}
-{-# SPECIALIZE uint :: Parser Word16 #-}
-{-# SPECIALIZE uint :: Parser Word8  #-}
-{-# SPECIALIZE uint :: Parser Integer #-}
+{-# INLINE uint #-}
+{-# SPECIALIZE INLINE uint :: Parser Int    #-}
+{-# SPECIALIZE INLINE uint :: Parser Int64  #-}
+{-# SPECIALIZE INLINE uint :: Parser Int32  #-}
+{-# SPECIALIZE INLINE uint :: Parser Int16  #-}
+{-# SPECIALIZE INLINE uint :: Parser Int8   #-}
+{-# SPECIALIZE INLINE uint :: Parser Word   #-}
+{-# SPECIALIZE INLINE uint :: Parser Word64 #-}
+{-# SPECIALIZE INLINE uint :: Parser Word32 #-}
+{-# SPECIALIZE INLINE uint :: Parser Word16 #-}
+{-# SPECIALIZE INLINE uint :: Parser Word8  #-}
+{-# SPECIALIZE INLINE uint :: Parser Integer #-}
 uint = "Std.Data.Parser.Numeric.uint" <?> decLoop 0 <$> P.takeWhile1 isDigit
 
 -- | decode digits sequence within an array.
@@ -136,23 +136,23 @@ isDigit w = w - 48 <= 9
 -- | Parse a decimal number with an optional leading @\'+\'@ or @\'-\'@ sign
 -- character.
 int :: (Integral a) => Parser a
-{-# INLINABLE int #-}
-{-# SPECIALIZE int :: Parser Int    #-}
-{-# SPECIALIZE int :: Parser Int64  #-}
-{-# SPECIALIZE int :: Parser Int32  #-}
-{-# SPECIALIZE int :: Parser Int16  #-}
-{-# SPECIALIZE int :: Parser Int8   #-}
-{-# SPECIALIZE int :: Parser Word   #-}
-{-# SPECIALIZE int :: Parser Word64 #-}
-{-# SPECIALIZE int :: Parser Word32 #-}
-{-# SPECIALIZE int :: Parser Word16 #-}
-{-# SPECIALIZE int :: Parser Word8  #-}
-{-# SPECIALIZE int :: Parser Integer #-}
+{-# INLINE int #-}
+{-# SPECIALIZE INLINE int :: Parser Int    #-}
+{-# SPECIALIZE INLINE int :: Parser Int64  #-}
+{-# SPECIALIZE INLINE int :: Parser Int32  #-}
+{-# SPECIALIZE INLINE int :: Parser Int16  #-}
+{-# SPECIALIZE INLINE int :: Parser Int8   #-}
+{-# SPECIALIZE INLINE int :: Parser Word   #-}
+{-# SPECIALIZE INLINE int :: Parser Word64 #-}
+{-# SPECIALIZE INLINE int :: Parser Word32 #-}
+{-# SPECIALIZE INLINE int :: Parser Word16 #-}
+{-# SPECIALIZE INLINE int :: Parser Word8  #-}
+{-# SPECIALIZE INLINE int :: Parser Integer #-}
 int = "Std.Data.Parser.Numeric.int" <?> do
     w <- P.peek
     if w == MINUS
-    then P.skip 1 *> (negate <$> uint)
-    else if w == PLUS then P.skip 1 *> uint else uint
+    then P.skipWord8 *> (negate <$> uint)
+    else if w == PLUS then P.skipWord8 *> uint else uint
 
 -- | Parse a rational number.
 --
@@ -222,11 +222,13 @@ scientifically :: (Sci.Scientific -> a) -> Parser a
 {-# INLINE scientifically #-}
 scientifically h = "Std.Data.Parser.Numeric.scientifically" <?> do
     !sign <- P.peek
-    when (sign == PLUS || sign == MINUS) (P.skip 1)
+    when (sign == PLUS || sign == MINUS) (P.skipWord8)
     !intPart <- P.takeWhile1 isDigit
     -- backtrack here is neccessary to avoid eating dot or e
     -- attoparsec is doing it wrong here: https://github.com/bos/attoparsec/issues/112
     !sci <- (do
+        -- during number parsing we want to use machine word as much as possible
+        -- so as long as range permit, we use Word64 instead of final Integer
         !fracPart <- P.word8 DOT *> P.takeWhile1 isDigit
         let !ilen = V.length intPart
             !flen = V.length fracPart
@@ -329,12 +331,12 @@ scientifically' :: (Sci.Scientific -> a) -> P.Parser a
 {-# INLINE scientifically' #-}
 scientifically' h = "Std.Data.Parser.Numeric.scientifically'" <?> do
     !sign <- P.peek
-    when (sign == MINUS) (P.skip 1) -- no leading plus is allowed
+    when (sign == MINUS) (P.skipWord8) -- no leading plus is allowed
     !intPart <- P.takeWhile1 isDigit
     mdot <- P.peekMaybe
     !sci <- case mdot of
         Just DOT -> do
-            !fracPart <- P.skip 1 *> P.takeWhile1 isDigit
+            !fracPart <- P.skipWord8 *> P.takeWhile1 isDigit
             -- during number parsing we want to use machine word as much as possible
             -- so as long as range permit, we use Word64 instead of final Integer
             let !ilen = V.length intPart
@@ -366,6 +368,6 @@ scientifically' h = "Std.Data.Parser.Numeric.scientifically'" <?> do
     parseE !c !exp = do
         me <- P.peekMaybe
         exp' <- case me of
-            Just e | e == LITTLE_E || e == BIG_E -> P.skip 1 *> int
+            Just e | e == LITTLE_E || e == BIG_E -> P.skipWord8 *> int
             _ -> return 0
         return $! Sci.scientific c (exp' - exp)

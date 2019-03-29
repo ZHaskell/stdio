@@ -21,7 +21,23 @@ But can also used in various place where insertion and deletion is rare but requ
 
 -}
 
-module Std.Data.Vector.FlatMap where
+module Std.Data.Vector.FlatMap
+  ( -- * KeyVal class for unpack key-values
+    KeyVal(..)
+  , pattern (:=)
+  , BytesKV(..), TextKV(..), IntKV(..)
+    -- * FlatMap backed by sorted vector
+  , FlatMap
+  , pack, packN, packR, packRN
+  , unpack, unpackR, packVector, packVectorR
+  , lookup
+  , delete
+  , insert
+  , update'
+    -- * linear scan
+  , scan, scanR
+
+  ) where
 
 import           Control.Monad
 import           Control.Monad.ST
@@ -33,6 +49,7 @@ import           Data.Function              (on)
 import           Data.Bits                   (shiftR)
 import           Data.Data
 import           Data.Typeable
+import           Prelude hiding (lookup)
 
 -- | Type class for key value pair.
 --
@@ -55,32 +72,33 @@ class Ord (Key kv) => KeyVal kv where
     toTuple :: kv -> (Key kv, Val kv)
     keyVal :: Key kv -> Val kv -> kv
 
+    -- | Get key from a key value pair.
+    key :: kv -> Key kv
+    {-# INLINE key #-}
+    key = fst . toTuple
+
+    -- | Get value from a key value pair.
+    val :: kv -> Val kv
+    {-# INLINE val #-}
+    val = snd . toTuple
+
+    -- | @compare `on` key@
+    compareKey :: kv -> kv -> Ordering
+    {-# INLINE compareKey #-}
+    compareKey = compare `on` key
+
+    -- | @(==) `on` key@
+    eqKey :: kv -> kv -> Bool
+    {-# INLINE eqKey #-}
+    eqKey = (==) `on` key
+
 -- | Bidirectional pattern synonyms for writing flat map literals, or matching a key value pair.
 --
 -- @pack ["foo" := ..., "bar" := ... ]  :: FlatMap (TextKV ...)@
 pattern (:=) :: (KeyVal kv) => Key kv -> Val kv -> kv
 pattern k := v <- (toTuple -> (k, v)) where
         k := v = keyVal k v
-
--- | Get key from a key value pair.
-key :: KeyVal kv => kv -> Key kv
-{-# INLINE key #-}
-key = fst . toTuple
-
--- | Get value from a key value pair.
-val :: KeyVal kv => kv -> Val kv
-{-# INLINE val #-}
-val = snd . toTuple
-
--- | @compare `on` key@
-compareKey :: KeyVal kv => kv -> kv -> Ordering
-{-# INLINE compareKey #-}
-compareKey = compare `on` key
-
--- | @(==) `on` key@
-eqKey :: KeyVal kv => kv -> kv -> Bool
-{-# INLINE eqKey #-}
-eqKey = (==) `on` key
+infixr 9 :=
 
 -- | 'V.Bytes' as key.
 data BytesKV v = BytesKV {-# UNPACK #-} !V.Bytes v
@@ -167,6 +185,16 @@ unpackR :: FlatMap kv -> [kv]
 {-# INLINE unpackR #-}
 unpackR = V.unpackR . sortedKV
 
+-- | /O(N*logN)/ Pack vector of key values, on key duplication prefer left one.
+packVector :: KeyVal kv => V.Vector kv -> FlatMap kv
+{-# INLINE packVector #-}
+packVector kvs = FlatMap (V.mergeDupAdjacentLeft eqKey (V.mergeSortBy compareKey kvs))
+
+-- | /O(N*logN)/ Pack vector of key values, on key duplication prefer right one.
+packVectorR :: KeyVal kv => V.Vector kv -> FlatMap kv
+{-# INLINE packVectorR #-}
+packVectorR kvs = FlatMap (V.mergeDupAdjacentRight eqKey (V.mergeSortBy compareKey kvs))
+
 -- | /O(logN)/ Binary search on flat map.
 lookup :: KeyVal kv => Key kv -> FlatMap kv -> Maybe (Val kv)
 {-# INLINABLE lookup #-}
@@ -246,3 +274,24 @@ find (FlatMap (V.Vector arr s l)) !k' = go s (s+l-1)
             in case k' `compare` k of LT -> go s (mid-1)
                                       GT -> go (mid+1) e
                                       _  -> Right mid
+
+-- | linear scan from left to right.
+scan :: KeyVal kv => V.Vector kv -> Key kv -> Maybe (Val kv)
+scan (V.Vector arr s l) !k' = go s
+  where
+    !end = s + l
+    go !i
+        | i >= end = Nothing
+        | otherwise =
+            let (k := v)  = arr `A.indexSmallArray` i
+            in if k' == k then Just v else go (i+1)
+
+-- | linear scan from right to left.
+scanR :: KeyVal kv => V.Vector kv -> Key kv -> Maybe (Val kv)
+scanR (V.Vector arr s l) !k' = go (s+l-1)
+  where
+    go !i
+        | i < s = Nothing
+        | otherwise =
+            let (k := v)  = arr `A.indexSmallArray` i
+            in if k' == k then Just v else go (i-1)

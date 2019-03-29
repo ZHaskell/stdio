@@ -37,6 +37,8 @@ HsInt utf8_validate_addr(const char* p, HsInt len);
 
 HsInt find_json_string_end(uint32_t* state, const char* ba, HsInt offset, HsInt len);
 HsInt decode_json_string(char *dest, const char *src, HsInt srcoff, HsInt srclen);
+HsInt escape_json_string_length(const unsigned char *src, HsInt srcoff, HsInt srclen);
+HsInt escape_json_string(const unsigned char *src, HsInt srcoff, HsInt srclen, unsigned char *dest, HsInt desoff);
 
 HsInt utf8_isnormalized(const char* p, HsInt off, HsInt len, size_t flag);
 HsInt utf8_normalize(const char* p, HsInt off, HsInt len, char* q, HsInt len2, size_t flag);

@@ -29,6 +29,7 @@ module Std.IO.Buffered
   , readExactly
   , readToMagic, readToMagic'
   , readLine, readLine'
+  , readAll, readAll'
     -- * Buffered Output
   , BufferedOutput
   , newBufferedOutput
@@ -173,6 +174,18 @@ readExactly n h = V.concat `fmap` (go h n)
                 else do
                     chunks <- go h (n - l)
                     return (chunk : chunks)
+
+readAll :: (HasCallStack, Input i) => BufferedInput i -> IO [V.Bytes]
+readAll i = loop []
+  where
+    loop acc = do
+        chunk <- readBuffer i
+        if V.null chunk
+        then return $! reverse (chunk:acc)
+        else loop (chunk:acc)
+
+readAll' :: (HasCallStack, Input i) => BufferedInput i -> IO V.Bytes
+readAll' i = V.concat <$> readAll i
 
 data ShortReadException = ShortReadException IOEInfo deriving (Show, Typeable)
 
