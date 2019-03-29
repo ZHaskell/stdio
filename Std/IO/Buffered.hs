@@ -253,18 +253,22 @@ readToMagic' magic h = V.concat `fmap` (go h magic)
 readLine :: (HasCallStack, Input i) => BufferedInput i -> IO V.Bytes
 readLine i = do
     bs@(V.PrimVector arr s l) <- readToMagic 10 i
-    return $ case bs `V.indexMaybe` (l-2) of
+    if l == 0
+    then return bs
+    else return $ case bs `V.indexMaybe` (l-2) of
         Nothing -> V.PrimVector arr s (l-1)
         Just r | r == 13   -> V.PrimVector arr s (l-2)
                | otherwise -> V.PrimVector arr s (l-1)
 
 -- | Read to a linefeed ('\n' or '\r\n'), return 'Bytes' before it.
 --
--- If EOF reached before meet a magic byte, a 'ShortReadException' will be thrown.
+-- If EOF reached before meet a '\n', a 'ShortReadException' will be thrown.
 readLine' :: (HasCallStack, Input i) => BufferedInput i -> IO V.Bytes
 readLine' i = do
     bs@(V.PrimVector arr s l) <- readToMagic' 10 i
-    return $ case bs `V.indexMaybe` (l-2) of
+    if l == 0
+    then return bs
+    else return $ case bs `V.indexMaybe` (l-2) of
         Nothing -> V.PrimVector arr s (l-1)
         Just r | r == 13   -> V.PrimVector arr s (l-2)
                | otherwise -> V.PrimVector arr s (l-1)

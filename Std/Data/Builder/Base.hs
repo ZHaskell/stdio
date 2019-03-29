@@ -80,7 +80,7 @@ import           Data.Semigroup                     (Semigroup (..))
 import           Data.String                        (IsString (..))
 import           Data.Word
 import           Data.Int
-import           GHC.CString                        (unpackCString#)
+import           GHC.CString                        (unpackCString#, unpackCStringUtf8#)
 import           GHC.Prim
 import           GHC.Ptr
 import           GHC.Types
@@ -159,9 +159,12 @@ instance (a ~ ()) => IsString (Builder a) where
 
 -- | Encode string with modified UTF-8 encoding, will be rewritten to a memcpy if possible.
 stringModifiedUTF8 :: String -> Builder ()
-{-# INLINE CONLIKE [1] stringModifiedUTF8 #-}
+{-# INLINE CONLIKE [0] stringModifiedUTF8 #-}
 {-# RULES
     "stringModifiedUTF8/addrLiteral" forall addr . stringModifiedUTF8 (unpackCString# addr) = addrLiteral addr
+  #-}
+{-# RULES
+    "stringModifiedUTF8/addrLiteral" forall addr . stringModifiedUTF8 (unpackCStringUtf8# addr) = addrLiteral addr
   #-}
 stringModifiedUTF8 = mapM_ charModifiedUTF8
 
@@ -177,7 +180,6 @@ charModifiedUTF8 chr = do
         k () (Buffer mba i'))
 
 addrLiteral :: Addr# -> Builder ()
-{-# INLINE addrLiteral #-}
 addrLiteral addr# = copy addr#
   where
     len = fromIntegral . unsafeDupablePerformIO $ V.c_strlen addr#
@@ -426,14 +428,26 @@ encodePrimBE = encodePrim . BE
 -- This function will be rewritten into a memcpy if possible, (running a fast UTF-8 validation
 -- at runtime first).
 stringUTF8 :: String -> Builder ()
-{-# INLINE CONLIKE [1] stringUTF8 #-}
+{-# INLINE CONLIKE [0] stringUTF8 #-}
+{-# RULES
+    "stringUTF8/addrASCII" forall addr . stringUTF8 (unpackCString# addr) = addrASCII addr
+  #-}
 {-# RULES
     "stringUTF8/addrUTF8" forall addr . stringUTF8 (unpackCString# addr) = addrUTF8 addr
   #-}
 stringUTF8 = mapM_ charUTF8
 
+addrASCII :: Addr# -> Builder ()
+addrASCII addr# = copy addr#
+  where
+    len = fromIntegral . unsafeDupablePerformIO $ V.c_strlen addr#
+    copy addr# = do
+        ensureN len
+        Builder (\ _  k (Buffer mba i) -> do
+           copyPtrToMutablePrimArray mba i (Ptr addr#) len
+           k () (Buffer mba (i + len)))
+
 addrUTF8 :: Addr# -> Builder ()
-{-# INLINABLE addrUTF8 #-}
 addrUTF8 addr# = validateAndCopy addr#
   where
     len = fromIntegral . unsafeDupablePerformIO $ V.c_strlen addr#

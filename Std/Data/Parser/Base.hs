@@ -36,8 +36,7 @@ module Std.Data.Parser.Base
   , ParseError
   , ParseStep
   , Parser(..)
-  , HasCallStack
-  , failWithStack, (<?>)
+  , (<?>)
     -- * Running a parser
   , parse, parse_, parseChunk, parseChunks, finishParsing
   , runAndKeepTrack, match
@@ -102,10 +101,11 @@ type ParseStep r = V.Bytes -> Result r
 
 -- | Simple CPSed parser
 --
-newtype Parser a = Parser { runParser :: forall r .  ([T.Text] -> ParseStep r) -> (a -> ParseStep r) -> ParseStep r }
+newtype Parser a = Parser {
+        runParser :: forall r . (ParseError -> ParseStep r) -> (a -> ParseStep r) -> ParseStep r
+    }
 
-
--- It seems eta-expand one layer to ensure parser are saturated is helpful
+-- It seems eta-expand all params to ensure parsers are saturated is helpful
 instance Functor Parser where
     fmap f (Parser pa) = Parser (\ kf k inp -> pa kf (k . f) inp)
     {-# INLINE fmap #-}
@@ -117,9 +117,9 @@ instance Applicative Parser where
     {-# INLINE pure #-}
     Parser pf <*> Parser pa = Parser (\ kf k inp -> pf kf (\ f -> pa kf (k . f)) inp)
     {-# INLINE (<*>) #-}
-    Parser pa *> Parser pb = Parser (\ kf k inp -> pa kf (\ _ -> pb kf k) inp)
+    Parser pa *> Parser pb = Parser (\ kf k inp -> pa kf (\ _ inp' -> pb kf k inp') inp)
     {-# INLINE (*>) #-}
-    Parser pa <* Parser pb = Parser (\ kf k inp -> pa kf (\ x -> pb kf (\ _ -> k x)) inp)
+    Parser pa <* Parser pb = Parser (\ kf k inp -> pa kf (\ x inp' -> pb kf (\ _ -> k x) inp') inp)
     {-# INLINE (<*) #-}
 
 instance Monad Parser where
@@ -153,11 +153,6 @@ instance Alternative Parser where
                                    in Parser (\ kf k _ -> runParser g kf k bs)
             _                   -> error "Std.Data.Parser.Base: impossible"
     {-# INLINE (<|>) #-}
-
--- | Don't call fail if possible since it does not provide callStacks, use
--- 'failWithStack' instead.
-failWithStack :: T.Text -> Parser a
-failWithStack msg = Parser (\ kf _ input -> kf [msg] input)
 
 -- | Parse the complete input, without resupplying
 parse_ :: Parser a -> V.Bytes -> Either ParseError a
@@ -202,7 +197,8 @@ parseChunks (Parser p) m input = go m (p Failure Success input)
 
 (<?>) :: T.Text -> Parser a -> Parser a
 {-# INLINE (<?>) #-}
-msg <?> (Parser p) = Parser (\ kf -> p (kf . (msg:)))
+msg <?> (Parser p) = Parser (\ kf k inp -> p (kf . (msg:)) k inp)
+infixr 0 <?>
 
 -- | Run a parser and keep track of all the input chunks it consumes.
 -- Once it's finished, return the final result (always 'Success' or 'Failure') and
@@ -213,7 +209,7 @@ runAndKeepTrack :: Parser a -> Parser (Result a, [V.Bytes])
 runAndKeepTrack (Parser pa) = Parser $ \ kf k0 input ->
     let kf' msg inp = case kf msg inp of
             Failure errs rest -> Failure errs rest
-            _                 -> error "impossible"
+            _                 -> error "Std.Data.Parser.Base.runAndKeepTrack: impossible"
         r0 = pa kf' Success input in go [input] r0 k0
   where
     go !acc r k0 = case r of
@@ -232,7 +228,7 @@ match p = do
             Success r' input'  -> let !consumed = V.dropR (V.length input') (V.concat (reverse bss))
                                   in k (consumed , r') input'
             Failure err input' -> Failure err input'
-            Partial k          -> error "Std.Data.Parser.Base: impossible")
+            Partial k          -> error "Std.Data.Parser.Base.match: impossible")
 
 
 -- | Ensure that there are at least @n@ bytes available. If not, the
@@ -248,7 +244,7 @@ ensureN n0 = Parser $ \ kf k input -> do
 -- It's important to seperate this closure out of 'ensureN', which
 -- is used in many other parsers, to reduce code size. GHC will not
 -- inline it due to it's recursive.
-ensureNPartial :: Int -> Int -> V.Bytes -> ([T.Text] -> ParseStep r) -> (() -> ParseStep r) -> ParseStep r
+ensureNPartial :: Int -> Int -> V.Bytes -> (ParseError -> ParseStep r) -> (() -> ParseStep r) -> ParseStep r
 {-# INLINABLE ensureNPartial #-}
 ensureNPartial !n0 l input kf k =
     let go acc !l = \ inp -> do
@@ -273,7 +269,7 @@ endOfInput = Parser $ \ kf k inp ->
     then Partial (\ inp' -> k (V.null inp') inp')
     else k False inp
 
-decodePrim :: forall a. (UnalignedAccess a, HasCallStack) => Parser a
+decodePrim :: forall a. (UnalignedAccess a) => Parser a
 {-# INLINE decodePrim #-}
 {-# SPECIALIZE INLINE decodePrim :: Parser Word   #-}
 {-# SPECIALIZE INLINE decodePrim :: Parser Word64 #-}
@@ -293,7 +289,7 @@ decodePrim = do
   where
     n = (getUnalignedSize (unalignedSize :: UnalignedSize a))
 
-decodePrimLE :: (UnalignedAccess (LE a), HasCallStack) => Parser a
+decodePrimLE :: (UnalignedAccess (LE a)) => Parser a
 {-# INLINE decodePrimLE #-}
 {-# SPECIALIZE INLINE decodePrimLE :: Parser Word   #-}
 {-# SPECIALIZE INLINE decodePrimLE :: Parser Word64 #-}
@@ -305,7 +301,7 @@ decodePrimLE :: (UnalignedAccess (LE a), HasCallStack) => Parser a
 {-# SPECIALIZE INLINE decodePrimLE :: Parser Int16 #-}
 decodePrimLE = getLE <$> decodePrim
 
-decodePrimBE :: (UnalignedAccess (BE a), HasCallStack) => Parser a
+decodePrimBE :: (UnalignedAccess (BE a)) => Parser a
 {-# INLINE decodePrimBE #-}
 {-# SPECIALIZE INLINE decodePrimBE :: Parser Word   #-}
 {-# SPECIALIZE INLINE decodePrimBE :: Parser Word64 #-}
@@ -406,7 +402,7 @@ satisfy p = do
         let w = V.unsafeHead inp
         in if p w
             then k w (V.unsafeTail inp)
-            else Failure ["unsatisfied byte"] inp)
+            else Failure ["Std.Data.Parser.Base.satisfy: unsatisfied byte"] inp)
 
 -- | The parser @satisfyWith f p@ transforms a byte, and succeeds if
 -- the predicate @p@ returns 'True' on the transformed value. The
@@ -420,7 +416,7 @@ satisfyWith f p = do
         let w = f (V.unsafeHead inp)
         in if p w
             then k w (V.unsafeTail inp)
-            else Failure ["unsatisfied byte"] inp)
+            else Failure ["Std.Data.Parser.Base.satisfyWith: unsatisfied byte"] inp)
 
 -- | Match a specific byte.
 --
@@ -432,7 +428,7 @@ word8 w' = do
         let w = V.unsafeHead inp
         in if w == w'
             then k () (V.unsafeTail inp)
-            else Failure ["mismatch byte"] inp)
+            else Failure ["Std.Data.Parser.Base.word8: mismatch byte"] inp)
 
 -- | Match a specific 8bit char.
 --
@@ -455,7 +451,7 @@ endOfLine = do
     case w of
         10 -> return ()
         13 -> word8 10
-        _  -> failWithStack "mismatch byte"
+        _  -> fail "mismatch byte"
 
 --------------------------------------------------------------------------------
 
@@ -480,7 +476,7 @@ skipPartial n k =
             in if l >= n'
                 then k () $! V.unsafeDrop n' inp
                 else if l == 0
-                    then Failure ["not enough bytes"] inp
+                    then Failure ["Std.Data.Parser.Base.skip: not enough bytes"] inp
                     else Partial (go (n'-l))
     in go n
 
@@ -561,6 +557,7 @@ takeWhile p = Parser (\ kf k inp ->
         then Partial (takeWhilePartial k want)
         else k want rest)
   where
+    -- we want to inline p if possible
     {-# INLINABLE takeWhilePartial #-}
     takeWhilePartial k want =
         let go acc = \ inp ->
@@ -581,7 +578,9 @@ takeWhile1 :: (Word8 -> Bool) -> Parser V.Bytes
 {-# INLINE takeWhile1 #-}
 takeWhile1 p = do
     bs <- takeWhile p
-    if V.null bs then failWithStack "no satisfied byte" else return bs
+    if V.null bs
+    then fail "Std.Data.Parser.Base.takeWhile1: no satisfied byte"
+    else return bs
 
 -- | @bytes s@ parses a sequence of bytes that identically match @s@.
 --
@@ -593,7 +592,7 @@ bytes bs = do
     Parser (\ kf k inp ->
         if bs == V.unsafeTake n inp
         then k () $! V.unsafeDrop n inp
-        else Failure ["mismatch bytes"] inp)
+        else Failure ["Std.Data.Parser.Base.bytes: mismatch bytes"] inp)
 
 
 -- | Same as 'bytes' but ignoring case.
@@ -605,7 +604,7 @@ bytesCI bs = do
     Parser (\ kf k inp ->
         if bs' == CI.foldCase (V.unsafeTake n inp)
         then k () $! V.unsafeDrop n inp
-        else Failure ["mismatch bytes"] inp)
+        else Failure ["Std.Data.Parser.Base.bytesCI: mismatch bytes"] inp)
   where
     bs' = CI.foldCase bs
 

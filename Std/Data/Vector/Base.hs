@@ -294,7 +294,7 @@ instance Hashable1 Vector where
             | otherwise = go (h salt (indexArr arr i)) (i+1)
 
 traverse :: (Vec v a, Vec u b, Applicative f) => (a -> f b) -> v a -> f (u b)
-{-# INLINE [1] traverse #-}
+{-# INLINE [0] traverse #-}
 {-# RULES "traverse/ST" traverse = traverseST #-}
 {-# RULES "traverse/IO" traverse = traverseIO #-}
 traverse f v = packN (length v) <$> T.traverse f (unpack v)
@@ -458,25 +458,21 @@ instance CI.FoldCase Bytes where
           | otherwise            = w
 
 packASCII :: String -> Bytes
-{-# INLINE CONLIKE [1] packASCII #-}
+{-# INLINE CONLIKE [0] packASCII #-}
 {-# RULES
     "packASCII/packStringAddr" forall addr . packASCII (unpackCString# addr) = packStringAddr addr
   #-}
 packASCII = pack . fmap (fromIntegral . ord)
 
 packStringAddr :: Addr# -> Bytes
-{-# INLINABLE packStringAddr #-}
-packStringAddr addr# = validateAndCopy addr#
+packStringAddr addr# = copy addr#
   where
     len = fromIntegral . unsafeDupablePerformIO $ c_strlen addr#
-    valid = unsafeDupablePerformIO $ c_ascii_validate_addr addr# len
-    validateAndCopy addr#
-        | valid == 0 = pack . fmap (fromIntegral . ord) $ unpackCString# addr#
-        | otherwise = runST $ do
-            marr <- newPrimArray len
-            copyPtrToMutablePrimArray marr 0 (Ptr addr#) len
-            arr <- unsafeFreezePrimArray marr
-            return (PrimVector arr 0 len)
+    copy addr# = runST $ do
+        marr <- newPrimArray len
+        copyPtrToMutablePrimArray marr 0 (Ptr addr#) len
+        arr <- unsafeFreezePrimArray marr
+        return (PrimVector arr 0 len)
 
 -- | Conversion between 'Word8' and 'Char'. Should compile to a no-op.
 --

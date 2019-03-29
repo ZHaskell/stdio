@@ -134,7 +134,7 @@ import           GHC.Exts                 (build)
 import           GHC.Ptr
 import           GHC.Types
 import           GHC.Stack
-import           GHC.CString              (unpackCString#)
+import           GHC.CString              (unpackCString#, unpackCStringUtf8#)
 import           Std.Data.Array
 import           Std.Data.Text.UTF8Codec
 import           Std.Data.Text.UTF8Rewind
@@ -183,8 +183,17 @@ instance IsString Text where
     fromString = pack
 
 packStringAddr :: Addr# -> Text
-{-# INLINABLE packStringAddr #-}
-packStringAddr addr# = validateAndCopy addr#
+packStringAddr addr# = copy addr#
+  where
+    len = fromIntegral . unsafeDupablePerformIO $ c_strlen addr#
+    copy addr# = runST $ do
+        marr <- newPrimArray len
+        copyPtrToMutablePrimArray marr 0 (Ptr addr#) len
+        arr <- unsafeFreezePrimArray marr
+        return $ Text (PrimVector arr 0 len)
+
+packStringAddr' :: Addr# -> Text
+packStringAddr' addr# = validateAndCopy addr#
   where
     len = fromIntegral . unsafeDupablePerformIO $ c_strlen addr#
     valid = unsafeDupablePerformIO $ c_utf8_validate_addr addr# len
@@ -289,10 +298,9 @@ foreign import ccall unsafe "text.h utf8_validate_addr"
 -- Alias for @'packN' 'defaultInitSize'@.
 pack :: String -> Text
 pack = packN V.defaultInitSize
-{-# INLINE CONLIKE [1] pack #-}
-{-# RULES
-    "pack/packStringAddr" forall addr . pack (unpackCString# addr) = packStringAddr addr
-  #-}
+{-# INLINE CONLIKE [0] pack #-}
+{-# RULES "pack/packStringAddr" forall addr . pack (unpackCString# addr) = packStringAddr addr #-}
+{-# RULES "pack/packStringAddr'" forall addr . pack (unpackCStringUtf8# addr) = packStringAddr' addr #-}
 
 -- | /O(n)/ Convert a list into a text with an approximate size(in bytes, not codepoints).
 --

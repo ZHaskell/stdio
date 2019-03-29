@@ -6,7 +6,17 @@
 {-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE UnliftedFFITypes   #-}
 
-module Std.Data.JSON.Value where
+module Std.Data.JSON.Value
+  ( -- * parse into JSON Value
+    parseValue
+  , parseValue_
+  , parseValueChunks
+    -- * Value Parsers
+  , value
+  , object
+  , array
+  , string
+  ) where
 
 import           Control.Monad
 import           Data.Bits                ((.&.))
@@ -71,11 +81,11 @@ data Value = Object {-# UNPACK #-} !(V.Vector (FM.TextKV Value))
            | Null
          deriving (Eq, Show, Typeable, Generic)
 
-parseValue :: HasCallStack => V.Bytes -> (V.Bytes, Either P.ParseError Value)
+parseValue :: V.Bytes -> (V.Bytes, Either P.ParseError Value)
 {-# INLINE parseValue #-}
 parseValue = P.parse value
 
-parseValue_ :: HasCallStack => V.Bytes -> Either P.ParseError Value
+parseValue_ :: V.Bytes -> Either P.ParseError Value
 {-# INLINE parseValue_ #-}
 parseValue_ = P.parse_ value
 
@@ -93,9 +103,9 @@ skipSpaces = P.skipWhile (\ w -> w == 0x20 || w == 0x0a || w == 0x0d || w == 0x0
     -- fast path for non-whitespace
 
 -- | JSON 'Value' parser.
-value :: HasCallStack => P.Parser Value
+value :: P.Parser Value
 {-# INLINABLE value #-}
-value = "value" <?> do
+value = "Std.Data.JSON.Value.value" <?> do
     skipSpaces
     w <- P.peek
     case w of
@@ -106,15 +116,15 @@ value = "value" <?> do
         C_t             -> P.bytes "true" $> (Bool True)
         C_n             -> P.bytes "null" $> Null
         _   | w >= 48 && w <= 57 || w == MINUS -> Number <$> P.scientific'
-            | otherwise -> P.failWithStack "not a valid json value"
+            | otherwise -> fail "not a valid json value"
 
 -- | parse json array with leading OPEN_SQUARE.
-array :: HasCallStack => P.Parser (V.Vector Value)
+array :: P.Parser (V.Vector Value)
 {-# INLINE array #-}
-array = P.word8 OPEN_SQUARE *> array_
+array = "Std.Data.JSON.Value.array" <?> P.word8 OPEN_SQUARE *> array_
 
 -- | parse json array without leading OPEN_SQUARE.
-array_ :: HasCallStack => P.Parser (V.Vector Value)
+array_ :: P.Parser (V.Vector Value)
 {-# INLINABLE array_ #-}
 array_ = do
     skipSpaces
@@ -134,12 +144,12 @@ array_ = do
         else return $! V.packRN n acc'  -- n start from 1, so no need to +1 here
 
 -- | parse json array with leading OPEN_CURLY.
-object :: HasCallStack => P.Parser (V.Vector (FM.TextKV Value))
+object :: P.Parser (V.Vector (FM.TextKV Value))
 {-# INLINE object #-}
-object = P.word8 OPEN_CURLY *> object_
+object = "Std.Data.JSON.Value.object" <?> P.word8 OPEN_CURLY *> object_
 
 -- | parse json object without leading OPEN_CURLY.
-object_ :: HasCallStack => P.Parser (V.Vector (FM.TextKV Value))
+object_ :: P.Parser (V.Vector (FM.TextKV Value))
 {-# INLINABLE object_ #-}
 object_ = do
     skipSpaces
@@ -163,11 +173,11 @@ object_ = do
 
 --------------------------------------------------------------------------------
 
-string :: HasCallStack => P.Parser T.Text
+string :: P.Parser T.Text
 {-# INLINE string #-}
-string = P.word8 DOUBLE_QUOTE *> string_
+string = "Std.Data.JSON.Value.string" <?> P.word8 DOUBLE_QUOTE *> string_
 
-string_ :: HasCallStack => P.Parser T.Text
+string_ :: P.Parser T.Text
 {-# INLINE string_ #-}
 string_ = do
     (bs, state) <- P.scanChunks 0 go
@@ -184,7 +194,7 @@ string_ = do
             else (T.validateMaybe bs)
     case mt of
         Just t -> P.skip 1 $> t
-        _  -> P.failWithStack "utf8 validation or unescaping failed"
+        _  -> fail "utf8 validation or unescaping failed"
   where
     go :: Word32 -> V.Bytes -> Either Word32 (V.Bytes, V.Bytes, Word32)
     go !state v =

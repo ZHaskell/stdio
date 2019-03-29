@@ -67,7 +67,7 @@ import           Std.IO.Exception
 -- sign bit part of the binary hex nibbles, i.e.
 -- 'parse hex "0xFF" == Right (-1 :: Int8)'
 --
-hex :: (HasCallStack, Integral a, Bits a) => Parser a
+hex :: (Integral a, Bits a) => Parser a
 {-# INLINABLE hex #-}
 {-# SPECIALIZE INLINE hex :: Parser Int    #-}
 {-# SPECIALIZE INLINE hex :: Parser Int64  #-}
@@ -81,7 +81,7 @@ hex :: (HasCallStack, Integral a, Bits a) => Parser a
 {-# SPECIALIZE INLINE hex :: Parser Word8  #-}
 {-# SPECIALIZE INLINE hex :: Parser Integer #-}
 {-# SPECIALIZE INLINE hex :: Parser IntPtr #-}
-hex = hexLoop 0 <$> P.takeWhile1 isHexDigit
+hex = "Std.Data.Parser.Numeric.hex" <?> hexLoop 0 <$> P.takeWhile1 isHexDigit
 
 -- | decode hex digits sequence within an array.
 hexLoop :: (Integral a, Bits a)
@@ -103,7 +103,7 @@ isHexDigit :: Word8 -> Bool
 isHexDigit w = w - 48 <= 9 || w - 65 <= 5 || w - 97 <= 5
 
 -- | Parse and decode an unsigned decimal number.
-uint :: (HasCallStack, Integral a) => Parser a
+uint :: (Integral a) => Parser a
 {-# INLINABLE uint #-}
 {-# SPECIALIZE uint :: Parser Int    #-}
 {-# SPECIALIZE uint :: Parser Int64  #-}
@@ -116,7 +116,7 @@ uint :: (HasCallStack, Integral a) => Parser a
 {-# SPECIALIZE uint :: Parser Word16 #-}
 {-# SPECIALIZE uint :: Parser Word8  #-}
 {-# SPECIALIZE uint :: Parser Integer #-}
-uint = decLoop 0 <$> P.takeWhile1 isDigit
+uint = "Std.Data.Parser.Numeric.uint" <?> decLoop 0 <$> P.takeWhile1 isDigit
 
 -- | decode digits sequence within an array.
 decLoop :: Integral a
@@ -135,7 +135,7 @@ isDigit w = w - 48 <= 9
 
 -- | Parse a decimal number with an optional leading @\'+\'@ or @\'-\'@ sign
 -- character.
-int :: (HasCallStack, Integral a) => Parser a
+int :: (Integral a) => Parser a
 {-# INLINABLE int #-}
 {-# SPECIALIZE int :: Parser Int    #-}
 {-# SPECIALIZE int :: Parser Int64  #-}
@@ -148,7 +148,7 @@ int :: (HasCallStack, Integral a) => Parser a
 {-# SPECIALIZE int :: Parser Word16 #-}
 {-# SPECIALIZE int :: Parser Word8  #-}
 {-# SPECIALIZE int :: Parser Integer #-}
-int = "int" <?> do
+int = "Std.Data.Parser.Numeric.int" <?> do
     w <- P.peek
     if w == MINUS
     then P.skip 1 *> (negate <$> uint)
@@ -166,7 +166,7 @@ int = "int" <?> do
 -- In most cases, it is better to use 'double' or 'scientific'
 -- instead.
 --
-rational :: (HasCallStack, Fractional a) => Parser a
+rational :: (Fractional a) => Parser a
 {-# INLINE rational #-}
 rational = scientifically realToFrac
 
@@ -220,7 +220,7 @@ scientific = scientifically id
 -- The syntax accepted by this parser is the same as for 'double'.
 scientifically :: (Sci.Scientific -> a) -> Parser a
 {-# INLINE scientifically #-}
-scientifically h = do
+scientifically h = "Std.Data.Parser.Numeric.scientifically" <?> do
     !sign <- P.peek
     when (sign == PLUS || sign == MINUS) (P.skip 1)
     !intPart <- P.takeWhile1 isDigit
@@ -272,7 +272,7 @@ scientifically h = do
 -- In most cases, it is better to use 'double'' or 'scientific''
 -- instead.
 --
-rational' :: (HasCallStack, Fractional a) => Parser a
+rational' :: (Fractional a) => Parser a
 {-# INLINE rational' #-}
 rational' = scientifically' realToFrac
 
@@ -327,7 +327,7 @@ scientific' = scientifically' id
 -- The syntax accepted by this parser is the same as for 'double''.
 scientifically' :: (Sci.Scientific -> a) -> P.Parser a
 {-# INLINE scientifically' #-}
-scientifically' h = "scientifically'" <?> do
+scientifically' h = "Std.Data.Parser.Numeric.scientifically'" <?> do
     sign <- P.peek
     when (sign == MINUS) (P.skip 1) -- no leading plus is allowed
     !intPart <- P.takeWhile1 isDigit
