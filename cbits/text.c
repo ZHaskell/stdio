@@ -284,9 +284,9 @@ surrogate2:
 //    escaped(LSB): 1 if this string contain escaped char(s),
 //                  3 if this string contain unescaped control char(s),
 //                  0 otherwise
-HsInt find_json_string_end(uint32_t* state, const char* ba, HsInt offset, HsInt len){
-    const char *s   = ba + offset;
-    const char *end = s + len;
+HsInt find_json_string_end(uint32_t* state, const unsigned char* ba, HsInt offset, HsInt len){
+    const unsigned char *s   = ba + offset;
+    const unsigned char *end = s + len;
     uint32_t skip = *state >> 8;
     uint32_t escaped = *state & 0xFF;
     for (; s < end; s++) {
@@ -301,7 +301,7 @@ HsInt find_json_string_end(uint32_t* state, const char* ba, HsInt offset, HsInt 
             *state = (skip << 8) | escaped; // save the state
             return (s - ba - offset);
         } else if (*s <= 0x1F) {  // unescaped control characters
-            escaped = 3;
+            escaped = 3;          // even if it's skipped, it will be rejected in decode_json_string
         }
     }
     *state = (skip << 8) | escaped; // save the state
