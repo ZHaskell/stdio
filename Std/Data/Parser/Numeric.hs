@@ -59,6 +59,7 @@ import           Std.IO.Exception
 #define DOT      46
 #define LITTLE_E 101
 #define BIG_E    69
+#define C_0 48
 
 -- | Parse and decode an unsigned hex number.  The hex digits
 -- @\'a\'@ through @\'f\'@ may be upper or lower case.
@@ -288,11 +289,12 @@ rational' = scientifically' realToFrac
 -- >parse_ double "3.foo" == Left ParseError
 -- >parse_ double "3e"    == Left ParseError
 --
--- The leading @+@ sign is also not allowed:
+-- Leading zeros or @+@ sign is also not allowed:
 --
 -- >parse_ double "+3.14" == Left ParseError
+-- >parse_ double "0014" == Left ParseError
 --
--- If you have a similar grammer, you can use this parse to save considerable time.
+-- If you have a similar grammer, you can use this parser to save considerable time.
 --
 -- @
 --      number = [ minus ] int [ frac ] [ exp ]
@@ -333,6 +335,7 @@ scientifically' h = "Std.Data.Parser.Numeric.scientifically'" <?> do
     !sign <- P.peek
     when (sign == MINUS) (P.skipWord8) -- no leading plus is allowed
     !intPart <- P.takeWhile1 isDigit
+    when (V.length intPart > 1 && V.head intPart == C_0) (fail "leading zeros are not allowed")
     mdot <- P.peekMaybe
     !sci <- case mdot of
         Just DOT -> do

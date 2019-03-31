@@ -15,13 +15,16 @@ Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 
-This module provides definition and parsers for JSON 'Value's, a Haskell JSON representation. The parsers is designed to comply with <https://tools.ietf.org/html/rfc7159 rfc7159> as much as possible, some notable differences are:
+This module provides definition and parsers for JSON 'Value's, a Haskell JSON representation. The parsers is designed to comply with <https://tools.ietf.org/html/rfc8258 rfc8258>, notable pitfalls are:
 
-  * The numeric representation use 'Scientific', which have a limited exponent part('Int').
-  * Unescaped control characters(<=0x1F) is accepted, (compatible with aeson).
+  * The numeric representation use 'Scientific', which impose a limit on number's exponent part(limited to 'Int').
+  * Unescaped control characters(<=0x1F) are NOT accepted, (different from aeson).
+  * Only @0x20, 0x09, 0x0A, 0x0D@ are valid JSON whitespaces, 'skipSpaces' from this module is different from 'P.skipSpaces'.
+  * A JSON document shouldn't have trailing characters except whitespaces describe above, see 'parseValue''
+    and 'parseValueChunks''.
   * Objects are represented as key-value vectors, key order and duplicated keys are preserved for further processing.
 
-Note that rfc7159 doesn't enforce unique key in objects, it's up to users to decided how to deal with key duplication, e.g. prefer first or last key, see 'Std.Data.JSON.Base.withFlatMap' or 'Std.Data.JSON.Base.withFlatMapR' for example.
+Note that rfc8258 doesn't enforce unique key in objects, it's up to users to decided how to deal with key duplication, e.g. prefer first or last key, see 'Std.Data.JSON.Base.withFlatMap' or 'Std.Data.JSON.Base.withFlatMapR' for example.
 
 There's no lazy parsers here, every pieces of JSON document will be parsed into a normal form 'Value'. 'Object' and 'Array's payloads are packed into 'Vector's to avoid accumulating lists in memory. Read more about <http://winterland.me/2019/03/05/aeson's-mysterious-lazy-parsing why no lazy parsing is needed>.
 -}
@@ -206,17 +209,19 @@ string_ :: P.Parser T.Text
 {-# INLINE string_ #-}
 string_ = do
     (bs, state) <- P.scanChunks 0 go
-    let mt = if state .&. 0xFF /= 0    -- need escaping
-            then unsafeDupablePerformIO (do
-                let !len = V.length bs
-                !mpa <- newPrimArray len
-                !len' <- withMutablePrimArrayUnsafe mpa (\ mba# _ ->
-                    withPrimVectorUnsafe bs (decode_json_string mba#))
-                !pa <- unsafeFreezePrimArray mpa
-                if len' >= 0
-                then return (Just (T.Text (V.PrimVector pa 0 len')))  -- unescaping also validate utf8
-                else return Nothing)
-            else (T.validateMaybe bs)
+    let mt = case state .&. 0xFF of
+            -- need escaping
+            1 -> unsafeDupablePerformIO (do
+                    let !len = V.length bs
+                    !mpa <- newPrimArray len
+                    !len' <- withMutablePrimArrayUnsafe mpa (\ mba# _ ->
+                        withPrimVectorUnsafe bs (decode_json_string mba#))
+                    !pa <- unsafeFreezePrimArray mpa
+                    if len' >= 0
+                    then return (Just (T.Text (V.PrimVector pa 0 len')))  -- unescaping also validate utf8
+                    else return Nothing)
+            3 -> Nothing    -- reject unescaped control characters
+            _ -> T.validateMaybe bs
     case mt of
         Just t -> P.skipWord8 $> t
         _  -> fail "Std.Data.JSON.Value.string_: utf8 validation or unescaping failed"
