@@ -51,6 +51,8 @@ spec = describe "text-base" $ do
             "你好\NUL世界" === T.pack "你好\NUL世界"
         prop "surrogate codepoint" $
             "你好\xFFFD世界" === T.pack "你好\xD800世界"
+        prop "surrogate codepoint2" $
+            "你好\xD800世界" === T.pack "你好\xD800世界"
 
     describe "text length == List.length" $ do
         prop "text length === List.length" $ \ xs ->

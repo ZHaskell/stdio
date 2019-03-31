@@ -182,8 +182,8 @@ instance IsString Text where
     {-# INLINE fromString #-}
     fromString = pack
 
-packStringAddr :: Addr# -> Text
-packStringAddr addr# = copy addr#
+packASCIIAddr :: Addr# -> Text
+packASCIIAddr addr# = copy addr#
   where
     len = fromIntegral . unsafeDupablePerformIO $ c_strlen addr#
     copy addr# = runST $ do
@@ -192,13 +192,15 @@ packStringAddr addr# = copy addr#
         arr <- unsafeFreezePrimArray marr
         return $ Text (PrimVector arr 0 len)
 
-packStringAddr' :: Addr# -> Text
-packStringAddr' addr# = validateAndCopy addr#
+packUTF8Addr :: Addr# -> Text
+packUTF8Addr addr# = validateAndCopy addr#
   where
     len = fromIntegral . unsafeDupablePerformIO $ c_strlen addr#
     valid = unsafeDupablePerformIO $ c_utf8_validate_addr addr# len
     validateAndCopy addr#
-        | valid == 0 = pack (unpackCString# addr#)
+        | valid == 0 = packN len (unpackCString# addr#) -- three bytes surrogate -> three bytes replacement
+                                                        -- two bytes NUL -> \NUL
+                                                        -- the result's length will either smaller or equal
         | otherwise  = runST $ do
             marr <- newPrimArray len
             copyPtrToMutablePrimArray marr 0 (Ptr addr#) len
@@ -295,12 +297,12 @@ foreign import ccall unsafe "text.h utf8_validate_addr"
 
 -- | /O(n)/ Convert a string into a text
 --
--- Alias for @'packN' 'defaultInitSize'@.
+-- Alias for @'packN' 'defaultInitSize'@, will be rewritten to a memcpy if possible.
 pack :: String -> Text
 pack = packN V.defaultInitSize
 {-# INLINE CONLIKE [0] pack #-}
-{-# RULES "pack/packStringAddr" forall addr . pack (unpackCString# addr) = packStringAddr addr #-}
-{-# RULES "pack/packStringAddr'" forall addr . pack (unpackCStringUtf8# addr) = packStringAddr' addr #-}
+{-# RULES "pack/packASCIIAddr" forall addr . pack (unpackCString# addr) = packASCIIAddr addr #-}
+{-# RULES "pack/packUTF8Addr" forall addr . pack (unpackCStringUtf8# addr) = packUTF8Addr addr #-}
 
 -- | /O(n)/ Convert a list into a text with an approximate size(in bytes, not codepoints).
 --

@@ -69,11 +69,10 @@ spec = describe "parsers" . modifyMaxSuccess (*10) . modifyMaxSize (*10)  $ do
                     then Just (V.pack (L.drop n s), ())
                     else Nothing
 
-        prop "anyWord8" $ \ s ->
-            parse' ((,) <$> P.anyWord8 <*> P.takeWhile (const True)) s ===
+        prop "skipWord8" $ \ s ->
+            parse' (P.skipWord8 *> P.takeWhile (const True)) s ===
                 case s of [] -> Nothing
-                          (w:s') -> Just (w, V.pack s')
-
+                          (w:s') -> Just (V.pack s')
 
         prop "peek" $ \ s ->
             parse' ((,) <$> P.peek <*> P.takeWhile (const True)) s ===
@@ -101,8 +100,8 @@ spec = describe "parsers" . modifyMaxSuccess (*10) . modifyMaxSize (*10)  $ do
         prop "bytesCI" $ \ s t ->
             parse'' (P.bytesCI . V.pack $ t) (L.map toLower t ++ s) === Just (V.pack s, ())
 
-        prop "endOfInput" $ \ s ->
-            parse' P.endOfInput s ===
+        prop "atEnd" $ \ s ->
+            parse' P.atEnd s ===
                 case s of [] -> Just True
                           _  -> Just False
 
