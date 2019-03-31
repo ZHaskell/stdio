@@ -22,6 +22,7 @@ module Std.IO.Buffered
     Input(..), Output(..)
     -- * Buffered Input
   , BufferedInput
+  , ReadResult(..)
   , newBufferedInput
   , readBuffer
   , unReadBuffer
