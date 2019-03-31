@@ -331,7 +331,7 @@ test-suite test
 
     other-modules:
         Std.Data.Builder.NumericSpec
-        Std.Data.CBytesSpec
+        Std.Data.JSON.ValueSpec
         Std.Data.Parser.BaseSpec
         Std.Data.Parser.NumericSpec
         Std.Data.PrimArray.UnalignedAccessSpec
@@ -342,6 +342,9 @@ test-suite test
         Std.Data.Vector.ExtraSpec
         Std.Data.Vector.SearchSpec
         Std.Data.Vector.SortSpec
+        Std.Data.CBytesSpec
+        Std.Data.Instance
+        Std.Data.LEONSpec
         Std.IO.FileSystemSpec
         Std.IO.FileSystemTSpec
         Std.IO.LowResTimerSpec

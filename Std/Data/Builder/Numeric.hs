@@ -96,7 +96,7 @@ intWith :: (Integral a, Bounded a)
         => IFormat
         -> a
         -> Builder ()
-{-# INLINE[1] intWith #-}
+{-# INLINE[0] intWith #-}
 {-# RULES "intWith'/Int8"    intWith = intWith' :: IFormat -> Int8    -> Builder () #-}
 {-# RULES "intWith'/Int"     intWith = intWith' :: IFormat -> Int     -> Builder () #-}
 {-# RULES "intWith'/Int16"   intWith = intWith' :: IFormat -> Int16   -> Builder () #-}
