@@ -39,7 +39,7 @@ module Std.Data.Parser.Base
   , parse, parse_, parseChunk, parseChunks, finishParsing
   , runAndKeepTrack, match
     -- * Basic parsers
-  , ensureN, endOfInput
+  , ensureN, endOfInput, atEnd
     -- * Primitive decoders
   , decodePrim, decodePrimLE, decodePrimBE
     -- * More parsers
@@ -254,10 +254,22 @@ ensureN n0 err = Parser $ \ kf k inp -> do
         in go [inp] l
 
 -- | Test whether all input has been consumed, i.e. there are no remaining
--- undecoded bytes.
-endOfInput :: Parser Bool
+-- undecoded bytes. Fail if not 'atEnd'.
+endOfInput :: Parser ()
 {-# INLINE endOfInput #-}
-endOfInput = Parser $ \ _ k inp ->
+endOfInput = Parser $ \ kf k inp ->
+    if V.null inp
+    then Partial (\ inp' ->
+        if (V.null inp')
+        then k () inp'
+        else kf ["Std.Data.Parser.Base.endOfInput: end not reached yet"] inp)
+    else kf ["Std.Data.Parser.Base.endOfInput: end not reached yet"] inp
+
+-- | Test whether all input has been consumed, i.e. there are no remaining
+-- undecoded bytes.
+atEnd :: Parser Bool
+{-# INLINE atEnd #-}
+atEnd = Parser $ \ _ k inp ->
     if V.null inp
     then Partial (\ inp' -> k (V.null inp') inp')
     else k False inp

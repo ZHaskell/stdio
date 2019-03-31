@@ -6,13 +6,33 @@
 {-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE UnliftedFFITypes   #-}
 
+{-|
+Module      : Std.Data.JSON
+Description : Fast JSON serialization/deserialization
+Copyright   : (c) Dong Han, 2019
+License     : BSD
+Maintainer  : winterland1989@gmail.com
+Stability   : experimental
+Portability : non-portable
+
+This module provides definition and parsers for JSON 'Value's, a Haskell JSON representation. The parsers is designed to comply with <https://tools.ietf.org/html/rfc7159 rfc7159> as much as possible, some notable differences are:
+
+  * The numeric representation use 'Scientific', which have a limited exponent part('Int').
+  * Unescaped control characters(<=0x1F) is accepted, (compatible with aeson).
+  * Objects are represented as key-value vectors, key order and duplicated keys are preserved for further processing.
+
+Note that rfc7159 doesn't enforce unique key in objects, it's up to users to decided how to deal with key duplication, e.g. prefer first or last key, see 'Std.Data.JSON.Base.withFlatMap' or 'Std.Data.JSON.Base.withFlatMapR' for example.
+
+There's no lazy parsers here, every pieces of JSON document will be parsed into a normal form 'Value'. 'Object' and 'Array's payloads are packed into 'Vector's to avoid accumulating lists in memory. Read more about <http://winterland.me/2019/03/05/aeson's-mysterious-lazy-parsing why no lazy parsing is needed>.
+-}
 module Std.Data.JSON.Value
   ( -- * Value type
     Value(..)
     -- * parse into JSON Value
   , parseValue
-  , parseValue_
+  , parseValue'
   , parseValueChunks
+  , parseValueChunks'
     -- * Value Parsers
   , value
   , object
@@ -69,11 +89,6 @@ import           System.IO.Unsafe         (unsafeDupablePerformIO)
 --    * Save time if constructing map is not neccessary, e.g.
 --      using a linear scan to find a key if only that key is needed.
 --
--- There's no lazy parsing here, every pieces of JSON document will be parsed into a normal form
--- 'Value'. 'Object' and 'Array's payloads are packed into 'Vector's to avoid accumulating lists
--- in memory. Read more about <http://winterland.me/2019/03/05/aeson's-mysterious-lazy-parsing
--- why no lazy parsing is needed>.
---
 data Value = Object {-# UNPACK #-} !(V.Vector (FM.TextKV Value))
            | Array  {-# UNPACK #-} !(V.Vector Value)
            | String {-# UNPACK #-} !T.Text
@@ -82,18 +97,27 @@ data Value = Object {-# UNPACK #-} !(V.Vector (FM.TextKV Value))
            | Null
          deriving (Eq, Show, Typeable, Generic)
 
+-- | Parse 'Value' without consuming trailing bytes.
 parseValue :: V.Bytes -> (V.Bytes, Either P.ParseError Value)
 {-# INLINE parseValue #-}
 parseValue = P.parse value
 
-parseValue_ :: V.Bytes -> Either P.ParseError Value
-{-# INLINE parseValue_ #-}
-parseValue_ = P.parse_ value
+-- | Parse 'Value', and consume all trailing JSON white spaces, if there're
+-- bytes left, parsing will fail.
+parseValue' :: V.Bytes -> Either P.ParseError Value
+{-# INLINE parseValue' #-}
+parseValue' = P.parse_ (value <* skipSpaces <* P.endOfInput)
 
+-- | Increamental parse 'Value' without consuming trailing bytes.
 parseValueChunks :: Monad m => m V.Bytes -> V.Bytes -> m (V.Bytes, Either P.ParseError Value)
 {-# INLINE parseValueChunks #-}
 parseValueChunks = P.parseChunks value
 
+-- | Increamental parse 'Value' and consume all trailing JSON white spaces, if there're
+-- bytes left, parsing will fail.
+parseValueChunks' :: Monad m => m V.Bytes -> V.Bytes -> m (Either P.ParseError Value)
+{-# INLINE parseValueChunks' #-}
+parseValueChunks' mi inp = snd <$> P.parseChunks (value <* skipSpaces <* P.endOfInput) mi inp
 
 --------------------------------------------------------------------------------
 

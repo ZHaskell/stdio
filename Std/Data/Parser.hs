@@ -29,7 +29,7 @@ module Std.Data.Parser
   , parse, parse_, parseChunk, parseChunks, finishParsing
   , runAndKeepTrack, match
     -- * Basic parsers
-  , ensureN, endOfInput
+  , ensureN, endOfInput, atEnd
     -- * Primitive decoders
   , decodePrim, decodePrimLE, decodePrimBE
     -- * More parsers
