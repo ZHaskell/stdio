@@ -460,12 +460,12 @@ instance CI.FoldCase Bytes where
 packASCII :: String -> Bytes
 {-# INLINE CONLIKE [0] packASCII #-}
 {-# RULES
-    "packASCII/packStringAddr" forall addr . packASCII (unpackCString# addr) = packStringAddr addr
+    "packASCII/packASCIIAddr" forall addr . packASCII (unpackCString# addr) = packASCIIAddr addr
   #-}
 packASCII = pack . fmap (fromIntegral . ord)
 
-packStringAddr :: Addr# -> Bytes
-packStringAddr addr# = copy addr#
+packASCIIAddr :: Addr# -> Bytes
+packASCIIAddr addr# = copy addr#
   where
     len = fromIntegral . unsafeDupablePerformIO $ c_strlen addr#
     copy addr# = runST $ do

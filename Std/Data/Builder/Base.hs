@@ -164,10 +164,10 @@ instance (a ~ ()) => IsString (Builder a) where
 stringModifiedUTF8 :: String -> Builder ()
 {-# INLINE CONLIKE [0] stringModifiedUTF8 #-}
 {-# RULES
-    "stringModifiedUTF8/addrLiteral" forall addr . stringModifiedUTF8 (unpackCString# addr) = addrLiteral addr
+    "stringModifiedUTF8/packAddrModified" forall addr . stringModifiedUTF8 (unpackCString# addr) = packAddrModified addr
   #-}
 {-# RULES
-    "stringModifiedUTF8/addrLiteral" forall addr . stringModifiedUTF8 (unpackCStringUtf8# addr) = addrLiteral addr
+    "stringModifiedUTF8/packAddrModified" forall addr . stringModifiedUTF8 (unpackCStringUtf8# addr) = packAddrModified addr
   #-}
 stringModifiedUTF8 = mapM_ charModifiedUTF8
 
@@ -182,8 +182,8 @@ charModifiedUTF8 chr = do
         i' <- T.encodeCharModifiedUTF8 mba i chr
         k () (Buffer mba i'))
 
-addrLiteral :: Addr# -> Builder ()
-addrLiteral addr# = copy addr#
+packAddrModified :: Addr# -> Builder ()
+packAddrModified addr# = copy addr#
   where
     len = fromIntegral . unsafeDupablePerformIO $ V.c_strlen addr#
     copy addr# = do
@@ -433,15 +433,15 @@ encodePrimBE = encodePrim . BE
 stringUTF8 :: String -> Builder ()
 {-# INLINE CONLIKE [0] stringUTF8 #-}
 {-# RULES
-    "stringUTF8/addrASCII" forall addr . stringUTF8 (unpackCString# addr) = addrASCII addr
+    "stringUTF8/packASCIIAddr" forall addr . stringUTF8 (unpackCString# addr) = packASCIIAddr addr
   #-}
 {-# RULES
-    "stringUTF8/addrUTF8" forall addr . stringUTF8 (unpackCString# addr) = addrUTF8 addr
+    "stringUTF8/packUTF8Addr" forall addr . stringUTF8 (unpackCString# addr) = packUTF8Addr addr
   #-}
 stringUTF8 = mapM_ charUTF8
 
-addrASCII :: Addr# -> Builder ()
-addrASCII addr# = copy addr#
+packASCIIAddr :: Addr# -> Builder ()
+packASCIIAddr addr# = copy addr#
   where
     len = fromIntegral . unsafeDupablePerformIO $ V.c_strlen addr#
     copy addr# = do
@@ -450,8 +450,8 @@ addrASCII addr# = copy addr#
            copyPtrToMutablePrimArray mba i (Ptr addr#) len
            k () (Buffer mba (i + len)))
 
-addrUTF8 :: Addr# -> Builder ()
-addrUTF8 addr# = validateAndCopy addr#
+packUTF8Addr :: Addr# -> Builder ()
+packUTF8Addr addr# = validateAndCopy addr#
   where
     len = fromIntegral . unsafeDupablePerformIO $ V.c_strlen addr#
     valid = unsafeDupablePerformIO $ T.c_utf8_validate_addr addr# len

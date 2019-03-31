@@ -198,7 +198,7 @@ packUTF8Addr addr# = validateAndCopy addr#
     len = fromIntegral . unsafeDupablePerformIO $ c_strlen addr#
     valid = unsafeDupablePerformIO $ c_utf8_validate_addr addr# len
     validateAndCopy addr#
-        | valid == 0 = packN len (unpackCString# addr#) -- three bytes surrogate -> three bytes replacement
+        | valid == 0 = packN len (unpackCStringUtf8# addr#) -- three bytes surrogate -> three bytes replacement
                                                         -- two bytes NUL -> \NUL
                                                         -- the result's length will either smaller or equal
         | otherwise  = runST $ do
