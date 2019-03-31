@@ -129,6 +129,7 @@ static uint32_t inline updatestate(uint32_t *state, uint32_t byte) {
     return *state;
 }
 
+// return 2 instead of 1, so that we can observe difference if SIMD is not used
 HsInt utf8_validate_slow(const char* c, size_t len){
     const unsigned char *cu = (const unsigned char *)c;
     uint32_t state = UTF8_ACCEPT;
@@ -137,7 +138,7 @@ HsInt utf8_validate_slow(const char* c, size_t len){
         if (updatestate(&state, byteval) == UTF8_REJECT)
             return 0;
     }
-    return ((state == UTF8_ACCEPT) ? 1 : 0);
+    return ((state == UTF8_ACCEPT) ? 2 : 0);
 }
 
 static inline uint32_t decode_hex(uint32_t c) {
