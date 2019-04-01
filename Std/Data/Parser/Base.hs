@@ -16,13 +16,15 @@ Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 
-This module provide a simple resumable 'Parser', which is suitable for binary protocol and simple textual protocol parsing.
+This module provide a simple resumable 'Parser', which is suitable for binary protocol and simple textual protocol parsing. Both binary parsers ('decodePrim' ,etc) and textual parsers are provided, and they all work on 'V.Bytes'.
 
 You can use 'Alternative' instance to do backtracking, each branch will either succeed and may consume some input, or fail without consume anything. It's recommend to use 'peek' or 'peekMaybe' to avoid backtracking if possible to get high performance.
 
+Error message can be attached using '<?>', which have very small overhead, so it's recommended to attach a message in front of a composed parser like @xPacket = "Foo.Bar.xPacket" <?> do ...@, following is an example message when parsing integer failed:
+
 @
     >parse int "foo"
-    ([102,111,111],Left int.uint.takeWhile1: unsatisfied byte)
+    ([102,111,111],Left ["Std.Data.Parser.Numeric.int","Std.Data.Parser.Numeric.uint","Std.Data.Parser.Base.takeWhile1: no satisfied byte"])
     -- It's easy to see we're trying to match a leading sign or digit here
 @
 
@@ -72,17 +74,21 @@ import           GHC.Stack
 
 -- | Simple parsing result, that represent respectively:
 --
--- * success: the remaining unparsed data and the parsed value
+-- * Success: the remaining unparsed data and the parsed value
 --
--- * failure: the remaining unparsed data and the error message
+-- * Failure: the remaining unparsed data and the error message
 --
--- * partial: that need for more input data, supply empty bytes to indicate 'endOfInput'
+-- * Partial: that need for more input data, supply empty bytes to indicate 'endOfInput'
 --
 data Result a
     = Success a          !V.Bytes
     | Failure ParseError !V.Bytes
     | Partial (ParseStep a)
 
+-- | A parse step consumes 'V.Bytes' and produce 'Result'.
+type ParseStep r = V.Bytes -> Result r
+
+-- | Type alias for error message
 type ParseError = [T.Text]
 
 instance Functor Result where
@@ -95,10 +101,21 @@ instance Show a => Show (Result a) where
     show (Partial _)      = "Partial _"
     show (Failure errs _) = "Failure: " ++ show errs
 
-type ParseStep r = V.Bytes -> Result r
 
 -- | Simple CPSed parser
 --
+-- A parser takes a failure continuation, and a success one, while the success continuation is
+-- usually composed by 'Monad' instance, the failure one is more like a reader part, which can
+-- be modified via '<?>'. If you build parsers from ground, a pattern like this can be used:
+--
+--  @
+--    xxParser = do
+--      ensureN errMsg ...            -- make sure we have some bytes
+--      Parser $ \ kf k inp ->        -- fail continuation, success continuation and input
+--        ...
+--        ... kf errMsg (if input not OK)
+--        ... k ... (if we get something useful for next parser)
+--  @
 newtype Parser a = Parser {
         runParser :: forall r . (ParseError -> ParseStep r) -> (a -> ParseStep r) -> ParseStep r
     }
@@ -141,7 +158,7 @@ instance MonadPlus Parser where
     {-# INLINE mplus #-}
 
 instance Alternative Parser where
-    empty = Parser (\ kf _ inp -> Failure ["Std.Data.Parser.Base(Alternative).empty"] inp)
+    empty = Parser (\ kf _ inp -> kf ["Std.Data.Parser.Base(Alternative).empty"] inp)
     {-# INLINE empty #-}
     f <|> g = do
         (r, bss) <- runAndKeepTrack f
