@@ -79,7 +79,7 @@ module Std.Data.Vector.Base (
   -- * Searching by equality
   , elem, notElem, elemIndex
   -- * Misc
-  , IPair(..)
+  , IPair(..), mapIPair'
   , defaultInitSize
   , chunkOverhead
   , defaultChunkSize
@@ -132,6 +132,7 @@ import           Prelude                       hiding (concat, concatMap,
                                                 foldl, foldl1, foldr, foldr1,
                                                 maximum, minimum, product, sum,
                                                 all, any, replicate, traverse)
+import           Test.QuickCheck.Arbitrary (Arbitrary(..), CoArbitrary(..))
 import           System.IO.Unsafe              (unsafeDupablePerformIO)
 
 import           Std.Data.Array
@@ -278,7 +279,14 @@ instance F.Foldable Vector where
     sum = sum
 
 instance T.Traversable Vector where
-    traverse = traverse
+    traverse = traverseVector
+
+instance Arbitrary a => Arbitrary (Vector a) where
+    arbitrary = pack <$> arbitrary
+    shrink v = pack <$> shrink (unpack v)
+
+instance CoArbitrary a => CoArbitrary (Vector a) where
+    coarbitrary = coarbitrary . unpack
 
 instance Hashable a => Hashable (Vector a) where
     {-# INLINE hashWithSalt #-}
@@ -293,11 +301,11 @@ instance Hashable1 Vector where
             | i >= end  = salt
             | otherwise = go (h salt (indexArr arr i)) (i+1)
 
-traverse :: (Vec v a, Vec u b, Applicative f) => (a -> f b) -> v a -> f (u b)
-{-# INLINE [0] traverse #-}
-{-# RULES "traverse/ST" traverse = traverseST #-}
-{-# RULES "traverse/IO" traverse = traverseIO #-}
-traverse f v = packN (length v) <$> T.traverse f (unpack v)
+traverseVector :: (Vec v a, Vec u b, Applicative f) => (a -> f b) -> v a -> f (u b)
+{-# INLINE [1] traverseVector #-}
+{-# RULES "traverseVector/ST" traverseVector = traverseST #-}
+{-# RULES "traverseVector/IO" traverseVector = traverseIO #-}
+traverseVector f v = packN (length v) <$> T.traverse f (unpack v)
 
 traverseST :: forall v u a b s. (Vec v a, Vec u b) => (a -> ST s b) -> v a -> ST s (u b)
 {-# INLINE traverseST #-}
@@ -421,6 +429,13 @@ instance (Prim a, Show a) => Show (PrimVector a) where
 
 instance (Prim a, Read a) => Read (PrimVector a) where
     readsPrec p str = [ (pack x, y) | (x, y) <- readsPrec p str ]
+
+instance (Prim a, Arbitrary a) => Arbitrary (PrimVector a) where
+    arbitrary = pack <$> arbitrary
+    shrink v = pack <$> shrink (unpack v)
+
+instance (Prim a, CoArbitrary a) => CoArbitrary (PrimVector a) where
+    coarbitrary = coarbitrary . unpack
 
 instance  {-# OVERLAPPABLE #-}  (Hashable a, Prim a) => Hashable (PrimVector a) where
     {-# INLINE hashWithSalt #-}
@@ -1191,7 +1206,16 @@ elemIndexBytes w (PrimVector (PrimArray ba#) s l) =
 --------------------------------------------------------------------------------
 
 -- | Index pair type to help GHC unpack in some loops, useful when write fast folds.
-data IPair a = IPair {-# UNPACK #-}!Int a
+data IPair a = IPair { ifst :: {-# UNPACK #-}!Int, isnd :: a } deriving (Show, Eq, Ord)
+
+instance Functor IPair where
+    {-# INLINE fmap #-}
+    fmap f (IPair i v) = IPair i (f v)
+
+-- | Unlike 'Functor' instance, this mapping evaluate value inside 'IPair' strictly.
+mapIPair' :: (a -> a) -> IPair a -> IPair a
+{-# INLINE mapIPair' #-}
+mapIPair' f (IPair i v) = let !v' = f v in IPair i (f v)
 
 -- | The chunk size used for I\/O. Currently set to @32k-chunkOverhead@
 defaultChunkSize :: Int

@@ -134,6 +134,7 @@ library
                             Std.Data.Vector.Search
                             Std.Data.Vector.Sort
                             Std.Data.Vector.QQ
+                            Std.Data.Vector.FlatIntMap
                             Std.Data.Vector.FlatMap
                             Std.Data.PrimArray.Cast
                             Std.Data.PrimArray.QQ
@@ -200,6 +201,7 @@ library
                         ,   case-insensitive == 1.2.*
                         ,   time       >= 1.8 && < 2.0
                         ,   deepseq    >= 1.4 && < 1.5
+                        ,   QuickCheck >= 2.10
                         ,   template-haskell == 2.14.*
                         ,   stm        == 2.5.*
 
@@ -343,7 +345,6 @@ test-suite test
         Std.Data.Vector.SearchSpec
         Std.Data.Vector.SortSpec
         Std.Data.CBytesSpec
-        Std.Data.Instance
         Std.Data.LEONSpec
         Std.IO.FileSystemSpec
         Std.IO.FileSystemTSpec

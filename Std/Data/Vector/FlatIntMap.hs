@@ -6,7 +6,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 
 {-|
-Module      : Std.Data.Vector.FlatMap
+Module      : Std.Data.Vector.FlatIntMap
 Description : Fast map based on sorted vector
 Copyright   : (c) Dong Han, 2017-2019
               (c) Tao He, 2018-2019
@@ -21,9 +21,9 @@ But can also used in various place where insertion and deletion is rare but requ
 
 -}
 
-module Std.Data.Vector.FlatMap
-  ( -- * FlatMap backed by sorted vector
-    FlatMap, sortedKeyValues, map', kmap'
+module Std.Data.Vector.FlatIntMap
+  ( -- * FlatIntMap backed by sorted vector
+    FlatIntMap, sortedIPairs, map', imap'
   , pack, packN, packR, packRN
   , unpack, unpackR, packVector, packVectorR
   , lookup
@@ -49,110 +49,110 @@ import           Prelude hiding (lookup)
 
 --------------------------------------------------------------------------------
 
-newtype FlatMap k v = FlatMap { sortedKeyValues :: V.Vector (k, v) }
+newtype FlatIntMap v = FlatIntMap { sortedIPairs :: V.Vector (V.IPair v) }
     deriving (Show, Eq, Ord, Typeable)
 
-instance Functor (FlatMap k) where
+instance Functor (FlatIntMap) where
     {-# INLINE fmap #-}
-    fmap f (FlatMap vs) = FlatMap (V.map' (fmap f) vs)
+    fmap f (FlatIntMap vs) = FlatIntMap (V.map' (fmap f) vs)
 
-map' :: (v -> v) -> FlatMap k v -> FlatMap k v
+map' :: (v -> v) -> FlatIntMap v -> FlatIntMap v
 {-# INLINE map' #-}
-map' f (FlatMap vs) = FlatMap (V.map' (fmap f) vs)
+map' f (FlatIntMap vs) = FlatIntMap (V.map' (V.mapIPair' f) vs)
 
-kmap' :: (k -> v -> v) -> FlatMap k v -> FlatMap k v
-{-# INLINE kmap' #-}
-kmap' f (FlatMap vs) = FlatMap (V.map' (\ (k, v) -> (k, f k v)) vs)
+imap' :: (Int -> v -> v) -> FlatIntMap v -> FlatIntMap v
+{-# INLINE imap' #-}
+imap' f (FlatIntMap vs) = FlatIntMap (V.imap' (\ i -> V.mapIPair' (f i)) vs)
 
 -- | /O(1)/ empty flat map.
-empty :: FlatMap k v
+empty :: FlatIntMap v
 {-# INLINE empty #-}
-empty = FlatMap V.empty
+empty = FlatIntMap V.empty
 
 -- | /O(N*logN)/ Pack list of key values, on key duplication prefer left one.
-pack :: Ord k => [(k, v)] -> FlatMap k v
+pack :: [V.IPair v] -> FlatIntMap v
 {-# INLINE pack #-}
-pack kvs = FlatMap (V.mergeDupAdjacentLeft ((==) `on` fst) (V.mergeSortBy (compare `on` fst) (V.pack kvs)))
+pack kvs = FlatIntMap (V.mergeDupAdjacentLeft ((==) `on` V.ifst) (V.mergeSortBy (compare `on` V.ifst) (V.pack kvs)))
 
 -- | /O(N*logN)/ Pack list of key values with suggested size, on key duplication prefer left one.
-packN :: Ord k => Int -> [(k, v)] -> FlatMap k v
+packN :: Int -> [V.IPair v] -> FlatIntMap v
 {-# INLINE packN #-}
-packN n kvs = FlatMap (V.mergeDupAdjacentLeft ((==) `on` fst) (V.mergeSortBy (compare `on` fst) (V.packN n kvs)))
+packN n kvs = FlatIntMap (V.mergeDupAdjacentLeft ((==) `on` V.ifst) (V.mergeSortBy (compare `on` V.ifst) (V.packN n kvs)))
 
 -- | /O(N*logN)/ Pack list of key values, on key duplication prefer right one.
-packR :: Ord k => [(k, v)] -> FlatMap k v
+packR :: [V.IPair v] -> FlatIntMap v
 {-# INLINE packR #-}
-packR kvs = FlatMap (V.mergeDupAdjacentRight ((==) `on` fst) (V.mergeSortBy (compare `on` fst) (V.pack kvs)))
+packR kvs = FlatIntMap (V.mergeDupAdjacentRight ((==) `on` V.ifst) (V.mergeSortBy (compare `on` V.ifst) (V.pack kvs)))
 
 -- | /O(N*logN)/ Pack list of key values with suggested size, on key duplication prefer right one.
-packRN :: Ord k => Int -> [(k, v)] -> FlatMap k v
+packRN :: Int -> [V.IPair v] -> FlatIntMap v
 {-# INLINE packRN #-}
-packRN n kvs = FlatMap (V.mergeDupAdjacentRight ((==) `on` fst) (V.mergeSortBy (compare `on` fst) (V.packN n kvs)))
+packRN n kvs = FlatIntMap (V.mergeDupAdjacentRight ((==) `on` V.ifst) (V.mergeSortBy (compare `on` V.ifst) (V.packN n kvs)))
 
 -- | /O(N)/ Unpack key value pairs to a list sorted by keys in ascending order.
 --
 -- This function works with @foldr/build@ fusion in base.
-unpack :: FlatMap k v -> [(k, v)]
+unpack :: FlatIntMap v -> [V.IPair v]
 {-# INLINE unpack #-}
-unpack = V.unpack . sortedKeyValues
+unpack = V.unpack . sortedIPairs
 
 -- | /O(N)/ Unpack key value pairs to a list sorted by keys in descending order.
 --
 -- This function works with @foldr/build@ fusion in base.
-unpackR :: FlatMap k v -> [(k, v)]
+unpackR :: FlatIntMap v -> [V.IPair v]
 {-# INLINE unpackR #-}
-unpackR = V.unpackR . sortedKeyValues
+unpackR = V.unpackR . sortedIPairs
 
 -- | /O(N*logN)/ Pack vector of key values, on key duplication prefer left one.
-packVector :: Ord k => V.Vector (k, v) -> FlatMap k v
+packVector :: V.Vector (V.IPair v) -> FlatIntMap v
 {-# INLINE packVector #-}
-packVector kvs = FlatMap (V.mergeDupAdjacentLeft ((==) `on` fst) (V.mergeSortBy (compare `on` fst) kvs))
+packVector kvs = FlatIntMap (V.mergeDupAdjacentLeft ((==) `on` V.ifst) (V.mergeSortBy (compare `on` V.ifst) kvs))
 
 -- | /O(N*logN)/ Pack vector of key values, on key duplication prefer right one.
-packVectorR :: Ord k => V.Vector (k, v) -> FlatMap k v
+packVectorR :: V.Vector (V.IPair v) -> FlatIntMap v
 {-# INLINE packVectorR #-}
-packVectorR kvs = FlatMap (V.mergeDupAdjacentRight ((==) `on` fst) (V.mergeSortBy (compare `on` fst) kvs))
+packVectorR kvs = FlatIntMap (V.mergeDupAdjacentRight ((==) `on` V.ifst) (V.mergeSortBy (compare `on` V.ifst) kvs))
 
 -- | /O(logN)/ Binary search on flat map.
-lookup :: Ord k => k -> FlatMap k v -> Maybe v
+lookup :: Int -> FlatIntMap v -> Maybe v
 {-# INLINABLE lookup #-}
-lookup _  (FlatMap (V.Vector arr s 0)) = Nothing
-lookup k' (FlatMap (V.Vector arr s l)) = go s (s+l-1)
+lookup _  (FlatIntMap (V.Vector arr s 0)) = Nothing
+lookup k' (FlatIntMap (V.Vector arr s l)) = go s (s+l-1)
   where
     go !s !e
         | s == e =
-            case arr `A.indexSmallArray` s of (k, v)  | k == k'  -> Just v
-                                                        | otherwise -> Nothing
+            case arr `A.indexSmallArray` s of (V.IPair k v) | k == k'  -> Just v
+                                                            | otherwise -> Nothing
         | s >  e = Nothing
         | otherwise =
             let mid = (s+e) `shiftR` 1
-                (k, v)  = arr `A.indexSmallArray` mid
+                (V.IPair k v)  = arr `A.indexSmallArray` mid
             in case k' `compare` k of LT -> go s (mid-1)
                                       GT -> go (mid+1) e
                                       _  -> Just v
 
 -- | /O(N)/ Insert new key value into map, replace old one if key exists.
-insert :: Ord k => k -> v -> FlatMap k v -> FlatMap k v
+insert :: Int -> v -> FlatIntMap v -> FlatIntMap v
 {-# INLINE insert #-}
-insert k v (FlatMap vec@(V.Vector arr s l)) =
+insert k v (FlatIntMap vec@(V.Vector arr s l)) =
     case binarySearch vec k of
-        Left i -> FlatMap (V.create (l+1) (\ marr -> do
+        Left i -> FlatIntMap (V.create (l+1) (\ marr -> do
             when (i>s) $ A.copySmallArray marr 0 arr s (i-s)
-            A.writeSmallArray marr i (k, v)
+            A.writeSmallArray marr i (V.IPair k v)
             when (i<(s+l)) $ A.copySmallArray marr (i+1) arr i (s+l-i)))
-        Right i -> FlatMap (V.Vector (runST (do
+        Right i -> FlatIntMap (V.Vector (runST (do
             let arr' = A.cloneSmallArray arr s l
             marr <- A.unsafeThawSmallArray arr'
-            A.writeSmallArray marr i (k, v)
+            A.writeSmallArray marr i (V.IPair k v)
             A.unsafeFreezeSmallArray marr)) 0 l)
 
 -- | /O(N)/ Delete a key value pair by key.
-delete :: Ord k => k -> FlatMap k v -> FlatMap k v
+delete :: Int -> FlatIntMap v -> FlatIntMap v
 {-# INLINE delete #-}
-delete k m@(FlatMap vec@(V.Vector arr s l)) =
+delete k m@(FlatIntMap vec@(V.Vector arr s l)) =
     case binarySearch vec k of
         Left i -> m
-        Right i -> FlatMap $ V.create (l-1) (\ marr -> do
+        Right i -> FlatIntMap $ V.create (l-1) (\ marr -> do
             when (i>s) $ A.copySmallArray marr 0 arr s (i-s)
             let !end = s+l
                 !j = i+1
@@ -161,28 +161,28 @@ delete k m@(FlatMap vec@(V.Vector arr s l)) =
 -- | /O(N)/ Modify a value by key.
 --
 -- The value is evaluated lazily before writing into map.
-adjust :: Ord k => (v -> v) -> k -> FlatMap k v -> FlatMap k v
+adjust :: (v -> v) -> Int -> FlatIntMap v -> FlatIntMap v
 {-# INLINE adjust #-}
-adjust f k m@(FlatMap vec@(V.Vector arr s l)) =
+adjust f k m@(FlatIntMap vec@(V.Vector arr s l)) =
     case binarySearch vec k of
         Left i -> m
-        Right i -> FlatMap $ V.create l (\ marr -> do
+        Right i -> FlatIntMap $ V.create l (\ marr -> do
             A.copySmallArray marr 0 arr s l
-            let v' = f (snd (A.indexSmallArray arr i))
-            A.writeSmallArray marr i (k, v'))
+            let v' = f (V.isnd (A.indexSmallArray arr i))
+            A.writeSmallArray marr i (V.IPair k v'))
 
 -- | /O(N)/ Modify a value by key.
 --
 -- The value is evaluated to WHNF before writing into map.
-adjust' :: Ord k => (v -> v) -> k -> FlatMap k v -> FlatMap k v
+adjust' :: (v -> v) -> Int -> FlatIntMap v -> FlatIntMap v
 {-# INLINE adjust' #-}
-adjust' f k m@(FlatMap vec@(V.Vector arr s l)) =
+adjust' f k m@(FlatIntMap vec@(V.Vector arr s l)) =
     case binarySearch vec k of
         Left i -> m
-        Right i -> FlatMap $ V.create l (\ marr -> do
+        Right i -> FlatIntMap $ V.create l (\ marr -> do
             A.copySmallArray marr 0 arr s l
-            let !v' = f (snd (A.indexSmallArray arr i))
-            A.writeSmallArray marr i (k, v'))
+            let !v' = f (V.isnd (A.indexSmallArray arr i))
+            A.writeSmallArray marr i (V.IPair k v'))
 
 --------------------------------------------------------------------------------
 
@@ -190,21 +190,21 @@ adjust' f k m@(FlatMap vec@(V.Vector arr s l)) =
 -- otherwise 'Left', i.e. the insert index
 --
 -- This function only works on ascending sorted vectors.
-binarySearch :: Ord k => V.Vector (k, v) -> k -> Either Int Int
+binarySearch :: V.Vector (V.IPair v) -> Int -> Either Int Int
 {-# INLINABLE binarySearch #-}
 binarySearch (V.Vector arr s 0) _   = Left 0
 binarySearch (V.Vector arr s l) !k' = go s (s+l-1)
   where
     go !s !e
         | s == e =
-            let (k, v)  = arr `A.indexSmallArray` s
+            let V.IPair k v  = arr `A.indexSmallArray` s
             in case k' `compare` k of LT -> Left s
                                       GT -> let !s' = s+1 in Left s'
                                       _  -> Right s
         | s >  e = Left s
         | otherwise =
             let !mid = (s+e) `shiftR` 1
-                (k, v)  = arr `A.indexSmallArray` mid
+                (V.IPair k v)  = arr `A.indexSmallArray` mid
             in case k' `compare` k of LT -> go s (mid-1)
                                       GT -> go (mid+1) e
                                       _  -> Right mid
@@ -212,7 +212,7 @@ binarySearch (V.Vector arr s l) !k' = go s (s+l-1)
 --------------------------------------------------------------------------------
 
 -- | linear scan search from left to right, return the first one if exist.
-linearSearch :: Ord k => V.Vector (k, v) -> k -> Maybe v
+linearSearch :: V.Vector (V.IPair v) -> Int -> Maybe v
 {-# INLINABLE linearSearch #-}
 linearSearch (V.Vector arr s l) !k' = go s
   where
@@ -220,16 +220,16 @@ linearSearch (V.Vector arr s l) !k' = go s
     go !i
         | i >= end = Nothing
         | otherwise =
-            let (k, v)  = arr `A.indexSmallArray` i
+            let V.IPair k v  = arr `A.indexSmallArray` i
             in if k' == k then Just v else go (i+1)
 
 -- | linear scan search from right to left, return the first one if exist.
-linearSearchR :: Ord k => V.Vector (k, v) -> k -> Maybe v
+linearSearchR :: V.Vector (V.IPair v) -> Int -> Maybe v
 {-# INLINABLE linearSearchR #-}
 linearSearchR (V.Vector arr s l) !k' = go (s+l-1)
   where
     go !i
         | i < s = Nothing
         | otherwise =
-            let (k, v)  = arr `A.indexSmallArray` i
+            let V.IPair k v  = arr `A.indexSmallArray` i
             in if k' == k then Just v else go (i-1)

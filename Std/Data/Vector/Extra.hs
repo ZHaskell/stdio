@@ -268,6 +268,8 @@ dropAround f = dropWhile f . dropWhileR f
 
 
 -- | /O(n)/ Split the vector into the longest prefix of elements that do not satisfy the predicate and the rest without copying.
+--
+-- @break (==x)@ will be rewritten using a @memchr@.
 break :: Vec v a => (a -> Bool) -> v a -> (v a, v a)
 {-# INLINE break #-}
 break f vs@(Vec arr s l) =
@@ -277,9 +279,13 @@ break f vs@(Vec arr s l) =
     in (v1, v2)
 
 -- | /O(n)/ Split the vector into the longest prefix of elements that satisfy the predicate and the rest without copying.
+--
+-- @span (/=x)@ will be rewritten using a @memchr@.
 span :: Vec v a => (a -> Bool) -> v a -> (v a, v a)
-{-# INLINE span #-}
+{-# INLINE [1] span #-}
 span f = break (not . f)
+{-# RULES "spanNEq/breakEq1" forall w. span (w `neWord8`) = break (w `eqWord8`) #-}
+{-# RULES "spanNEq/breakEq2" forall w. span (`neWord8` w) = break (`eqWord8` w) #-}
 
 -- | 'breakR' behaves like 'break' but from the end of the vector.
 --

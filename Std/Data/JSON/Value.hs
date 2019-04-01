@@ -48,7 +48,7 @@ import           Control.Monad
 import           Data.Bits                ((.&.))
 import           Data.Functor
 import           Data.Primitive.PrimArray
-import           Data.Scientific          (Scientific)
+import           Data.Scientific          (Scientific, scientific)
 import           Data.Typeable
 import           Data.Word
 import           GHC.Generics
@@ -58,9 +58,10 @@ import qualified Std.Data.Text            as T
 import qualified Std.Data.Text.Base       as T
 import           Std.Data.Vector.Base     as V
 import           Std.Data.Vector.Extra    as V
-import qualified Std.Data.Vector.FlatMap  as FM
 import           Std.Foreign.PrimArray
 import           System.IO.Unsafe         (unsafeDupablePerformIO)
+import           Test.QuickCheck.Arbitrary (Arbitrary(..))
+import           Test.QuickCheck.Gen (Gen(..), listOf)
 
 #define BACKSLASH 92
 #define CLOSE_CURLY 125
@@ -87,18 +88,43 @@ import           System.IO.Unsafe         (unsafeDupablePerformIO)
 -- directly from JSON document. This design choice has following advantages:
 --
 --    * Allow different strategies handling duplicated keys.
---    * Allow different 'Map' type to do further parsing, e.g. 'FM.FlatMap' from stdio.
+--    * Allow different 'Map' type to do further parsing, e.g. 'Std.Data.Vector.FlatMap'
 --    * Roundtrip without touching the original key-value order.
 --    * Save time if constructing map is not neccessary, e.g.
 --      using a linear scan to find a key if only that key is needed.
 --
-data Value = Object {-# UNPACK #-} !(V.Vector (FM.TextKV Value))
+data Value = Object {-# UNPACK #-} !(V.Vector (T.Text, Value))
            | Array  {-# UNPACK #-} !(V.Vector Value)
            | String {-# UNPACK #-} !T.Text
            | Number {-# UNPACK #-} !Scientific
            | Bool   !Bool
            | Null
          deriving (Eq, Show, Typeable, Generic)
+
+instance Arbitrary Value where
+    -- limit maximum depth of JSON document, otherwise it's too slow to run any tests
+    arbitrary = arbitraryValue 0 4
+      where
+        arbitraryValue d s = do
+            i <- arbitrary :: Gen Word
+            case (i `mod` 6) of
+                0 -> if d < s then Object . V.pack <$> listOf (arbitraryKV (d+1) s)
+                              else return Null
+                1 -> if d < s then Array . V.pack <$> listOf (arbitraryValue (d+1) s)
+                              else return Null
+                2 -> String <$> arbitrary
+                3 -> do
+                    c <- arbitrary
+                    e <- arbitrary
+                    return . Number $ scientific c e
+                4 -> Bool <$> arbitrary
+                _ -> return Null
+
+        arbitraryKV d s = (,) <$> arbitrary <*> arbitraryValue d s
+
+    shrink (Object kvs) = snd <$> (V.unpack kvs)
+    shrink (Array vs) = V.unpack vs
+    shrink _          = []
 
 -- | Parse 'Value' without consuming trailing bytes.
 parseValue :: V.Bytes -> (V.Bytes, Either P.ParseError Value)
@@ -172,12 +198,12 @@ array_ = do
         else return $! V.packRN n acc'  -- n start from 1, so no need to +1 here
 
 -- | parse json array with leading OPEN_CURLY.
-object :: P.Parser (V.Vector (FM.TextKV Value))
+object :: P.Parser (V.Vector (T.Text, Value))
 {-# INLINE object #-}
 object = "Std.Data.JSON.Value.object" <?> P.word8 OPEN_CURLY *> object_
 
 -- | parse json object without leading OPEN_CURLY.
-object_ :: P.Parser (V.Vector (FM.TextKV Value))
+object_ :: P.Parser (V.Vector (T.Text, Value))
 {-# INLINABLE object_ #-}
 object_ = do
     skipSpaces
@@ -186,14 +212,14 @@ object_ = do
     then P.skipWord8 $> V.empty
     else loop [] 1
  where
-    loop :: [FM.TextKV Value] -> Int -> P.Parser (V.Vector (FM.TextKV Value))
+    loop :: [(T.Text, Value)] -> Int -> P.Parser (V.Vector (T.Text, Value))
     loop acc !n = do
         !k <- string
         skipSpaces
         P.word8 COLON
         !v <- value
         skipSpaces
-        let acc' = FM.TextKV k v : acc
+        let acc' = (k, v) : acc
         ch <- P.satisfy $ \w -> w == COMMA || w == CLOSE_CURLY
         if ch == COMMA
         then skipSpaces *> loop acc' (n+1)

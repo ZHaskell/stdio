@@ -31,7 +31,6 @@ import qualified Std.Data.Text            as T
 import qualified Std.Data.Text.Base       as T
 import           Std.Data.Vector.Base     as V
 import           Std.Data.Vector.Extra    as V
-import qualified Std.Data.Vector.FlatMap  as FM
 import           Std.Foreign.PrimArray
 import           Std.Data.JSON.Value      (Value(..))
 
@@ -54,15 +53,15 @@ array vs = do
     forM_ (V.lastMaybe vs) $ \ v-> value v
     B.char8 ']'
 
-object :: V.Vector (FM.TextKV Value) -> B.Builder ()
+object :: V.Vector (T.Text, Value) -> B.Builder ()
 object kvs = do
     B.char8 '{'
-    forM_ (V.initMayEmpty kvs) $ \ (k FM.:= v) -> do
+    forM_ (V.initMayEmpty kvs) $ \ (k, v) -> do
         string k
         B.char8 ':'
         value v
         B.char8 ','
-    forM_ (V.lastMaybe kvs) $ \ (k FM.:= v) -> do
+    forM_ (V.lastMaybe kvs) $ \ (k, v) -> do
         string k
         B.char8 ':'
         value v

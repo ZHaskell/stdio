@@ -73,8 +73,8 @@ elemIndices w (Vec arr s l) = go s
 -- satisfying the predicate.
 findIndices :: Vec v a => (a -> Bool) -> v a -> [Int]
 {-# INLINE [1] findIndices #-}
-{-# RULES "findIndices/Bytes" forall w. findIndices (w `eqWord8`) = elemIndicesBytes w #-}
-{-# RULES "findIndices/Bytes" forall w. findIndices (`eqWord8` w) = elemIndicesBytes w #-}
+{-# RULES "findIndices/Bytes1" forall w. findIndices (w `eqWord8`) = elemIndicesBytes w #-}
+{-# RULES "findIndices/Bytes2" forall w. findIndices (`eqWord8` w) = elemIndicesBytes w #-}
 findIndices f (Vec arr s l) = go s
   where
     !end = s + l
@@ -111,8 +111,8 @@ findIndexR f v = fst (findR f v)
 --
 find :: Vec v a => (a -> Bool) -> v a -> (Int, Maybe a)
 {-# INLINE [1] find #-}
-{-# RULES "find/Bytes" forall w. find (w `eqWord8`) = findByte w #-}
-{-# RULES "find/Bytes" forall w. find (`eqWord8` w) = findByte w #-}
+{-# RULES "find/Bytes1" forall w. find (w `eqWord8`) = findByte w #-}
+{-# RULES "find/Bytes2" forall w. find (`eqWord8` w) = findByte w #-}
 find f (Vec arr s l) = go s
   where
     !end = s + l
@@ -134,8 +134,8 @@ findByte w (PrimVector (PrimArray ba#) s l) =
 -- in a vector from right to left, if there isn't one, return '(-1, Nothing)'.
 findR :: Vec v a => (a -> Bool) -> v a -> (Int, Maybe a)
 {-# INLINE [1] findR #-}
-{-# RULES "findR/Bytes" forall w. findR (w `eqWord8`) = findByteR w #-}
-{-# RULES "findR/Bytes" forall w. findR (`eqWord8` w) = findByteR w #-}
+{-# RULES "findR/Bytes1" forall w. findR (w `eqWord8`) = findByteR w #-}
+{-# RULES "findR/Bytes2" forall w. findR (`eqWord8` w) = findByteR w #-}
 findR f (Vec arr s l) = go (s+l-1)
   where
     go !p | p < s     = (-1, Nothing)

@@ -151,6 +151,8 @@ import           Prelude                       hiding (concat, concatMap,
                                                 maximum, minimum, product, sum,
                                                 all, any, replicate, traverse)
 
+import           Test.QuickCheck.Arbitrary (Arbitrary(..), CoArbitrary(..))
+
 -- | 'Text' represented as UTF-8 encoded 'Bytes'
 --
 newtype Text = Text
@@ -173,6 +175,13 @@ instance Read Text where
 
 instance NFData Text where
     rnf (Text bs) = rnf bs
+
+instance Arbitrary Text where
+    arbitrary = pack <$> arbitrary
+    shrink a = pack <$> shrink (unpack a)
+
+instance CoArbitrary Text where
+    coarbitrary = coarbitrary . unpack
 
 instance Hashable Text where
     {-# INLINE hashWithSalt #-}
