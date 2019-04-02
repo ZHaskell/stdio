@@ -23,10 +23,7 @@ install:
 
 build_script:
     - git submodule update --init
-    - cabal install Cabal
-    - cabal install --only-dependencies --enable-tests
-    - cabal configure --enable-tests -v3
-    - cabal build   # this builds all libraries and executables (including tests/benchmarks)
-    - cabal test --show-details=direct --test-options="--color"
+    - cabal new-build   # this builds all libraries and executables (including tests/benchmarks)
+    - cabal new-run test
     - cabal check
     - cabal sdist   # tests that a source-distribution can be generated
