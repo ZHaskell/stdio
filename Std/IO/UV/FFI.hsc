@@ -189,6 +189,8 @@ foreign import ccall unsafe hs_uv_udp_recv_start :: Ptr UVHandle -> IO CInt
 foreign import ccall unsafe uv_udp_recv_stop :: Ptr UVHandle -> IO CInt
 foreign import ccall unsafe hs_uv_udp_send 
     :: Ptr UVHandle -> Ptr SockAddr -> Ptr Word8 -> Int -> IO UVSlotUnSafe
+foreign import ccall unsafe uv_udp_getsockname 
+    :: Ptr UVHandle -> Ptr SockAddr -> Ptr CInt -> IO CInt
 
 
 --------------------------------------------------------------------------------

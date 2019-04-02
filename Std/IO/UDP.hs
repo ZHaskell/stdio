@@ -1,7 +1,9 @@
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 {-|
 Module      : Std.IO.UDP
@@ -25,6 +27,7 @@ module Std.IO.UDP (
   , UVUDPFlag(UV_UDP_DEFAULT, UV_UDP_IPV6ONLY, UV_UDP_REUSEADDR)
   , recvUDP
   , sendUDP
+  , getSockName
   -- * multicast and broadcast
   , UVMembership(UV_JOIN_GROUP, UV_LEAVE_GROUP)
   , setMembership
@@ -35,15 +38,18 @@ module Std.IO.UDP (
   , setTTL
   ) where
 
+import Control.Monad.Primitive  (primitive_)
 import Data.Primitive.PrimArray as A
-import           Data.Primitive.Ptr                 (copyPtrToMutablePrimArray)
+import Data.Primitive.Ptr       (copyPtrToMutablePrimArray)
 import Data.IORef
+import GHC.Prim                 (touch#)
 import Std.Data.Array           as A
 import Std.Data.Vector.Base     as V
 import Std.Data.Vector.Extra    as V
 import Std.Data.CBytes          as CBytes
 import Std.IO.SockAddr
 import Std.Foreign.PrimArray
+import Std.IO.UV.Errno          (pattern UV_EMSGSIZE)
 import Std.IO.UV.FFI
 import Std.IO.UV.Manager
 import Std.IO.Exception
@@ -92,10 +98,10 @@ data UDP = UDP
 -- + each time we poke the udpRecvBufferArray and its last index (size - 1) to uv manager's buffer table.
 -- + libuv side each alloc callback picks the last pointer from udpRecvBufferArray, decrease last index by 1
 -- + the read result is write into the `buf siz` cell, then followed with partial flag, if addr is not NULL
---   then addr flag is 1 (otherwise 0), then addr if not NULL, the buffer is already written when recv callback
---   is called.
--- + On haskell side, we read buffer table's size, which is decreased by callback times. Then we poke those
---   received result out.
+--   then addr flag is 1 (otherwise 0), following addr if not NULL, the buffer is already written when
+--   recv callback is called.
+-- + On haskell side, we read buffer table's size, which is decreased by n which is times callback are called.
+--   Then we poke those cells out.
 
 instance Show UDP where
     show (UDP handle slot uvm _ bufsiz _ _ _) =
@@ -107,7 +113,7 @@ instance Show UDP where
 -- | UDP options.
 --
 -- Though technically message length field in the UDP header is a max of 65535, but large packets
--- could be more likely dropped by routers, usually a packet with a payload <= 508 bytes is considered safe.
+-- could be more likely dropped by routers, usually a packet(IPV4) with a payload <= 508 bytes is considered safe.
 data UDPConfig = UDPConfig
     { recvMsgSize :: {-# UNPACK #-} !Int32      -- ^ maximum size of a received message
     , recvBatchSize :: {-# UNPACK #-} !Int      -- ^ how many messages we want to receive per uv loop,
@@ -119,10 +125,10 @@ data UDPConfig = UDPConfig
                                                     --   set to Nothing to let OS pick a random one.
     } deriving (Show, Eq, Ord)
 
--- | default 'UDPConfig', @defaultUDPConfig = UDPConfig 512 6 512 V.smallChunkSize Nothing@
-defaultUDPConfig = UDPConfig 512 6 V.smallChunkSize Nothing
+-- | default 'UDPConfig', @defaultUDPConfig = UDPConfig 512 6 512 Nothing@
+defaultUDPConfig = UDPConfig 512 6 512 Nothing
 
--- | Initialize a UDP socket, with fixed size receive buffer
+-- | Initialize a UDP socket.
 --
 initUDP :: HasCallStack
         => UDPConfig
@@ -169,11 +175,10 @@ closeUDP (UDP handle _ uvm _ _ _ _ closed) = withUVManager_ uvm $ do
     c <- readIORef closed
     unless c $ writeIORef closed True >> hs_uv_handle_close handle
 
-
 -- | Recv messages from UDP socket, return source address if available, and a `Bool`
 -- to indicate if the message is partial (larger than receive buffer size).
 recvUDP :: HasCallStack => UDP -> IO [(Maybe SockAddr, Bool, V.Bytes)]
-recvUDP (UDP handle slot uvm rbuf rbufsiz rbufArr _ closed) = mask_ $ do
+recvUDP (UDP handle slot uvm (A.MutablePrimArray mba#) rbufsiz rbufArr _ closed) = mask_ $ do
     c <- readIORef closed
     if c
     then throwECLOSED
@@ -215,25 +220,28 @@ recvUDP (UDP handle slot uvm rbuf rbufsiz rbufArr _ closed) = mask_ $ do
             mba <- A.newPrimArray result
             copyPtrToMutablePrimArray mba 0 (p `plusPtr` 140) result
             ba <- A.unsafeFreezePrimArray mba
+            -- It's important to keep recv buffer alive
+            primitive_ (touch# mba#)
             return (addr, partial, V.PrimVector ba 0 result)
         else return []
 
 
 -- | Send a UDP message to target address.
 --
--- WARNING: message will be trimmed if its size is larger than 'sendMsgSize'.
+-- WARNING: A 'InvalidArgument' with errno 'UV_EMSGSIZE' will be thrown
+-- if message is larger than 'sendMsgSize'.
 sendUDP :: HasCallStack => UDP -> SockAddr -> V.Bytes  -> IO ()
 sendUDP (UDP handle slot uvm _ _ _ sbuf closed) addr (V.PrimVector ba s la) = mask_ $ do
     c <- readIORef closed
     when c throwECLOSED
     -- copy message to pinned buffer
     lb <- getSizeofMutablePrimArray sbuf
-    let l = min la lb
+    when (la > lb) (throwUVIfMinus_ (return UV_EMSGSIZE))
     copyPrimArray sbuf 0 ba s la
     withSockAddr addr $ \ paddr ->
         withMutablePrimArrayContents sbuf $ \ pbuf -> do
             (slot, m) <- withUVManager_ uvm $ do
-                slot <- getUVSlot uvm (hs_uv_udp_send handle paddr pbuf l)
+                slot <- getUVSlot uvm (hs_uv_udp_send handle paddr pbuf la)
                 m <- getBlockMVar uvm slot
                 tryTakeMVar m
                 return (slot, m)
@@ -246,6 +254,12 @@ sendUDP (UDP handle slot uvm _ _ _ sbuf closed) addr (V.PrimVector ba s la) = ma
             throwUVIfMinus_  (uninterruptibleMask_ $ takeMVar m)
 
 --------------------------------------------------------------------------------
+
+getSockName :: HasCallStack => UDP -> IO SockAddr
+getSockName (UDP handle _ _ _ _ _ _ closed) = do
+    c <- readIORef closed
+    when c throwECLOSED
+    withSockAddrStorage (\ paddr plen -> throwUVIfMinus_ (uv_udp_getsockname handle paddr plen))
 
 setMembership :: HasCallStack => UDP -> CBytes -> CBytes -> UVMembership ->IO ()
 setMembership (UDP handle _ _ _ _ _ _ closed) gaddr iaddr member = do
