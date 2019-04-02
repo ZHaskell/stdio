@@ -75,6 +75,7 @@ module Std.IO.Exception
     -- * Re-exports
   , module Control.Exception
   , HasCallStack
+  , CallStack
   , callStack
   ) where
 
@@ -239,7 +240,7 @@ throwUVError e info = case e of
     UV_EISDIR          -> throwIO (InappropriateType       info)
     UV_ELOOP           -> throwIO (InvalidArgument         info)
     UV_EMFILE          -> throwIO (ResourceExhausted       info)
-    UV_EMSGSIZE        -> throwIO (ResourceExhausted       info)
+    UV_EMSGSIZE        -> throwIO (InvalidArgument         info)
     UV_ENAMETOOLONG    -> throwIO (InvalidArgument         info)
     UV_ENETDOWN        -> throwIO (ResourceVanished        info)
     UV_ENETUNREACH     -> throwIO (NoSuchThing             info)

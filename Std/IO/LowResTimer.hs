@@ -35,6 +35,7 @@ module Std.IO.LowResTimer
   , cancelLowResTimer
   , cancelLowResTimer_
   , timeoutLowRes
+  , timeoutLowResEx
   , throttle
   , throttle_
   , throttleTrailing_
@@ -51,7 +52,7 @@ import           GHC.Event
 #endif
 import           Control.Concurrent
 import           Control.Concurrent.MVar
-import           Control.Exception
+import           Std.IO.Exception
 import           Control.Monad
 import           Data.IORef
 import           Std.Data.PrimIORef
@@ -221,9 +222,24 @@ timeoutLowRes timeo io = do
             return (Just r))
         ( \ (e :: TimeOutException) -> return Nothing )
   where
-    timeoutAThread id = void . forkIO $ throwTo id TimeOutException
+    timeoutAThread id = void . forkIO $ throwTo id (TimeOutException id undefined)
 
-data TimeOutException = TimeOutException deriving Show
+-- | similar to 'timeoutLowRes', but raise a 'TimeOutException' instead of return 'Nothing'
+-- if timeout.
+timeoutLowResEx :: HasCallStack
+                => Int    -- ^ timeout in unit of 0.1s
+                -> IO a
+                -> IO a
+timeoutLowResEx timeo io = do
+    mid <- myThreadId
+    timer <- registerLowResTimer timeo (timeoutAThread mid)
+    r <- io
+    cancelLowResTimer timer
+    return r
+  where
+    timeoutAThread id = void . forkIO $ throwTo id (TimeOutException id callStack)
+
+data TimeOutException = TimeOutException ThreadId CallStack deriving Show
 instance Exception TimeOutException
 
 --------------------------------------------------------------------------------
@@ -316,7 +332,7 @@ throttle t action = do
             return r
         else readIORef resultRef
 
--- | Debounce IO action without caching result.
+-- | Throttle an IO action without caching result.
 --
 -- The IO action will run at leading edge. i.e. once run, during following (t/10)s throttled action will
 -- no-ops.

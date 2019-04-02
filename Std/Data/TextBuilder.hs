@@ -20,7 +20,8 @@ UTF8 compatible textual builders.
 module Std.Data.TextBuilder
   (
   -- * Textual Builder
-    TextBuilder(..)
+    TextBuilder
+  , toBuilder
   , buildText
   -- * Basic UTF8 builders
   , stringUTF8, charUTF8, string7, char7, text

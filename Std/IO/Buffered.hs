@@ -102,7 +102,7 @@ newBufferedInput :: input
                  -> IO (BufferedInput input)
 newBufferedInput i bufSiz = do
     pb <- newIORef V.empty
-    buf <- newPinnedPrimArray bufSiz
+    buf <- newPinnedPrimArray (max bufSiz 0)
     inputBuffer <- newIORef buf
     return (BufferedInput i pb inputBuffer)
 
@@ -111,7 +111,7 @@ newBufferedOutput :: output
                   -> IO (BufferedOutput output)
 newBufferedOutput o bufSiz = do
     index <- newPrimIORef 0
-    buf <- newPinnedPrimArray bufSiz
+    buf <- newPinnedPrimArray (max bufSiz 0)
     return (BufferedOutput o index buf)
 
 -- | Request bytes from 'BufferedInput'.

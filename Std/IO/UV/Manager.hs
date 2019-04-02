@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE MultiWayIf #-}
 
@@ -52,6 +53,7 @@ import           Control.Concurrent
 import           Control.Concurrent.MVar
 import           Control.Monad
 import           Control.Monad.IO.Class
+import           Control.Monad.Primitive (touch)
 import           Data.IORef
 import           Data.Bits (shiftL)
 import           Data.Primitive.PrimArray
@@ -308,8 +310,7 @@ withUVRequest uvm f = do
         m <- getBlockMVar uvm slot
         tryTakeMVar m
         return (slot, m)
-    throwUVIfMinus $
-        takeMVar m `onException` cancelUVReq uvm slot no_extra_cleanup
+    throwUVIfMinus (takeMVar m `onException` cancelUVReq uvm slot no_extra_cleanup)
   where no_extra_cleanup = const $ return ()
 
 -- | Same with 'withUVRequest' but disgard the result.
@@ -333,7 +334,7 @@ withUVRequest' uvm f g = do
         m <- getBlockMVar uvm slot
         tryTakeMVar m
         return (slot, m)
-    (g =<< takeMVar m) `onException` cancelUVReq uvm slot no_extra_cleanup
+    g =<< (takeMVar m `onException` cancelUVReq uvm slot no_extra_cleanup)
   where no_extra_cleanup = const $ return ()
 
 -- | Same with 'withUVRequest', but will also run an extra cleanup function
@@ -347,8 +348,7 @@ withUVRequestEx uvm f extra_cleanup = do
         m <- getBlockMVar uvm slot
         tryTakeMVar m
         return (slot, m)
-    throwUVIfMinus $
-        takeMVar m `onException` cancelUVReq uvm slot extra_cleanup
+    throwUVIfMinus (takeMVar m `onException` cancelUVReq uvm slot extra_cleanup)
 
 --------------------------------------------------------------------------------
 
@@ -377,10 +377,11 @@ forkBa io = do
 -- 'UVStream' DO NOT provide thread safety! Use 'UVStream' concurrently in multiple
 -- threads will lead to undefined behavior.
 data UVStream = UVStream
-    { uvsHandle :: {-# UNPACK #-} !(Ptr UVHandle)
+    { uvsHandle  :: {-# UNPACK #-} !(Ptr UVHandle)
     , uvsSlot    :: {-# UNPACK #-} !UVSlot
     , uvsManager :: UVManager
-    , uvsClosed  :: {-# UNPACK #-} !(IORef Bool)
+    , uvsClosed  :: {-# UNPACK #-} !(IORef Bool)    -- We have no thread-safe guarantee,
+                                                    -- so no need to use atomic read&write
     }
 
 instance Show UVStream where
@@ -398,7 +399,7 @@ instance Show UVStream where
 --
 -- And this is what 'initUVStream' do, all you need to do is to provide the manager you want to hook the handle
 -- onto(usually the one on the same capability, i.e. the one obtained by 'getUVManager'),
--- and provide a custom initialization function.
+-- and provide a custom initialization function (which should throw an exception if failed).
 --
 initUVStream :: HasCallStack
              => (Ptr UVLoop -> Ptr UVHandle -> IO ())
@@ -429,9 +430,16 @@ instance Input UVStream where
             throwUVIfMinus_ (hs_uv_read_start handle)
             pokeBufferTable uvm slot buf len
             tryTakeMVar m
-        -- We really can't do much when async exception hit a stream IO
-        -- There's no way to cancel, all we can do is to close the stream
-        r <- takeMVar m `onException` closeUVStream uvs
+        -- since we are inside mask, this is the only place
+        -- async exceptions could possibly kick in, and we should stop reading
+        r <- catch (takeMVar m) (\ (e :: SomeException) -> do
+                withUVManager_ uvm (uv_read_stop handle)
+                -- after we locked uvm and stop reading, the reading probably finished
+                -- so try again
+                r <- tryTakeMVar m
+                case r of Just r -> return r
+                          _      -> throwIO e)
+
         if  | r > 0  -> return r
             -- r == 0 should be impossible, since we guard this situation in c side
             | r == fromIntegral UV_EOF -> return 0
@@ -448,7 +456,12 @@ instance Output UVStream where
             m <- getBlockMVar uvm slot
             tryTakeMVar m
             return (slot, m)
-        -- cancel uv_write_t will also close the stream
-        throwUVIfMinus_  (takeMVar m `onException` closeUVStream uvs)
+        -- we can't cancel uv_write_t with current libuv,
+        -- and disaster will happen if buffer got collected.
+        -- so we have to turn to uninterruptibleMask_'s help.
+        -- i.e. writing UVStream is an uninterruptible operation.
+        -- OS will guarantee writing TTY and socket will not
+        -- hang forever anyway.
+        throwUVIfMinus_  (uninterruptibleMask_ $ takeMVar m)
 
 --------------------------------------------------------------------------------

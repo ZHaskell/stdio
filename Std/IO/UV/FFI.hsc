@@ -83,7 +83,7 @@ peekUVBufferTable p = (,)
     <*> (#{peek hs_loop_data, buffer_size_table     } p)
 
 newtype UVRunMode = UVRunMode CInt 
-    deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable)
+    deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable, Num)
 
 pattern UV_RUN_DEFAULT :: UVRunMode
 pattern UV_RUN_DEFAULT = UVRunMode #{const UV_RUN_DEFAULT}
@@ -137,6 +137,7 @@ foreign import ccall unsafe hs_uv_listen  :: Ptr UVHandle -> CInt -> IO CInt
 foreign import ccall unsafe hs_uv_listen_resume :: Ptr UVHandle -> IO ()
 
 foreign import ccall unsafe hs_uv_read_start :: Ptr UVHandle -> IO CInt
+foreign import ccall unsafe uv_read_stop :: Ptr UVHandle -> IO CInt
 foreign import ccall unsafe hs_uv_write :: Ptr UVHandle -> Ptr Word8 -> Int -> IO UVSlotUnSafe
 
 foreign import ccall unsafe hs_uv_accept_check_alloc :: Ptr UVHandle -> IO (Ptr UVHandle)
@@ -158,13 +159,54 @@ foreign import ccall unsafe hs_uv_tcp_connect :: Ptr UVHandle -> Ptr SockAddr ->
 foreign import ccall unsafe hs_set_socket_reuse :: Ptr UVHandle -> IO CInt
 
 --------------------------------------------------------------------------------
+-- udp
+foreign import ccall unsafe uv_udp_init :: Ptr UVLoop -> Ptr UVHandle -> IO CInt
+foreign import ccall unsafe uv_udp_init_ex :: Ptr UVLoop -> Ptr UVHandle -> CUInt -> IO CInt
+foreign import ccall unsafe uv_udp_open :: Ptr UVHandle -> UVFD -> IO CInt
+foreign import ccall unsafe uv_udp_bind :: Ptr UVHandle -> Ptr SockAddr -> UVUDPFlag -> IO CInt
+
+newtype UVMembership = UVMembership CInt deriving (Show, Eq, Ord)
+pattern UV_LEAVE_GROUP = UVMembership #{const UV_LEAVE_GROUP}
+pattern UV_JOIN_GROUP = UVMembership #{const UV_JOIN_GROUP}
+
+newtype UVUDPFlag = UVUDPFlag CInt deriving (Show, Eq, Ord, Storable, Bits, FiniteBits, Num)
+pattern UV_UDP_DEFAULT = UVUDPFlag 0
+pattern UV_UDP_IPV6ONLY = UVUDPFlag #{const UV_UDP_IPV6ONLY}
+pattern UV_UDP_REUSEADDR = UVUDPFlag #{const UV_UDP_REUSEADDR}
+
+pattern UV_UDP_PARTIAL :: Int32
+pattern UV_UDP_PARTIAL = #{const UV_UDP_PARTIAL}
+
+foreign import ccall unsafe uv_udp_set_membership ::
+    Ptr UVHandle -> CString -> CString -> UVMembership -> IO CInt
+foreign import ccall unsafe uv_udp_set_multicast_loop :: Ptr UVHandle -> CInt -> IO CInt
+foreign import ccall unsafe uv_udp_set_multicast_ttl :: Ptr UVHandle -> CInt -> IO CInt
+foreign import ccall unsafe uv_udp_set_multicast_interface :: Ptr UVHandle -> CString -> IO CInt
+foreign import ccall unsafe uv_udp_set_broadcast :: Ptr UVHandle -> CInt -> IO CInt
+foreign import ccall unsafe uv_udp_set_ttl :: Ptr UVHandle -> CInt -> IO CInt
+
+foreign import ccall unsafe hs_uv_udp_recv_start :: Ptr UVHandle -> IO CInt
+foreign import ccall unsafe uv_udp_recv_stop :: Ptr UVHandle -> IO CInt
+foreign import ccall unsafe hs_uv_udp_send 
+    :: Ptr UVHandle -> Ptr SockAddr -> Ptr Word8 -> Int -> IO UVSlotUnSafe
+foreign import ccall unsafe uv_udp_getsockname 
+    :: Ptr UVHandle -> Ptr SockAddr -> Ptr CInt -> IO CInt
+
+
+--------------------------------------------------------------------------------
 -- pipe
 foreign import ccall unsafe uv_pipe_init :: Ptr UVLoop -> Ptr UVHandle -> CInt -> IO CInt
 
 --------------------------------------------------------------------------------
 -- tty
+
+-- | Terminal mode.
+--
+-- When in 'UV_TTY_MODE_RAW' mode, input is always available character-by-character,
+-- not including modifiers. Additionally, all special processing of characters by the terminal is disabled, 
+-- including echoing input characters. Note that CTRL+C will no longer cause a SIGINT when in this mode.
 newtype UVTTYMode = UVTTYMode CInt
-    deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable)
+    deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable, Num)
 
 pattern UV_TTY_MODE_NORMAL :: UVTTYMode
 pattern UV_TTY_MODE_NORMAL = UVTTYMode #{const UV_TTY_MODE_NORMAL}
@@ -174,12 +216,13 @@ pattern UV_TTY_MODE_IO :: UVTTYMode
 pattern UV_TTY_MODE_IO = UVTTYMode #{const UV_TTY_MODE_IO}
 
 foreign import ccall unsafe uv_tty_init :: Ptr UVLoop -> Ptr UVHandle -> CInt -> IO CInt
+foreign import ccall unsafe uv_tty_set_mode :: Ptr UVHandle -> UVTTYMode -> IO CInt
 
 --------------------------------------------------------------------------------
 -- fs
 
 newtype UVFileMode = UVFileMode CInt
-    deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable)
+    deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable, Num)
 
 -- | 00700 user (file owner) has read, write and execute permission
 pattern S_IRWXU :: UVFileMode
@@ -262,7 +305,7 @@ foreign import ccall unsafe hs_uv_fs_mkdtemp_threaded
     :: CString -> Int -> CString -> Ptr UVLoop -> IO UVSlotUnSafe
 
 newtype UVFileFlag = UVFileFlag CInt
-    deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable)
+    deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable, Num)
 
 -- | The file is opened in append mode. Before each write, the file offset is positioned at the end of the file.
 pattern O_APPEND :: UVFileFlag
@@ -383,7 +426,7 @@ newtype UVDirEntType = UVDirEntType CInt
 #else
 newtype UVDirEntType = UVDirEntType CChar
 #endif
-    deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable)
+    deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable, Num)
 
 data DirEntType
     = DirEntUnknown
@@ -518,7 +561,7 @@ foreign import ccall unsafe hs_uv_fs_ftruncate_threaded
 --   * 'COPYFILE_FICLONE': If present, uv_fs_copyfile() will attempt to create a copy-on-write reflink. If the underlying platform does not support copy-on-write, then a fallback copy mechanism is used.
 -- 
 newtype UVCopyFileFlag = UVCopyFileFlag CInt
-    deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable)
+    deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable, Num)
 
 pattern COPYFILE_DEFAULT :: UVCopyFileFlag
 pattern COPYFILE_DEFAULT = UVCopyFileFlag 0
@@ -538,7 +581,7 @@ foreign import ccall unsafe hs_uv_fs_copyfile_threaded
     :: CString -> CString -> UVCopyFileFlag -> Ptr UVLoop -> IO UVSlotUnSafe
 
 newtype UVAccessMode = UVAccessMode CInt
-    deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable)
+    deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable, Num)
 
 pattern F_OK :: UVAccessMode
 pattern F_OK = UVAccessMode #{const F_OK}
@@ -572,7 +615,7 @@ foreign import ccall unsafe hs_uv_fs_futime_threaded
     :: UVFD -> Double -> Double -> Ptr UVLoop -> IO UVSlotUnSafe
 
 newtype UVSymlinkFlag = UVSymlinkFlag CInt
-    deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable)
+    deriving (Eq, Ord, Read, Show, FiniteBits, Bits, Storable, Num)
 
 pattern SYMLINK_DEFAULT :: UVSymlinkFlag
 pattern SYMLINK_DEFAULT = UVSymlinkFlag 0

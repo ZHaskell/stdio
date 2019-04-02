@@ -76,12 +76,12 @@ import           GHC.Float                           (roundTo)
 -- | Integral formatting options.
 --
 data IFormat = IFormat
-    { width       :: Int              -- ^ total width, only effective with padding options
+    { width       :: Int            -- ^ total width, only effective with padding options
     , padding     :: Padding        -- ^ padding options
-    , postiveSign :: Bool       -- ^ show @+@ when the number is positive
+    , postiveSign :: Bool           -- ^ show @+@ when the number is positive
     } deriving (Show, Eq, Ord)
 
--- | @defaultIFormat = IFormat 0 NoPadding False Decimal@
+-- | @defaultIFormat = IFormat 0 NoPadding False@
 defaultIFormat :: IFormat
 defaultIFormat = IFormat 0 NoPadding False
 

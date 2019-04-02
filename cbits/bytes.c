@@ -1,4 +1,5 @@
 /*
+Copyright (c) 2017-2019 Dong Han
 Copyright Johan Tibell 2011, Dong Han 2019
 All rights reserved.
 Redistribution and use in source and binary forms, with or without
