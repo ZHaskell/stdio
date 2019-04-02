@@ -19,6 +19,7 @@ install:
     - ghc --version
     - cabal --version
     - cabal update
+    - cabal install hspec-discover 
     - refreshenv
 
 build_script:
