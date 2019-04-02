@@ -8,6 +8,7 @@ import qualified Data.List                as List
 import           Data.Word
 import           Data.Hashable            (hashWithSalt, hash)
 import qualified Std.Data.Vector.Base     as V
+import qualified Std.Foreign.PrimArray    as FP
 import           Test.QuickCheck
 import           Test.QuickCheck.Function
 import           Test.QuickCheck.Property
@@ -283,3 +284,9 @@ spec = describe "vector-base" $ do
             (V.elemIndex y . V.pack @V.PrimVector @Int $ x)  === (List.elemIndex y $ x)
         prop "vector elemIndex = List.elemIndex" $ \ y x ->
             (V.elemIndex y . V.pack @V.PrimVector @Word8 $ x)  === (List.elemIndex y $ x)
+
+    describe "vector ByteString roundtrip" $
+        prop "vector ByteString roundtrip" $ \ z -> ioProperty $ do
+            let bytes = V.pack @V.PrimVector @Word8 z
+            bytes' <- FP.bytesFromByteString =<< FP.bytesToByteString bytes
+            return $ bytes === bytes'

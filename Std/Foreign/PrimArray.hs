@@ -1,5 +1,5 @@
-{-# LANGUAGE MagicHash #-}
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE BangPatterns        #-}
+{-# LANGUAGE MagicHash           #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 {-|
@@ -74,6 +74,8 @@ module Std.Foreign.PrimArray
   , withPrimVectorSafe
   , withPrimSafe
   , withPrimSafe'
+  , bytesToByteString
+  , bytesFromByteString
     -- ** Pointer helpers
   , BA#, MBA#
   , clearPtr
@@ -86,6 +88,9 @@ module Std.Foreign.PrimArray
   ) where
 
 import           Control.Monad.Primitive
+import           Data.ByteString          (ByteString)
+import qualified Data.ByteString          as BS
+import qualified Data.ByteString.Unsafe   as BS
 import           Data.Primitive
 import           Data.Primitive.ByteArray
 import           Data.Primitive.PrimArray
@@ -273,6 +278,23 @@ withPrimSafe' f = do
     !b <- withMutablePrimArrayContents buf $ \ ptr -> f ptr
     !a <- readPrimArray buf 0
     return (a, b)
+
+-- | /O(n)/ Copy the contents of a Vector into a new ByteString
+bytesToByteString :: Bytes -> IO ByteString
+{-# INLINE bytesToByteString #-}
+bytesToByteString bytes =
+    withPrimVectorSafe bytes (\ptr len -> BS.packCStringLen (castPtr ptr, len))
+
+-- | /O(n)/ Copy the contents of a ByteString into a new Vector
+bytesFromByteString :: ByteString -> IO Bytes
+{-# INLINE bytesFromByteString #-}
+bytesFromByteString bs = BS.unsafeUseAsCString bs $ \ptr ->
+    pure $ create len (copy ptr)
+  where
+    len = BS.length bs
+    copy ptr mpa = do
+        copyPtrToMutablePrimArray mpa 0 (castPtr ptr) len
+        writeArr mpa len 0
 
 --------------------------------------------------------------------------------
 

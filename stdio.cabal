@@ -201,6 +201,7 @@ library
                         ,   deepseq    >= 1.4 && < 1.5
                         ,   template-haskell == 2.14.*
                         ,   stm        == 2.5.*
+                        ,   bytestring == 0.10.*
 
   if flag(integer-simple)
     cpp-options: -DINTEGER_SIMPLE
