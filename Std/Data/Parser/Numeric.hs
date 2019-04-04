@@ -34,6 +34,7 @@ module Std.Data.Parser.Numeric
     -- * Misc
   , hexLoop
   , decLoop
+  , decLoopIntegerFast
   , isHexDigit
   , isDigit
   ) where
@@ -128,6 +129,14 @@ decLoop :: Integral a
 decLoop a bs@(V.PrimVector arr s l) = V.foldl' step a bs
   where step a w = a * 10 + fromIntegral (w - 48)
 
+-- | decode digits sequence within an array.
+--
+-- A fast version to decode 'Integer' using machine word as much as possible.
+decLoopIntegerFast :: V.Bytes -> Integer
+{-# INLINE decLoopIntegerFast #-}
+decLoopIntegerFast bs
+    | V.length bs <= WORD64_MAX_DIGITS_LEN = fromIntegral (decLoop @Word64 0 bs)
+    | otherwise                            = decLoop @Integer 0 bs
 
 -- | A fast digit predicate.
 isDigit :: Word8 -> Bool
@@ -152,8 +161,11 @@ int :: (Integral a) => Parser a
 int = "Std.Data.Parser.Numeric.int" <?> do
     w <- P.peek
     if w == MINUS
-    then P.skipWord8 *> (negate <$> uint)
-    else if w == PLUS then P.skipWord8 *> uint else uint
+    then P.skipWord8 *> (negate <$> uint')
+    else if w == PLUS then P.skipWord8 *> uint' else uint'
+  where
+    -- strip uint's message
+    uint' = decLoop 0 <$> P.takeWhile1 isDigit
 
 -- | Parse a rational number.
 --
@@ -199,14 +211,14 @@ rational = scientifically realToFrac
 --
 double :: Parser Double
 {-# INLINE double #-}
-double = scientifically Sci.toRealFloat
+double = "Std.Data.Parser.Numeric.double" <?> scientificallyInternal Sci.toRealFloat
 
 -- | Parse a rational number and round to 'Float'.
 --
 -- Single precision version of 'double'.
 float :: Parser Float
 {-# INLINE float #-}
-float = scientifically Sci.toRealFloat
+float = "Std.Data.Parser.Numeric.float" <?> scientificallyInternal Sci.toRealFloat
 
 -- | Parse a scientific number.
 --
@@ -214,18 +226,23 @@ float = scientifically Sci.toRealFloat
 --
 scientific :: Parser Sci.Scientific
 {-# INLINE scientific #-}
-scientific = scientifically id
+scientific = "Std.Data.Parser.Numeric.scientific" <?> scientificallyInternal id
 
 -- | Parse a scientific number and convert to result using a user supply function.
 --
 -- The syntax accepted by this parser is the same as for 'double'.
 scientifically :: (Sci.Scientific -> a) -> Parser a
 {-# INLINE scientifically #-}
-scientifically h = "Std.Data.Parser.Numeric.scientifically" <?> do
+scientifically h = "Std.Data.Parser.Numeric.scientifically" <?> scientificallyInternal h
+
+-- | Strip message version.
+scientificallyInternal :: (Sci.Scientific -> a) -> Parser a
+{-# INLINE scientificallyInternal #-}
+scientificallyInternal h = do
     !sign <- P.peek
     when (sign == PLUS || sign == MINUS) (P.skipWord8)
     !intPart <- P.takeWhile1 isDigit
-    -- backtrack here is neccessary to avoid eating dot or e
+    -- backtrack here is neccessary to avoid eating extra dot or e
     -- attoparsec is doing it wrong here: https://github.com/bos/attoparsec/issues/112
     !sci <- (do
         -- during number parsing we want to use machine word as much as possible
@@ -237,22 +254,10 @@ scientifically h = "Std.Data.Parser.Numeric.scientifically" <?> do
                 if ilen + flen <= WORD64_MAX_DIGITS_LEN
                 then fromIntegral (decLoop @Word64 (decLoop @Word64 0 intPart) fracPart)
                 else
-                    let int =
-                            if ilen <= WORD64_MAX_DIGITS_LEN
-                            then fromIntegral (decLoop @Word64 0 intPart)
-                            else decLoop @Integer 0 intPart
-                        frac =
-                            if flen <= WORD64_MAX_DIGITS_LEN
-                            then fromIntegral (decLoop @Word64 0 fracPart)
-                            else decLoop @Integer 0 fracPart
+                    let int = decLoopIntegerFast intPart
+                        frac = decLoopIntegerFast fracPart
                     in int * 10 ^ flen + frac
-        parseE base flen) <|> (do
-        let !ilen = V.length intPart
-            !base =
-                if ilen <= WORD64_MAX_DIGITS_LEN
-                then fromIntegral (decLoop @Word64 0 intPart)
-                else decLoop @Integer 0 intPart
-        parseE base 0)
+        parseE base flen) <|> (parseE (decLoopIntegerFast intPart) 0)
 
     return $! if sign /= MINUS then h sci else h (negate sci)
   where
@@ -310,28 +315,33 @@ rational' = scientifically' realToFrac
 -- reference: https://tools.ietf.org/html/rfc8259#section-6
 double' :: Parser Double
 {-# INLINE double' #-}
-double' = scientifically' Sci.toRealFloat
+double' = "Std.Data.Parser.Numeric.double'" <?> scientificallyInternal' Sci.toRealFloat
 
 -- | Parse a rational number and round to 'Float' using stricter grammer.
 --
 -- Single precision version of 'double''.
 float' :: Parser Float
 {-# INLINE float' #-}
-float' = scientifically' Sci.toRealFloat
+float' = "Std.Data.Parser.Numeric.float'" <?> scientificallyInternal' Sci.toRealFloat
 
 -- | Parse a scientific number.
 --
 -- The syntax accepted by this parser is the same as for 'double''.
 scientific' :: Parser Sci.Scientific
 {-# INLINE scientific' #-}
-scientific' = scientifically' id
+scientific' = "Std.Data.Parser.Numeric.scientific'" <?> scientificallyInternal' id
 
 -- | Parse a scientific number and convert to result using a user supply function.
 --
 -- The syntax accepted by this parser is the same as for 'double''.
 scientifically' :: (Sci.Scientific -> a) -> P.Parser a
 {-# INLINE scientifically' #-}
-scientifically' h = "Std.Data.Parser.Numeric.scientifically'" <?> do
+scientifically' h = "Std.Data.Parser.Numeric.scientifically'" <?> scientificallyInternal' h
+
+-- | Strip message version of scientifically'.
+scientificallyInternal' :: (Sci.Scientific -> a) -> P.Parser a
+{-# INLINE scientificallyInternal' #-}
+scientificallyInternal' h = do
     !sign <- P.peek
     when (sign == MINUS) (P.skipWord8) -- no leading plus is allowed
     !intPart <- P.takeWhile1 isDigit
@@ -348,23 +358,11 @@ scientifically' h = "Std.Data.Parser.Numeric.scientifically'" <?> do
                     if ilen + flen <= WORD64_MAX_DIGITS_LEN
                     then fromIntegral (decLoop @Word64 (decLoop @Word64 0 intPart) fracPart)
                     else
-                        let int =
-                                if ilen <= WORD64_MAX_DIGITS_LEN
-                                then fromIntegral (decLoop @Word64 0 intPart)
-                                else decLoop @Integer 0 intPart
-                            frac =
-                                if flen <= WORD64_MAX_DIGITS_LEN
-                                then fromIntegral (decLoop @Word64 0 fracPart)
-                                else decLoop @Integer 0 fracPart
+                        let int = decLoopIntegerFast intPart
+                            frac = decLoopIntegerFast fracPart
                         in int * 10 ^ flen + frac
             parseE base flen
-        _ ->
-            let !ilen = V.length intPart
-                !base =
-                    if ilen <= WORD64_MAX_DIGITS_LEN
-                    then fromIntegral (decLoop @Word64 0 intPart)
-                    else decLoop @Integer 0 intPart
-            in parseE base 0
+        _ -> parseE (decLoopIntegerFast intPart) 0
     return $! if sign /= MINUS then h sci else h (negate sci)
   where
     {-# INLINE parseE #-}
