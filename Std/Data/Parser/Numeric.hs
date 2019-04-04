@@ -181,7 +181,7 @@ int = "Std.Data.Parser.Numeric.int" <?> do
 --
 rational :: (Fractional a) => Parser a
 {-# INLINE rational #-}
-rational = scientifically realToFrac
+rational = "Std.Data.Parser.Numeric.rational" <?> scientificallyInternal realToFrac
 
 -- | Parse a rational number and round to 'Double'.
 --
@@ -282,7 +282,7 @@ scientificallyInternal h = do
 --
 rational' :: (Fractional a) => Parser a
 {-# INLINE rational' #-}
-rational' = scientifically' realToFrac
+rational' = "Std.Data.Parser.Numeric.rational'" <?> scientificallyInternal' realToFrac
 
 -- | More strict number parsing(rfc8259).
 --
