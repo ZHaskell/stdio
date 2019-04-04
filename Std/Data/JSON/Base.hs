@@ -2,10 +2,23 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE BangPatterns #-}
 
+{-|
+Module      : Std.Data.JSON.Base
+Description : Fast JSON serialization/deserialization
+Copyright   : (c) Dong Han, 2019
+License     : BSD
+Maintainer  : winterland1989@gmail.com
+Stability   : experimental
+Portability : non-portable
+
+-}
 
 module Std.Data.JSON.Base where
 
+import qualified Data.HashMap.Strict     as HM
 import qualified Std.Data.Vector.FlatMap as FM
 import qualified Std.Data.Vector         as V
 import qualified Std.Data.Text           as T
@@ -22,17 +35,16 @@ import GHC.Generics
 
 --------------------------------------------------------------------------------
 
-
-parse :: FromJSON a => V.Bytes -> Either JParseError a
+parse :: FromJSON a => V.Bytes -> Either ParseError a
 parse = undefined
 
-parseChunks :: (FromJSON a, Monad m) => m V.Bytes -> V.Bytes -> m (V.Bytes, Either JParseError a)
+parseChunks :: (FromJSON a, Monad m) => m V.Bytes -> V.Bytes -> m (V.Bytes, Either ParseError a)
 parseChunks = undefined
 
 --------------------------------------------------------------------------------
 
 -- | Elements of a JSON path used to describe the location of an error.
-data JPath
+data Path
     = Key {-# UNPACK #-} !T.Text
         -- ^ JSON path element of a key into an object,
         -- \"object.key\".
@@ -41,13 +53,13 @@ data JPath
         -- array, \"array[index]\".
   deriving (Eq, Show, Typeable, Ord)
 
-data JParseError = ValueParseError P.ParseError | JParseError [JPath] T.Text
+data ParseError = ValueParseError P.ParseError | ParseError [Path] T.Text
 
-instance Show JParseError where
+instance Show ParseError where
     -- TODO use standard format
     show (ValueParseError msg) = "ValueParseError: " ++ show msg
-    show (JParseError paths msg) = T.unpack . TB.buildText $ do
-        "JParseError: $"
+    show (ParseError paths msg) = T.unpack . TB.buildText $ do
+        "ParseError: $"
         mapM_ renderPath (reverse paths)
         ": "
         TB.text msg
@@ -56,30 +68,30 @@ instance Show JParseError where
         renderPath (Key k) = TB.char7 '.' >> TB.text k
 
 
-type ParserStep r = [JPath] -> Either JParseError r
+type ParserStep r = [Path] -> Either ParseError r
 
--- | 'JParser' for parsing result from JSON 'Value'.
-newtype JParser a = JParser
+-- | 'Parser' for parsing result from JSON 'Value'.
+newtype Parser a = Parser
     { runJParse :: forall r. (a -> ParserStep r) -> ParserStep r }
 
--- | Run a 'JParser' with a 'Either' result type.
-parseEither :: (a -> JParser r) -> a -> Either JParseError r
+-- | Run a 'Parser' with a 'Either' result type.
+parseEither :: (a -> Parser r) -> a -> Either ParseError r
 {-# INLINE parseEither #-}
 parseEither m v = runJParse (m v) (\ x _ -> Right x) []
 
-instance Functor JParser where
-    fmap f m = JParser (\ k -> runJParse m (k . f))
+instance Functor Parser where
+    fmap f m = Parser (\ k -> runJParse m (k . f))
     {-# INLINE fmap #-}
 
-instance Applicative JParser where
-    pure a = JParser (\ k -> k a)
+instance Applicative Parser where
+    pure a = Parser (\ k -> k a)
     {-# INLINE pure #-}
-    (JParser f) <*> (JParser g) = JParser (\ k path ->
+    (Parser f) <*> (Parser g) = Parser (\ k path ->
         f (\ f' _ ->  g (k . f') path) path)
     {-# INLINE (<*>) #-}
 
-instance Monad JParser where
-    (JParser f) >>= g = JParser (\ k path ->
+instance Monad Parser where
+    (Parser f) >>= g = Parser (\ k path ->
         f (\ a _ -> runJParse (g a) k path) path)
     {-# INLINE (>>=) #-}
     return = pure
@@ -87,17 +99,17 @@ instance Monad JParser where
     fail = Fail.fail
     {-# INLINE fail #-}
 
-instance Fail.MonadFail JParser where
-    fail msg = JParser (\ _ paths -> Left (JParseError paths (T.pack msg)))
+instance Fail.MonadFail Parser where
+    fail msg = Parser (\ _ paths -> Left (ParseError paths (T.pack msg)))
 
 --------------------------------------------------------------------------------
 
-failMsgs :: [T.Text] -> JParser a
-failMsgs msgs = JParser (\ _ paths -> Left (JParseError paths (T.concat msgs)))
+failMsgs :: [T.Text] -> Parser a
+failMsgs msgs = Parser (\ _ paths -> Left (ParseError paths (T.concat msgs)))
 
 typeMismatch :: T.Text     -- ^ The name of the type you are trying to parse.
              -> Value      -- ^ The actual value encountered.
-             -> JParser a
+             -> Parser a
 typeMismatch expected actual =
     failMsgs ["expected ", expected, ", encountered ", name]
   where
@@ -124,44 +136,54 @@ typeMismatch expected actual =
 --
 -- With such annotations, if an error occurs, you will get a JSON Path
 -- location of that error.
-(<?>) :: JParser a -> JPath -> JParser a
+(<?>) :: Parser a -> Path -> Parser a
 {-# INLINE (<?>) #-}
-(JParser p) <?> path = JParser (\ k paths -> p k (path:paths))
+(Parser p) <?> path = Parser (\ k paths -> p k (path:paths))
 infixl 0 <?>
 
-withBool :: (Bool -> JParser a) -> Value ->  JParser a
+withBool :: (Bool -> Parser a) -> Value ->  Parser a
 withBool f (Bool x)  = f x
 withBool f v         = typeMismatch "Bool" v
 
-withNumber :: (Scientific -> JParser a) -> Value ->  JParser a
+withNumber :: (Scientific -> Parser a) -> Value ->  Parser a
 withNumber f (Number x)  = f x
 withNumber f v           = typeMismatch "Number" v
 
-withString :: (T.Text -> JParser a) -> Value -> JParser a
+withString :: (T.Text -> Parser a) -> Value -> Parser a
 withString f (String x)  = f x
 withString f v           = typeMismatch "String" v
 
-withArray :: (V.Vector Value -> JParser a) -> Value -> JParser a
+withArray :: (V.Vector Value -> Parser a) -> Value -> Parser a
 withArray f (Array arr)  = f arr
 withArray f v            = typeMismatch "Array" v
 
 -- | Directly use 'Object' as key-values for further parsing.
-withKeyValues :: (V.Vector (T.Text, Value) -> JParser a) -> Value -> JParser a
+withKeyValues :: (V.Vector (T.Text, Value) -> Parser a) -> Value -> Parser a
 withKeyValues f (Object kvs) = f kvs
 withKeyValues f v            = typeMismatch "Object" v
 
 -- | Take a 'Object' as an 'FM.FlatMap T.Text Value', on key duplication prefer first one.
-withFlatMap :: (FM.FlatMap T.Text Value -> JParser a) -> Value -> JParser a
+withFlatMap :: (FM.FlatMap T.Text Value -> Parser a) -> Value -> Parser a
 withFlatMap f (Object obj) = f (FM.packVector obj)
 withFlatMap f v            = typeMismatch "Object" v
 
 -- | Take a 'Object' as an 'FM.FlatMap T.Text Value', on key duplication prefer last one.
-withFlatMapR :: (FM.FlatMap T.Text Value -> JParser a) -> Value -> JParser a
+withFlatMapR :: (FM.FlatMap T.Text Value -> Parser a) -> Value -> Parser a
 withFlatMapR f (Object obj) = f (FM.packVectorR obj)
 withFlatMapR f v            = typeMismatch "Object" v
 
+-- | Take a 'Object' as an 'HM.HashMap T.Text Value', on key duplication prefer first one.
+withHashMap :: (HM.HashMap T.Text Value -> Parser a) -> Value -> Parser a
+withHashMap f (Object obj) = f (HM.fromList (V.unpackR obj))
+withHashMap f v            = typeMismatch "Object" v
+
+-- | Take a 'Object' as an 'HM.HashMap T.Text Value', on key duplication prefer last one.
+withHashMapR :: (HM.HashMap T.Text Value -> Parser a) -> Value -> Parser a
+withHashMapR f (Object obj) = f (HM.fromList (V.unpack obj))
+withHashMapR f v            = typeMismatch "Object" v
+
 -- | Decode a nested JSON-encoded string.
-withEmbeddedJSON :: T.Text -> (Value -> JParser a) -> Value -> JParser a
+withEmbeddedJSON :: T.Text -> (Value -> Parser a) -> Value -> Parser a
 withEmbeddedJSON _ innerParser (String txt) =
     either fail' innerParser $ parse (T.getUTF8Bytes txt)
   where
@@ -176,7 +198,7 @@ withEmbeddedJSON name _ v = typeMismatch name v
 -- This accessor is appropriate if the key and value /must/ be present
 -- in an object for it to be valid.  If the key and value are
 -- optional, use '.:?' instead.
-(.:) :: (FromJSON a) => FM.FlatMap T.Text Value -> T.Text -> JParser a
+(.:) :: (FromJSON a) => FM.FlatMap T.Text Value -> T.Text -> Parser a
 {-# INLINE (.:) #-}
 (.:) = parseField parseJSON
 
@@ -187,7 +209,7 @@ withEmbeddedJSON name _ v = typeMismatch name v
 -- This accessor is most useful if the key and value can be absent
 -- from an object without affecting its validity.  If the key and
 -- value are mandatory, use '.:' instead.
-(.:?) :: (FromJSON a) => FM.FlatMap T.Text Value -> T.Text -> JParser (Maybe a)
+(.:?) :: (FromJSON a) => FM.FlatMap T.Text Value -> T.Text -> Parser (Maybe a)
 {-# INLINE (.:?) #-}
 (.:?) = parseFieldMaybe parseJSON
 
@@ -197,18 +219,18 @@ withEmbeddedJSON name _ v = typeMismatch name v
 --
 -- This differs from '.:?' by attempting to parse 'Null' the same as any
 -- other JSON value, instead of interpreting it as 'Nothing'.
-(.:!) :: (FromJSON a) => FM.FlatMap T.Text Value -> T.Text -> JParser (Maybe a)
+(.:!) :: (FromJSON a) => FM.FlatMap T.Text Value -> T.Text -> Parser (Maybe a)
 {-# INLINE (.:!) #-}
 (.:!) = parseFieldMaybe' parseJSON
 
-parseField :: (Value -> JParser a)  -- ^ the field parser (value part of a key value pair)
-           -> FM.FlatMap T.Text Value -> T.Text -> JParser a
+parseField :: (Value -> Parser a)  -- ^ the field parser (value part of a key value pair)
+           -> FM.FlatMap T.Text Value -> T.Text -> Parser a
 parseField p obj key = case FM.lookup key obj of
     Just v -> p v <?> Key key
     _      -> fail (T.unpack . T.concat $ ["key ", key, " not present"])
 
 -- | Variant of '.:?' with explicit parser function.
-parseFieldMaybe :: (Value -> JParser a) -> FM.FlatMap T.Text Value -> T.Text -> JParser (Maybe a)
+parseFieldMaybe :: (Value -> Parser a) -> FM.FlatMap T.Text Value -> T.Text -> Parser (Maybe a)
 {-# INLINE parseFieldMaybe #-}
 parseFieldMaybe p obj key = case FM.lookup key obj of
     Just Null -> pure Nothing
@@ -216,7 +238,7 @@ parseFieldMaybe p obj key = case FM.lookup key obj of
     _         -> pure Nothing
 
 -- | Variant of '.:!' with explicitliftParseJSON p (listParser p) parser function.
-parseFieldMaybe' :: (Value -> JParser a) -> FM.FlatMap T.Text Value -> T.Text -> JParser (Maybe a)
+parseFieldMaybe' :: (Value -> Parser a) -> FM.FlatMap T.Text Value -> T.Text -> Parser (Maybe a)
 {-# INLINE parseFieldMaybe' #-}
 parseFieldMaybe' p obj key = case FM.lookup key obj of
     Just v  -> Just <$> p v <?> Key key
@@ -225,21 +247,29 @@ parseFieldMaybe' p obj key = case FM.lookup key obj of
 --------------------------------------------------------------------------------
 
 class FromJSON a where
-    parseJSON :: Value -> JParser a
+    parseJSON :: Value -> Parser a
 
 instance FromJSON Value where
     parseJSON = return
 
-{-
-instance FromJSON a => FromJSON (V.Vector (FM.TextKV a)) where
-    parseJSON (Object kvs) = return kvs
-    parseJSON _            = typeMismatch "Object" v
+instance FromJSON a => FromJSON (V.Vector (T.Text, a)) where
+    {-# INLINE parseJSON #-}
+    parseJSON (Object kvs) = mapM (\ (k,v) -> parseJSON v >>= \ !v' -> return (k, v')) kvs
+    parseJSON v            = typeMismatch "Object" v
 
+-- | default instance prefer later key
 instance FromJSON a => FromJSON (FM.FlatMap T.Text a) where
-    parseJSON = withFlatMapR (fmap parseJSON)
+    {-# INLINE parseJSON #-}
+    parseJSON = withFlatMapR (mapM parseJSON)
 
-instance FromJSON a => FromJSON V.Vector a where
-    parseJSON = return
+-- | default instance prefer later key
+instance FromJSON a => FromJSON (HM.HashMap T.Text a) where
+    {-# INLINE parseJSON #-}
+    parseJSON = withHashMapR (mapM parseJSON)
+
+instance FromJSON a => FromJSON (V.Vector a) where
+    {-# INLINE parseJSON #-}
+    parseJSON = withArray (mapM parseJSON)
 
 --------------------------------------------------------------------------------
 
@@ -250,8 +280,3 @@ class ToJSON a where
 instance ToJSON Value where
     toValue = id
     toJSON = JB.value
-
-instance ToJSON Value where
-    toValue = id
-    toJSON = JB.value
--}

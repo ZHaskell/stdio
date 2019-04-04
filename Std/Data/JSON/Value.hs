@@ -7,8 +7,8 @@
 {-# LANGUAGE UnliftedFFITypes   #-}
 
 {-|
-Module      : Std.Data.JSON
-Description : Fast JSON serialization/deserialization
+Module      : Std.Data.JSON.Value
+Description : JSON representation and parsers
 Copyright   : (c) Dong Han, 2019
 License     : BSD
 Maintainer  : winterland1989@gmail.com

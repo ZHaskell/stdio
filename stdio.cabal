@@ -204,6 +204,7 @@ library
                         ,   QuickCheck >= 2.10
                         ,   template-haskell == 2.14.*
                         ,   stm        == 2.5.*
+                        ,   unordered-containers == 0.2.*
 
   if flag(integer-simple)
     cpp-options: -DINTEGER_SIMPLE

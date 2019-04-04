@@ -6,6 +6,18 @@
 {-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE UnliftedFFITypes   #-}
 
+{-|
+Module      : Std.Data.JSON.Value.Builder
+Description : JSON representation and builders
+Copyright   : (c) Dong Han, 2019
+License     : BSD
+Maintainer  : winterland1989@gmail.com
+Stability   : experimental
+Portability : non-portable
+
+This module provides builders for JSON 'Value's, a Haskell JSON representation. The builders are designed to comply with <https://tools.ietf.org/html/rfc8258 rfc8258>. Only control characters are escaped, other unicode codepoint are directly written instead of escaped.
+
+-}
 module Std.Data.JSON.Value.Builder
   ( -- * Value type
     Value(..)

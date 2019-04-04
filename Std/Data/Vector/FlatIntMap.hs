@@ -30,6 +30,8 @@ module Std.Data.Vector.FlatIntMap
   , delete
   , insert
   , adjust'
+    -- * fold and traverse
+  , foldrWithKey, foldrWithKey', foldlWithKey, foldlWithKey', traverseWithKey
     -- * binary & linear search on vectors
   , binarySearch
   , linearSearch, linearSearchR
@@ -37,6 +39,8 @@ module Std.Data.Vector.FlatIntMap
 
 import           Control.Monad
 import           Control.Monad.ST
+import qualified Data.Foldable             as Foldable
+import qualified Data.Traversable          as Traversable
 import qualified Data.Primitive.SmallArray as A
 import qualified Std.Data.Vector.Base as V
 import qualified Std.Data.Vector.Sort as V
@@ -55,6 +59,28 @@ newtype FlatIntMap v = FlatIntMap { sortedIPairs :: V.Vector (V.IPair v) }
 instance Functor (FlatIntMap) where
     {-# INLINE fmap #-}
     fmap f (FlatIntMap vs) = FlatIntMap (V.map' (fmap f) vs)
+
+instance Foldable.Foldable FlatIntMap where
+    {-# INLINE foldr' #-}
+    foldr' f = foldrWithKey' (const f)
+    {-# INLINE foldr #-}
+    foldr f = foldrWithKey (const f)
+    {-# INLINE foldl' #-}
+    foldl' f = foldlWithKey' (\ a k v -> f a v)
+    {-# INLINE foldl #-}
+    foldl f = foldlWithKey (\ a k v -> f a v)
+    {-# INLINE toList #-}
+    toList = fmap V.isnd . unpack
+    {-# INLINE null #-}
+    null (FlatIntMap vs) = V.null vs
+    {-# INLINE length #-}
+    length (FlatIntMap vs) = V.length vs
+    {-# INLINE elem #-}
+    elem a (FlatIntMap vs) = elem a (map V.isnd $ V.unpack vs)
+
+instance Traversable.Traversable FlatIntMap where
+    {-# INLINE traverse #-}
+    traverse f = traverseWithKey (const f)
 
 map' :: (v -> v) -> FlatIntMap v -> FlatIntMap v
 {-# INLINE map' #-}
@@ -183,6 +209,50 @@ adjust' f k m@(FlatIntMap vec@(V.Vector arr s l)) =
             A.copySmallArray marr 0 arr s l
             let !v' = f (V.isnd (A.indexSmallArray arr i))
             A.writeSmallArray marr i (V.IPair k v'))
+
+-- | /O(n)/ Reduce this map by applying a binary operator to all
+-- elements, using the given starting value (typically the
+-- right-identity of the operator).
+--
+-- During folding k is in descending order.
+foldrWithKey :: (Int -> v -> a -> a) -> a -> FlatIntMap v -> a
+{-# INLINE foldrWithKey #-}
+foldrWithKey f a (FlatIntMap vs) = foldr (\ (V.IPair k v) a -> f k v a) a vs
+
+-- | /O(n)/ Reduce this map by applying a binary operator to all
+-- elements, using the given starting value (typically the
+-- right-identity of the operator).
+--
+-- During folding Int is in ascending order.
+foldlWithKey :: (a -> Int -> v -> a) -> a -> FlatIntMap v -> a
+{-# INLINE foldlWithKey #-}
+foldlWithKey f a (FlatIntMap vs) = foldl (\ a' (V.IPair k v) -> f a' k v) a vs
+
+-- | /O(n)/ Reduce this map by applying a binary operator to all
+-- elements, using the given starting value (typically the
+-- right-identity of the operator).
+--
+-- During folding Int is in descending order.
+foldrWithKey' :: (Int -> v -> a -> a) -> a -> FlatIntMap v -> a
+{-# INLINE foldrWithKey' #-}
+foldrWithKey' f a (FlatIntMap vs) = V.foldr' (\ (V.IPair k v) -> f k v) a vs
+
+-- | /O(n)/ Reduce this map by applying a binary operator to all
+-- elements, using the given starting value (typically the
+-- right-identity of the operator).
+--
+-- During folding Int is in ascending order.
+foldlWithKey' :: (a -> Int -> v -> a) -> a -> FlatIntMap v -> a
+{-# INLINE foldlWithKey' #-}
+foldlWithKey' f a (FlatIntMap vs) = V.foldl' (\ a' (V.IPair k v) -> f a' k v) a vs
+
+-- | /O(n)/.
+-- @'traverseWithKey' f s == 'pack' <$> 'traverse' (\(k, v) -> (,) k <$> f k v) ('unpack' m)@
+-- That is, behaves exactly like a regular 'traverse' except that the traversing
+-- function also has access to the key associated with a value.
+traverseWithKey :: Applicative t => (Int -> a -> t b) -> FlatIntMap a -> t (FlatIntMap b)
+{-# INLINE traverseWithKey #-}
+traverseWithKey f (FlatIntMap vs) = FlatIntMap <$> traverse (\ (V.IPair k v) -> V.IPair k <$> f k v) vs
 
 --------------------------------------------------------------------------------
 

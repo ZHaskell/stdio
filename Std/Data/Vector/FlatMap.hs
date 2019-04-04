@@ -4,6 +4,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE TupleSections #-}
 
 {-|
 Module      : Std.Data.Vector.FlatMap
@@ -30,6 +31,8 @@ module Std.Data.Vector.FlatMap
   , delete
   , insert
   , adjust'
+    -- * fold and traverse
+  , foldrWithKey, foldrWithKey', foldlWithKey, foldlWithKey', traverseWithKey
     -- * binary & linear search on vectors
   , binarySearch
   , linearSearch, linearSearchR
@@ -37,6 +40,9 @@ module Std.Data.Vector.FlatMap
 
 import           Control.Monad
 import           Control.Monad.ST
+import qualified Data.Primitive.SmallArray as A
+import qualified Data.Foldable             as Foldable
+import qualified Data.Traversable          as Traversable
 import qualified Data.Primitive.SmallArray as A
 import qualified Std.Data.Vector.Base as V
 import qualified Std.Data.Vector.Sort as V
@@ -55,6 +61,28 @@ newtype FlatMap k v = FlatMap { sortedKeyValues :: V.Vector (k, v) }
 instance Functor (FlatMap k) where
     {-# INLINE fmap #-}
     fmap f (FlatMap vs) = FlatMap (V.map' (fmap f) vs)
+
+instance Foldable.Foldable (FlatMap k) where
+    {-# INLINE foldr' #-}
+    foldr' f = foldrWithKey' (const f)
+    {-# INLINE foldr #-}
+    foldr f = foldrWithKey (const f)
+    {-# INLINE foldl' #-}
+    foldl' f = foldlWithKey' (\ a k v -> f a v)
+    {-# INLINE foldl #-}
+    foldl f = foldlWithKey (\ a k v -> f a v)
+    {-# INLINE toList #-}
+    toList = fmap snd . unpack
+    {-# INLINE null #-}
+    null (FlatMap vs) = V.null vs
+    {-# INLINE length #-}
+    length (FlatMap vs) = V.length vs
+    {-# INLINE elem #-}
+    elem a (FlatMap vs) = elem a (map snd $ V.unpack vs)
+
+instance Traversable.Traversable (FlatMap k) where
+    {-# INLINE traverse #-}
+    traverse f = traverseWithKey (const f)
 
 map' :: (v -> v) -> FlatMap k v -> FlatMap k v
 {-# INLINE map' #-}
@@ -183,6 +211,51 @@ adjust' f k m@(FlatMap vec@(V.Vector arr s l)) =
             A.copySmallArray marr 0 arr s l
             let !v' = f (snd (A.indexSmallArray arr i))
             A.writeSmallArray marr i (k, v'))
+
+
+-- | /O(n)/ Reduce this map by applying a binary operator to all
+-- elements, using the given starting value (typically the
+-- right-identity of the operator).
+--
+-- During folding k is in descending order.
+foldrWithKey :: (k -> v -> a -> a) -> a -> FlatMap k v -> a
+{-# INLINE foldrWithKey #-}
+foldrWithKey f a (FlatMap vs) = foldr (uncurry f) a vs
+
+-- | /O(n)/ Reduce this map by applying a binary operator to all
+-- elements, using the given starting value (typically the
+-- right-identity of the operator).
+--
+-- During folding k is in ascending order.
+foldlWithKey :: (a -> k -> v -> a) -> a -> FlatMap k v -> a
+{-# INLINE foldlWithKey #-}
+foldlWithKey f a (FlatMap vs) = foldl (\ a' (k,v) -> f a' k v) a vs
+
+-- | /O(n)/ Reduce this map by applying a binary operator to all
+-- elements, using the given starting value (typically the
+-- right-identity of the operator).
+--
+-- During folding k is in descending order.
+foldrWithKey' :: (k -> v -> a -> a) -> a -> FlatMap k v -> a
+{-# INLINE foldrWithKey' #-}
+foldrWithKey' f a (FlatMap vs) = V.foldr' (uncurry f) a vs
+
+-- | /O(n)/ Reduce this map by applying a binary operator to all
+-- elements, using the given starting value (typically the
+-- right-identity of the operator).
+--
+-- During folding k is in ascending order.
+foldlWithKey' :: (a -> k -> v -> a) -> a -> FlatMap k v -> a
+{-# INLINE foldlWithKey' #-}
+foldlWithKey' f a (FlatMap vs) = V.foldl' (\ a' (k,v) -> f a' k v) a vs
+
+-- | /O(n)/.
+-- @'traverseWithKey' f s == 'pack' <$> 'traverse' (\(k, v) -> (,) k <$> f k v) ('unpack' m)@
+-- That is, behaves exactly like a regular 'traverse' except that the traversing
+-- function also has access to the key associated with a value.
+traverseWithKey :: Applicative t => (k -> a -> t b) -> FlatMap k a -> t (FlatMap k b)
+{-# INLINE traverseWithKey #-}
+traverseWithKey f (FlatMap vs) = FlatMap <$> traverse (\ (k,v) -> (k,) <$> f k v) vs
 
 --------------------------------------------------------------------------------
 
