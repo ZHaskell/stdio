@@ -1212,6 +1212,10 @@ instance Functor IPair where
     {-# INLINE fmap #-}
     fmap f (IPair i v) = IPair i (f v)
 
+instance NFData a => NFData (IPair a) where
+    {-# INLINE rnf #-}
+    rnf (IPair _ a) = rnf a
+
 -- | Unlike 'Functor' instance, this mapping evaluate value inside 'IPair' strictly.
 mapIPair' :: (a -> a) -> IPair a -> IPair a
 {-# INLINE mapIPair' #-}

@@ -54,12 +54,12 @@ module Std.Data.Vector.Extra (
   , tail
   , init
   , last
-  , index
+  , index, indexM
   , unsafeHead
   , unsafeTail
   , unsafeInit
   , unsafeLast
-  , unsafeIndex
+  , unsafeIndex, unsafeIndexM
   , unsafeTake
   , unsafeDrop
   ) where
@@ -788,6 +788,14 @@ index :: (Vec v a, HasCallStack) => v a -> Int -> a
 index (Vec arr s l) i | i < 0 || i >= l = errorOutRange i
                       | otherwise       = arr `indexArr` (s + i)
 
+-- | /O(1)/ Index array element.
+--
+-- Throw 'IndexOutOfVectorRange' if index outside of the vector.
+indexM :: (Vec v a, Monad m, HasCallStack) => v a -> Int -> m a
+{-# INLINE indexM #-}
+indexM (Vec arr s l) i | i < 0 || i >= l = errorOutRange i
+                       | otherwise       = arr `indexArrM` (s + i)
+
 -- | /O(1)/ Extract the first element of a vector.
 --
 -- Make sure vector is non-empty, otherwise segmentation fault await!
@@ -822,6 +830,13 @@ unsafeLast (Vec arr s l) = assert (l > 0) (indexArr arr (s+l-1))
 unsafeIndex :: Vec v a => v a -> Int -> a
 {-# INLINE unsafeIndex #-}
 unsafeIndex (Vec arr s l) i = indexArr arr (s + i)
+
+-- | /O(1)/ Index array element.
+--
+-- Make sure index is in bound, otherwise segmentation fault await!
+unsafeIndexM :: (Vec v a, Monad m) => v a -> Int -> m a
+{-# INLINE unsafeIndexM #-}
+unsafeIndexM (Vec arr s l) i = indexArrM arr (s + i)
 
 -- | /O(1)/ 'take' @n@, applied to a vector @xs@, returns the prefix
 -- of @xs@ of length @n@.

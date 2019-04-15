@@ -84,7 +84,7 @@ string (T.Text (V.PrimVector ba@(PrimArray ba#) s l)) = do
     let siz = escape_json_string_length ba# s l
     B.ensureN siz
     B.Builder (\ _  k (B.Buffer mba@(MutablePrimArray mba#) i) -> do
-        if siz == l+2
+        if siz == l+2   -- no need to escape
         then do
             writePrimArray mba i DOUBLE_QUOTE
             copyPrimArray mba (i+1) ba s l

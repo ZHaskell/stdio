@@ -38,6 +38,7 @@ module Std.Data.Vector.FlatMap
   , linearSearch, linearSearchR
   ) where
 
+import           Control.DeepSeq
 import           Control.Monad
 import           Control.Monad.ST
 import qualified Data.Primitive.SmallArray as A
@@ -57,6 +58,10 @@ import           Prelude hiding (lookup)
 
 newtype FlatMap k v = FlatMap { sortedKeyValues :: V.Vector (k, v) }
     deriving (Show, Eq, Ord, Typeable)
+
+instance (NFData k, NFData v) => NFData (FlatMap k v) where
+    {-# INLINE rnf #-}
+    rnf (FlatMap kvs) = rnf kvs
 
 instance Functor (FlatMap k) where
     {-# INLINE fmap #-}

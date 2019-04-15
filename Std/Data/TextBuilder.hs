@@ -70,6 +70,9 @@ instance (a ~ ()) => IsString (TextBuilder a) where
     {-# INLINE fromString #-}
     fromString = stringUTF8
 
+instance Show (TextBuilder a) where
+    show = show . buildText
+
 deriving instance Semigroup (TextBuilder ())
 deriving instance Monoid (TextBuilder ())
 

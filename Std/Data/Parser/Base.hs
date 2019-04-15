@@ -148,7 +148,7 @@ instance Monad Parser where
     {-# INLINE fail #-}
 
 instance Fail.MonadFail Parser where
-    fail str = Parser (\ kf _ inp -> kf [T.pack str] inp)
+    fail = fail' . T.pack
     {-# INLINE fail #-}
 
 instance MonadPlus Parser where
@@ -158,7 +158,7 @@ instance MonadPlus Parser where
     {-# INLINE mplus #-}
 
 instance Alternative Parser where
-    empty = Parser (\ kf _ inp -> kf ["Std.Data.Parser.Base(Alternative).empty"] inp)
+    empty = fail' "Std.Data.Parser.Base(Alternative).empty"
     {-# INLINE empty #-}
     f <|> g = do
         (r, bss) <- runAndKeepTrack f
@@ -168,6 +168,11 @@ instance Alternative Parser where
                                in Parser (\ kf k _ -> runParser g kf k bs)
             _               -> error "Std.Data.Parser.Base: impossible"
     {-# INLINE (<|>) #-}
+
+-- | 'T.Text' version of 'fail'.
+fail' :: T.Text -> Parser a
+{-# INLINE fail' #-}
+fail' msg = Parser (\ kf _ inp -> kf [msg] inp)
 
 -- | Parse the complete input, without resupplying
 parse_ :: Parser a -> V.Bytes -> Either ParseError a

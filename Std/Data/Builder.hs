@@ -41,7 +41,7 @@ module Std.Data.Builder
   , encodePrimLE
   , encodePrimBE
   -- * More builders
-  , stringUTF8, charUTF8, string7, char7, string8, char8, text
+  , stringModifiedUTF8, charModifiedUTF8, stringUTF8, charUTF8, string7, char7, string8, char8, text
   -- * Numeric builders
   -- ** Integral type formatting
   , IFormat(..)

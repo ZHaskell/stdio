@@ -28,6 +28,7 @@ Note that rfc8258 doesn't enforce unique key in objects, it's up to users to dec
 
 There's no lazy parsers here, every pieces of JSON document will be parsed into a normal form 'Value'. 'Object' and 'Array's payloads are packed into 'Vector's to avoid accumulating lists in memory. Read more about <http://winterland.me/2019/03/05/aeson's-mysterious-lazy-parsing why no lazy parsing is needed>.
 -}
+
 module Std.Data.JSON.Value
   ( -- * Value type
     Value(..)
@@ -44,6 +45,7 @@ module Std.Data.JSON.Value
   , skipSpaces
   ) where
 
+import           Control.DeepSeq
 import           Control.Monad
 import           Data.Bits                ((.&.))
 import           Data.Functor
@@ -100,6 +102,15 @@ data Value = Object {-# UNPACK #-} !(V.Vector (T.Text, Value))
            | Bool   !Bool
            | Null
          deriving (Eq, Show, Typeable, Generic)
+
+instance NFData Value where
+    {-# INLINE rnf #-}
+    rnf (Object o) = rnf o
+    rnf (Array  a) = rnf a
+    rnf (String s) = rnf s
+    rnf (Number n) = rnf n
+    rnf (Bool   b) = rnf b
+    rnf Null = ()
 
 instance Arbitrary Value where
     -- limit maximum depth of JSON document, otherwise it's too slow to run any tests

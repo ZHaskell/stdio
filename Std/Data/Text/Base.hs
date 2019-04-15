@@ -4,6 +4,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE CPP #-}
 
 {-|
@@ -125,7 +126,9 @@ import           Data.Char          hiding (toLower, toUpper, toTitle)
 import           Data.Foldable            (foldlM)
 import           Data.Hashable            (Hashable(..))
 import qualified Data.List                as List
+import           Data.Monoid                   (Monoid (..))
 import           Data.Primitive.PrimArray
+import           Data.Semigroup                (Semigroup ((<>)))
 import           Data.Typeable
 import           Data.String              (IsString(..))
 import           Data.Word
@@ -157,7 +160,7 @@ import           Test.QuickCheck.Arbitrary (Arbitrary(..), CoArbitrary(..))
 --
 newtype Text = Text
     { getUTF8Bytes :: Bytes -- ^ Extract UTF-8 encoded 'Bytes' from 'Text'
-    }
+    } deriving (Semigroup, Monoid)
 
 instance Eq Text where
     Text b1 == Text b2 = b1 == b2

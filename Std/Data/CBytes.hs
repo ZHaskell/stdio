@@ -49,6 +49,7 @@ module Std.Data.CBytes
   , withCBytes
   ) where
 
+import           Control.DeepSeq
 import           Control.Monad
 import           Control.Monad.Primitive
 import           Control.Monad.ST
@@ -117,7 +118,13 @@ instance Show CBytes where
 instance Read CBytes where
     readsPrec p s = [(pack x, r) | (x, r) <- readsPrec p s]
 
+instance NFData CBytes where
+    {-# INLINE rnf #-}
+    rnf (CBytesOnHeap _) = ()
+    rnf (CBytesLiteral _) = ()
+
 instance Eq CBytes where
+    {-# INLINE (==) #-}
     cbyteA == cbyteB = unsafeDupablePerformIO $
         withCBytes cbyteA $ \ pA ->
         withCBytes cbyteB $ \ pB ->
@@ -128,6 +135,7 @@ instance Eq CBytes where
                 return (r == 0)
 
 instance Ord CBytes where
+    {-# INLINE compare #-}
     cbyteA `compare` cbyteB = unsafeDupablePerformIO $
         withCBytes cbyteA $ \ pA ->
         withCBytes cbyteB $ \ pB ->

@@ -37,6 +37,7 @@ module Std.Data.Vector.FlatIntMap
   , linearSearch, linearSearchR
   ) where
 
+import           Control.DeepSeq
 import           Control.Monad
 import           Control.Monad.ST
 import qualified Data.Foldable             as Foldable
@@ -55,6 +56,10 @@ import           Prelude hiding (lookup)
 
 newtype FlatIntMap v = FlatIntMap { sortedIPairs :: V.Vector (V.IPair v) }
     deriving (Show, Eq, Ord, Typeable)
+
+instance NFData v => NFData (FlatIntMap v) where
+    {-# INLINE rnf #-}
+    rnf (FlatIntMap ivs) = rnf ivs
 
 instance Functor (FlatIntMap) where
     {-# INLINE fmap #-}
