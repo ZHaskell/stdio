@@ -76,12 +76,12 @@ import           GHC.Float                           (roundTo)
 -- | Integral formatting options.
 --
 data IFormat = IFormat
-    { width       :: Int              -- ^ total width, only effective with padding options
+    { width       :: Int            -- ^ total width, only effective with padding options
     , padding     :: Padding        -- ^ padding options
-    , postiveSign :: Bool       -- ^ show @+@ when the number is positive
+    , postiveSign :: Bool           -- ^ show @+@ when the number is positive
     } deriving (Show, Eq, Ord)
 
--- | @defaultIFormat = IFormat 0 NoPadding False Decimal@
+-- | @defaultIFormat = IFormat 0 NoPadding False@
 defaultIFormat :: IFormat
 defaultIFormat = IFormat 0 NoPadding False
 
@@ -361,7 +361,7 @@ integer n0
     jprinth [] = errorWithoutStackTrace "jprinth []"
 
     jprintb :: [Integer] -> Builder ()
-    jprintb []     = return ()
+    jprintb []     = pure ()
     jprintb (n:ns) = case n `quotRemInteger` BASE of
                         (# q', r' #) ->
                             let q = fromInteger q'
@@ -539,6 +539,7 @@ data FFormat = Exponent -- ^ Scientific notation (e.g. @2.3e123@).
                         -- @9,999,999@, and scientific notation otherwise.
            deriving (Enum, Read, Show)
 
+
 -- | Decimal encoding of an IEEE 'Float'.
 --
 -- Using standard decimal notation for arguments whose absolute value lies
@@ -564,13 +565,10 @@ floatWith :: FFormat
 floatWith fmt decs x
     | isNaN x                   = "NaN"
     | isInfinite x              = if x < 0 then "-Infinity" else "Infinity"
-    | x < 0                     = char8 '-' >> doFmt fmt decs (digits (-x))
+    | x < 0                     = char8 '-' >> doFmt fmt decs (grisu3_sp (-x))
     | isNegativeZero x          = char8 '-' >> doFmt fmt decs ([0], 0)
     | x == 0                    = doFmt fmt decs ([0], 0)
-    | otherwise                 = doFmt fmt decs (digits x) -- Grisu only handles strictly positive finite numbers.
-  where
-    digits y = case grisu3_sp y of Just r  -> r
-                                   Nothing -> floatToDigits 10 y
+    | otherwise                 = doFmt fmt decs (grisu3_sp x) -- Grisu only handles strictly positive finite numbers.
 
 -- | Format double-precision float using drisu3 with dragon4 fallback.
 doubleWith :: FFormat
@@ -581,13 +579,10 @@ doubleWith :: FFormat
 doubleWith fmt decs x
     | isNaN x                   = "NaN"
     | isInfinite x              = if x < 0 then "-Infinity" else "Infinity"
-    | x < 0                     = char8 '-' >> doFmt fmt decs (digits (-x))
+    | x < 0                     = char8 '-' >> doFmt fmt decs (grisu3 (-x))
     | isNegativeZero x          = char8 '-' >> doFmt fmt decs ([0], 0)
     | x == 0                    = doFmt fmt decs ([0], 0)
-    | otherwise                 = doFmt fmt decs (digits x) -- Grisu only handles strictly positive finite numbers.
-  where
-    digits y = case grisu3 y of Just r  -> r
-                                Nothing -> floatToDigits 10 y
+    | otherwise                 = doFmt fmt decs (grisu3 x) -- Grisu only handles strictly positive finite numbers.
 
 -- | Worker function to do formatting.
 doFmt :: FFormat
@@ -682,8 +677,8 @@ foreign import ccall unsafe "static grisu3" c_grisu3
     -> MBA# Int     -- ^ Int
     -> IO Int
 
--- | Decimal encoding of a 'Double'.
-grisu3 :: Double -> Maybe ([Int], Int)
+-- | Decimal encoding of a 'Double', note grisu only handles strictly positive finite numbers.
+grisu3 :: Double -> ([Int], Int)
 {-# INLINE grisu3 #-}
 grisu3 d = unsafePerformIO $
     withMutableByteArrayUnsafe GRISU3_DOUBLE_BUF_LEN $ \ pBuf -> do
@@ -691,13 +686,13 @@ grisu3 d = unsafePerformIO $
             withPrimUnsafe' $ \ pE ->
                 c_grisu3 (realToFrac d) pBuf pLen pE
         if success == 0 -- grisu3 fail
-        then return Nothing
+        then pure (floatToDigits 10 d)
         else do
             buf <- forM [0..len-1] $ \ i -> do
                 w8 <- readByteArray (MutableByteArray pBuf) i :: IO Word8
-                return (fromIntegral w8)
+                pure (fromIntegral w8)
             let !e' = e + len
-            return $ Just (buf, e')
+            pure (buf, e')
 
 foreign import ccall unsafe "static grisu3_sp" c_grisu3_sp
     :: Float
@@ -706,8 +701,8 @@ foreign import ccall unsafe "static grisu3_sp" c_grisu3_sp
     -> MBA# Int     -- ^ Int
     -> IO Int
 
--- | Decimal encoding of a 'Float'.
-grisu3_sp :: Float -> Maybe ([Int], Int)
+-- | Decimal encoding of a 'Float', note grisu3_sp only handles strictly positive finite numbers.
+grisu3_sp :: Float -> ([Int], Int)
 {-# INLINE grisu3_sp #-}
 grisu3_sp d = unsafePerformIO $
     withMutableByteArrayUnsafe GRISU3_SINGLE_BUF_LEN $ \ pBuf -> do
@@ -715,13 +710,13 @@ grisu3_sp d = unsafePerformIO $
             withPrimUnsafe' $ \ pE ->
                 c_grisu3_sp (realToFrac d) pBuf pLen pE
         if success == 0 -- grisu3 fail
-        then return Nothing
+        then pure (floatToDigits 10 d)
         else do
             buf <- forM [0..len-1] $ \ i -> do
                 w8 <- readByteArray (MutableByteArray pBuf) i :: IO Word8
-                return (fromIntegral w8)
+                pure (fromIntegral w8)
             let !e' = e + len
-            return $ Just (buf, e')
+            pure (buf, e')
 
 --------------------------------------------------------------------------------
 

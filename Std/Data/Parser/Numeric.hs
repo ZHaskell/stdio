@@ -37,6 +37,8 @@ module Std.Data.Parser.Numeric
   , decLoopIntegerFast
   , isHexDigit
   , isDigit
+  , floatToScientific
+  , doubleToScientific
   ) where
 
 import           Control.Applicative
@@ -47,6 +49,7 @@ import qualified Data.Primitive.PrimArray  as A
 import qualified Data.Scientific          as Sci
 import           Data.Word
 import           Foreign.Ptr              (IntPtr)
+import qualified Std.Data.Builder.Numeric as B
 import           Std.Data.Parser.Base     (Parser, (<?>))
 import qualified Std.Data.Parser.Base     as P
 import qualified Std.Data.Vector.Base     as V
@@ -259,12 +262,12 @@ scientificallyInternal h = do
                     in int * 10 ^ flen + frac
         parseE base flen) <|> (parseE (decLoopIntegerFast intPart) 0)
 
-    return $! if sign /= MINUS then h sci else h (negate sci)
+    pure $! if sign /= MINUS then h sci else h (negate sci)
   where
     {-# INLINE parseE #-}
     parseE c e =
         (do _ <- P.satisfy (\w -> w ==  LITTLE_E || w == BIG_E)
-            Sci.scientific c . subtract e <$> int) <|> return (Sci.scientific c (negate e))
+            Sci.scientific c . subtract e <$> int) <|> pure (Sci.scientific c (negate e))
 
 --------------------------------------------------------------------------------
 
@@ -363,12 +366,35 @@ scientificallyInternal' h = do
                         in int * 10 ^ flen + frac
             parseE base flen
         _ -> parseE (decLoopIntegerFast intPart) 0
-    return $! if sign /= MINUS then h sci else h (negate sci)
+    pure $! if sign /= MINUS then h sci else h (negate sci)
   where
     {-# INLINE parseE #-}
     parseE !c !exp = do
         me <- P.peekMaybe
         exp' <- case me of
             Just e | e == LITTLE_E || e == BIG_E -> P.skipWord8 *> int
-            _ -> return 0
-        return $! Sci.scientific c (exp' - exp)
+            _ -> pure 0
+        pure $! Sci.scientific c (exp' - exp)
+
+--------------------------------------------------------------------------------
+
+floatToScientific :: Float -> Sci.Scientific
+{-# INLINE floatToScientific #-}
+floatToScientific rf | rf < 0    = -(fromFloatingDigits (B.grisu3_sp (-rf)))
+                     | rf == 0   = 0
+                     | otherwise = fromFloatingDigits (B.grisu3_sp rf)
+
+doubleToScientific :: Double -> Sci.Scientific
+{-# INLINE doubleToScientific #-}
+doubleToScientific rf | rf < 0    = -(fromFloatingDigits (B.grisu3 (-rf)))
+                      | rf == 0   = 0
+                      | otherwise = fromFloatingDigits (B.grisu3 rf)
+
+fromFloatingDigits :: ([Int], Int) -> Sci.Scientific
+{-# INLINE fromFloatingDigits #-}
+fromFloatingDigits (digits, e) = go digits 0 0
+  where
+    -- There's no way a float or double has more digits a 'Int64' can't handle
+    go :: [Int] -> Int64 -> Int -> Sci.Scientific
+    go []     !c !n = Sci.scientific (fromIntegral c) (e - n)
+    go (d:ds) !c !n = go ds (c * 10 + fromIntegral d) (n + 1)

@@ -24,7 +24,9 @@ module Std.Data.JSON.Value.Builder
     -- * Value Builders
   , value
   , object
+  , object'
   , array
+  , array'
   , string
   ) where
 
@@ -46,7 +48,14 @@ import           Std.Data.Vector.Extra    as V
 import           Std.Foreign.PrimArray
 import           Std.Data.JSON.Value      (Value(..))
 
+#define BACKSLASH 92
+#define CLOSE_CURLY 125
+#define CLOSE_SQUARE 93
+#define COMMA 44
+#define COLON 58
 #define DOUBLE_QUOTE 34
+#define OPEN_CURLY 123
+#define OPEN_SQUARE 91
 
 value :: Value -> B.Builder ()
 {-# INLINABLE value #-}
@@ -59,13 +68,23 @@ value (Bool False) = "false"
 value Null = "null"
 
 array :: V.Vector Value -> B.Builder ()
+{-# INLINE array #-}
 array vs = do
     B.char8 '['
     forM_ (V.initMayEmpty vs) $ \ v-> value v >> B.char8 ','
     forM_ (V.lastMaybe vs) $ \ v-> value v
     B.char8 ']'
 
+array' :: (a -> B.Builder ()) -> V.Vector a -> B.Builder ()
+{-# INLINE array' #-}
+array' b vs = do
+    B.char8 '['
+    forM_ (V.initMayEmpty vs) $ \ v-> b v >> B.char8 ','
+    forM_ (V.lastMaybe vs) $ \ v-> b v
+    B.char8 ']'
+
 object :: V.Vector (T.Text, Value) -> B.Builder ()
+{-# INLINE object #-}
 object kvs = do
     B.char8 '{'
     forM_ (V.initMayEmpty kvs) $ \ (k, v) -> do
@@ -79,7 +98,23 @@ object kvs = do
         value v
     B.char8 '}'
 
+object' :: (a -> B.Builder ()) -> V.Vector (T.Text, a) -> B.Builder ()
+{-# INLINE object' #-}
+object' b kvs = do
+    B.char8 '{'
+    forM_ (V.initMayEmpty kvs) $ \ (k, v) -> do
+        string k
+        B.char8 ':'
+        b v
+        B.char8 ','
+    forM_ (V.lastMaybe kvs) $ \ (k, v) -> do
+        string k
+        B.char8 ':'
+        b v
+    B.char8 '}'
+
 string :: T.Text -> B.Builder ()
+{-# INLINE string #-}
 string (T.Text (V.PrimVector ba@(PrimArray ba#) s l)) = do
     let siz = escape_json_string_length ba# s l
     B.ensureN siz

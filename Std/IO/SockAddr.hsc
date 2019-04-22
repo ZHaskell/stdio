@@ -20,6 +20,7 @@ module Std.IO.SockAddr
   , sockAddrFamily
   , peekSockAddr
   , withSockAddr
+  , withSockAddrStorage
    -- ** IPv4 address
   , InetAddr
   , inetAny
@@ -72,7 +73,6 @@ import           Data.Typeable
 import           Foreign
 import           Foreign.C
 import           GHC.ForeignPtr        (mallocPlainForeignPtrAlignedBytes)
-import           GHC.Stack
 import           Numeric               (showHex)
 import           Std.Data.CBytes
 import qualified Std.Data.Vector       as V
@@ -305,6 +305,16 @@ withSockAddr sa@(SockAddrInet6 _ _ _ _) f = do
     allocaBytesAligned 
         (#size struct sockaddr_in6) 
         (#alignment struct sockaddr_in6) $ \ p -> pokeSockAddr p sa >> f p
+
+withSockAddrStorage :: (Ptr SockAddr -> Ptr CInt -> IO ()) -> IO SockAddr
+withSockAddrStorage f = do
+    allocaBytesAligned
+        (#size struct sockaddr_storage)
+        (#alignment struct sockaddr_storage) $ \ p -> 
+        alloca $ \ p' -> do
+            poke p' (#size struct sockaddr_storage)
+            f p p'
+            peekSockAddr p
 
 -- The peek32 and poke32 functions work around the fact that the RFCs
 -- don't require 32-bit-wide address fields to be present.  We can

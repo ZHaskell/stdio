@@ -56,7 +56,7 @@ module Std.Data.Vector.Base (
   , null
   , length
   , append
-  , map, map', imap'
+  , map, map', imap', traverseVector, traverseWithIndex
   , foldl', ifoldl', foldl1', foldl1Maybe'
   , foldr', ifoldr', foldr1', foldr1Maybe'
     -- ** Special folds
@@ -279,6 +279,7 @@ instance F.Foldable Vector where
     sum = sum
 
 instance T.Traversable Vector where
+    {-# INLINE traverse #-}
     traverse = traverseVector
 
 instance Arbitrary a => Arbitrary (Vector a) where
@@ -303,13 +304,19 @@ instance Hashable1 Vector where
 
 traverseVector :: (Vec v a, Vec u b, Applicative f) => (a -> f b) -> v a -> f (u b)
 {-# INLINE [1] traverseVector #-}
-{-# RULES "traverseVector/ST" traverseVector = traverseST #-}
-{-# RULES "traverseVector/IO" traverseVector = traverseIO #-}
+{-# RULES "traverseVector/ST" forall f. traverseVector f = traverseWithIndexST (const f) #-}
+{-# RULES "traverseVector/IO" forall f. traverseVector f = traverseWithIndexIO (const f) #-}
 traverseVector f v = packN (length v) <$> T.traverse f (unpack v)
 
-traverseST :: forall v u a b s. (Vec v a, Vec u b) => (a -> ST s b) -> v a -> ST s (u b)
-{-# INLINE traverseST #-}
-traverseST f (Vec arr s l)
+traverseWithIndex :: (Vec v a, Vec u b, Applicative f) => (Int -> a -> f b) -> v a -> f (u b)
+{-# INLINE [1] traverseWithIndex #-}
+{-# RULES "traverseWithIndex/ST" traverseWithIndex = traverseWithIndexST #-}
+{-# RULES "traverseWithIndex/IO" traverseWithIndex = traverseWithIndexIO #-}
+traverseWithIndex f v = packN (length v) <$> zipWithM f [0..] (unpack v)
+
+traverseWithIndexST :: forall v u a b s. (Vec v a, Vec u b) => (Int -> a -> ST s b) -> v a -> ST s (u b)
+{-# INLINE traverseWithIndexST #-}
+traverseWithIndexST f (Vec arr s l)
     | l == 0    = return empty
     | otherwise = do
         marr <- newArr l
@@ -321,13 +328,13 @@ traverseST f (Vec arr s l)
     go !marr !i
         | i >= l = return ()
         | otherwise = do
-            x <- indexArrM arr i
-            writeArr marr i =<< f x
+            x <- indexArrM arr (i+s)
+            writeArr marr i =<< f i x
             go marr (i+1)
 
-traverseIO :: forall v u a b. (Vec v a, Vec u b) => (a -> IO b) -> v a -> IO (u b)
-{-# INLINE traverseIO #-}
-traverseIO f (Vec arr s l)
+traverseWithIndexIO :: forall v u a b. (Vec v a, Vec u b) => (Int -> a -> IO b) -> v a -> IO (u b)
+{-# INLINE traverseWithIndexIO #-}
+traverseWithIndexIO f (Vec arr s l)
     | l == 0    = return empty
     | otherwise = do
         marr <- newArr l
@@ -339,8 +346,8 @@ traverseIO f (Vec arr s l)
     go !marr !i
         | i >= l = return ()
         | otherwise = do
-            x <- indexArrM arr i
-            writeArr marr i =<< f x
+            x <- indexArrM arr (i+s)
+            writeArr marr i =<< f i x
             go marr (i+1)
 
 --------------------------------------------------------------------------------
@@ -1208,6 +1215,13 @@ elemIndexBytes w (PrimVector (PrimArray ba#) s l) =
 -- | Index pair type to help GHC unpack in some loops, useful when write fast folds.
 data IPair a = IPair { ifst :: {-# UNPACK #-}!Int, isnd :: a } deriving (Show, Eq, Ord)
 
+instance (Arbitrary v) => Arbitrary (IPair v) where
+    arbitrary = iPairFromTuple <$> arbitrary
+    shrink v = iPairFromTuple <$> shrink (iPairToTuple v)
+
+instance (CoArbitrary v) => CoArbitrary (IPair v) where
+    coarbitrary = coarbitrary . iPairToTuple
+
 instance Functor IPair where
     {-# INLINE fmap #-}
     fmap f (IPair i v) = IPair i (f v)
@@ -1217,9 +1231,17 @@ instance NFData a => NFData (IPair a) where
     rnf (IPair _ a) = rnf a
 
 -- | Unlike 'Functor' instance, this mapping evaluate value inside 'IPair' strictly.
-mapIPair' :: (a -> a) -> IPair a -> IPair a
+mapIPair' :: (a -> b) -> IPair a -> IPair b
 {-# INLINE mapIPair' #-}
 mapIPair' f (IPair i v) = let !v' = f v in IPair i (f v)
+
+iPairToTuple :: IPair a -> (Int, a)
+{-# INLINE iPairToTuple #-}
+iPairToTuple (IPair i v) = (i, v)
+
+iPairFromTuple :: (Int, a) -> IPair a
+{-# INLINE iPairFromTuple #-}
+iPairFromTuple (i, v) = IPair i v
 
 -- | The chunk size used for I\/O. Currently set to @32k-chunkOverhead@
 defaultChunkSize :: Int

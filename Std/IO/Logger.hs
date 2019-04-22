@@ -61,7 +61,7 @@ import Std.IO.LowResTimer
 import Std.IO.StdStream
 import Std.IO.Buffered
 import System.IO.Unsafe (unsafePerformIO)
-import GHC.Stack
+import Std.IO.Exception
 import Data.IORef
 import Control.Concurrent.MVar
 import qualified Std.Data.Builder.Base as B
@@ -106,7 +106,7 @@ defaultTSCache = unsafePerformIO $ do
         return . B.string8 $
             Time.formatTime Time.defaultTimeLocale "%Y-%m-%dT%H:%M:%S%Z" t
 
-flushLog :: Output o => MVar (BufferedOutput o) -> IORef [V.Bytes] -> IO ()
+flushLog :: (HasCallStack, Output o) => MVar (BufferedOutput o) -> IORef [V.Bytes] -> IO ()
 flushLog oLock bList =
     withMVar oLock $ \ o -> do
         bss <- atomicModifyIORef' bList (\ bss -> ([], bss))

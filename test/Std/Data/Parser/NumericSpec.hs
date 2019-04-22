@@ -15,6 +15,7 @@ import qualified Std.Data.Builder.Numeric    as B
 import qualified Std.Data.Builder.Base    as B
 import qualified Std.Data.Text as T
 import qualified Std.Data.Vector.Base as V
+import qualified Data.Scientific as Sci
 import           Test.QuickCheck
 import           Test.QuickCheck.Function
 import           Test.QuickCheck.Property
@@ -22,7 +23,8 @@ import           Test.Hspec
 import           Test.Hspec.QuickCheck
 
 spec :: Spec
-spec = describe "numeric parsers roundtrip" . modifyMaxSuccess (*10) . modifyMaxSize (*10) $ do
+spec = do
+    describe "numeric parsers roundtrip" . modifyMaxSuccess (*10) . modifyMaxSize (*10) $ do
         prop "positive hex roundtrip" $ \ i ->
             P.parse_ P.hex (B.buildBytes (B.hex i)) === Right (i :: Int)
         prop "positive hex roundtrip" $ \ i ->
@@ -88,8 +90,13 @@ spec = describe "numeric parsers roundtrip" . modifyMaxSuccess (*10) . modifyMax
         prop "positive int roundtrip" $ \ i ->
             P.parse_ P.int (B.buildBytes (B.int i)) === Right (i :: Word8)
 
-
         prop "float roundtrip" $ \ i ->
             P.parse_ P.float (B.buildBytes (B.float i)) === Right (i :: Float)
         prop "double roundtrip" $ \ i ->
             P.parse_ P.double (B.buildBytes (B.double i)) === Right (i :: Double)
+
+    describe "floatToScientific, doubleToScientific === fromFloatDigits"  $ do
+        prop "floatToScientific == fromFloatDigits" $ \ i ->
+            P.floatToScientific i === Sci.fromFloatDigits i
+        prop "floatToScientific === fromFloatDigits" $ \ i ->
+            P.doubleToScientific i === Sci.fromFloatDigits i

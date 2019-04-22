@@ -210,10 +210,10 @@ parseChunks (Parser p) m inp = go m (p Failure Success inp)
         Partial f -> do
             inp <- m
             if V.null inp
-            then go (return V.empty) (f V.empty)
+            then go (pure V.empty) (f V.empty)
             else go m (f inp)
-        Success a rest    -> return (rest, Right a)
-        Failure errs rest -> return (rest, Left errs)
+        Success a rest    -> pure (rest, Right a)
+        Failure errs rest -> pure (rest, Left errs)
 
 (<?>) :: T.Text -> Parser a -> Parser a
 {-# INLINE (<?>) #-}

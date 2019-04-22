@@ -5,6 +5,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {-|
 Module      : Std.Data.Vector.FlatMap
@@ -24,13 +25,14 @@ But can also used in various place where insertion and deletion is rare but requ
 
 module Std.Data.Vector.FlatMap
   ( -- * FlatMap backed by sorted vector
-    FlatMap, sortedKeyValues, map', kmap'
+    FlatMap, sortedKeyValues, size, null, empty, map', kmap'
   , pack, packN, packR, packRN
   , unpack, unpackR, packVector, packVectorR
   , lookup
   , delete
   , insert
   , adjust'
+  , merge, mergeWithKey'
     -- * fold and traverse
   , foldrWithKey, foldrWithKey', foldlWithKey, foldlWithKey', traverseWithKey
     -- * binary & linear search on vectors
@@ -44,7 +46,8 @@ import           Control.Monad.ST
 import qualified Data.Primitive.SmallArray as A
 import qualified Data.Foldable             as Foldable
 import qualified Data.Traversable          as Traversable
-import qualified Data.Primitive.SmallArray as A
+import qualified Data.Semigroup            as Semigroup
+import qualified Data.Monoid               as Monoid
 import qualified Std.Data.Vector.Base as V
 import qualified Std.Data.Vector.Sort as V
 import qualified Std.Data.Text as T
@@ -52,12 +55,30 @@ import           Data.Function              (on)
 import           Data.Bits                   (shiftR)
 import           Data.Data
 import           Data.Typeable
-import           Prelude hiding (lookup)
+import           Prelude hiding (lookup, null)
+import           Test.QuickCheck.Arbitrary (Arbitrary(..), CoArbitrary(..))
 
 --------------------------------------------------------------------------------
 
 newtype FlatMap k v = FlatMap { sortedKeyValues :: V.Vector (k, v) }
     deriving (Show, Eq, Ord, Typeable)
+
+instance (Ord k, Arbitrary k, Arbitrary v) => Arbitrary (FlatMap k v) where
+    arbitrary = pack <$> arbitrary
+    shrink v = pack <$> shrink (unpack v)
+
+instance (CoArbitrary k, CoArbitrary v) => CoArbitrary (FlatMap k v) where
+    coarbitrary = coarbitrary . unpack
+
+instance Ord k => Semigroup.Semigroup (FlatMap k v) where
+    {-# INLINE (<>) #-}
+    (<>) = merge
+
+instance Ord k => Monoid.Monoid (FlatMap k v) where
+    {-# INLINE mappend #-}
+    mappend = merge
+    {-# INLINE mempty #-}
+    mempty = empty
 
 instance (NFData k, NFData v) => NFData (FlatMap k v) where
     {-# INLINE rnf #-}
@@ -89,11 +110,19 @@ instance Traversable.Traversable (FlatMap k) where
     {-# INLINE traverse #-}
     traverse f = traverseWithKey (const f)
 
-map' :: (v -> v) -> FlatMap k v -> FlatMap k v
+size :: FlatMap k v -> Int
+{-# INLINE size #-}
+size = V.length . sortedKeyValues
+
+null :: FlatMap k v -> Bool
+{-# INLINE null #-}
+null = V.null . sortedKeyValues
+
+map' :: (v -> v') -> FlatMap k v -> FlatMap k v'
 {-# INLINE map' #-}
 map' f (FlatMap vs) = FlatMap (V.map' (fmap f) vs)
 
-kmap' :: (k -> v -> v) -> FlatMap k v -> FlatMap k v
+kmap' :: (k -> v -> v') -> FlatMap k v -> FlatMap k v'
 {-# INLINE kmap' #-}
 kmap' f (FlatMap vs) = FlatMap (V.map' (\ (k, v) -> (k, f k v)) vs)
 
@@ -193,19 +222,6 @@ delete k m@(FlatMap vec@(V.Vector arr s l)) =
 
 -- | /O(N)/ Modify a value by key.
 --
--- The value is evaluated lazily before writing into map.
-adjust :: Ord k => (v -> v) -> k -> FlatMap k v -> FlatMap k v
-{-# INLINE adjust #-}
-adjust f k m@(FlatMap vec@(V.Vector arr s l)) =
-    case binarySearch vec k of
-        Left i -> m
-        Right i -> FlatMap $ V.create l (\ marr -> do
-            A.copySmallArray marr 0 arr s l
-            let v' = f (snd (A.indexSmallArray arr i))
-            A.writeSmallArray marr i (k, v'))
-
--- | /O(N)/ Modify a value by key.
---
 -- The value is evaluated to WHNF before writing into map.
 adjust' :: Ord k => (v -> v) -> k -> FlatMap k v -> FlatMap k v
 {-# INLINE adjust' #-}
@@ -216,6 +232,63 @@ adjust' f k m@(FlatMap vec@(V.Vector arr s l)) =
             A.copySmallArray marr 0 arr s l
             let !v' = f (snd (A.indexSmallArray arr i))
             A.writeSmallArray marr i (k, v'))
+
+-- | /O(n+m)/ Merge two 'FlatMap', prefer right value on key duplication.
+merge :: forall k v. Ord k => FlatMap k v -> FlatMap k v -> FlatMap k v
+{-# INLINE merge #-}
+merge fmL@(FlatMap (V.Vector arrL sL lL)) fmR@(FlatMap (V.Vector arrR sR lR))
+    | null fmL = fmR
+    | null fmR = fmL
+    | otherwise = FlatMap (V.createN (lL+lR) (go sL sR 0))
+  where
+    endL = sL + lL
+    endR = sR + lR
+    go :: Int -> Int -> Int -> A.SmallMutableArray s (k, v) -> ST s Int
+    go !i !j !k marr
+        | i >= endL = do
+            A.copySmallArray marr k arrR j (lR-j)
+            return $! k+lR-j
+        | j >= endR = do
+            A.copySmallArray marr k arrL i (lL-i)
+            return $! k+lL-i
+        | otherwise = do
+            kvL@(kL, vL) <- arrL `A.indexSmallArrayM` i
+            kvR@(kR, vR) <- arrR `A.indexSmallArrayM` j
+            case kL `compare` kR of LT -> do A.writeSmallArray marr k kvL
+                                             go (i+1) j (k+1) marr
+                                    EQ -> do A.writeSmallArray marr k kvR
+                                             go (i+1) (j+1) (k+1) marr
+                                    _  -> do A.writeSmallArray marr k kvR
+                                             go i (j+1) (k+1) marr
+
+-- | /O(n+m)/ Merge two 'FlatMap' with a merge function.
+mergeWithKey' :: forall k v. Ord k => (k -> v -> v -> v) -> FlatMap k v -> FlatMap k v -> FlatMap k v
+{-# INLINABLE mergeWithKey' #-}
+mergeWithKey' f fmL@(FlatMap (V.Vector arrL sL lL)) fmR@(FlatMap (V.Vector arrR sR lR))
+    | null fmL = fmR
+    | null fmR = fmL
+    | otherwise = FlatMap (V.createN (lL+lR) (go sL sR 0))
+  where
+    endL = sL + lL
+    endR = sR + lR
+    go :: Int -> Int -> Int -> A.SmallMutableArray s (k, v) -> ST s Int
+    go !i !j !k marr
+        | i >= endL = do
+            A.copySmallArray marr k arrR j (lR-j)
+            return $! k+lR-j
+        | j >= endR = do
+            A.copySmallArray marr k arrL i (lL-i)
+            return $! k+lL-i
+        | otherwise = do
+            kvL@(kL, vL) <- arrL `A.indexSmallArrayM` i
+            kvR@(kR, vR) <- arrR `A.indexSmallArrayM` j
+            case kL `compare` kR of LT -> do A.writeSmallArray marr k kvL
+                                             go (i+1) j (k+1) marr
+                                    EQ -> do let !v' = f kL vL vR
+                                             A.writeSmallArray marr k (kL, v')
+                                             go (i+1) (j+1) (k+1) marr
+                                    _  -> do A.writeSmallArray marr k kvR
+                                             go i (j+1) (k+1) marr
 
 
 -- | /O(n)/ Reduce this map by applying a binary operator to all

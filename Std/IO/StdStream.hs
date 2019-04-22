@@ -1,4 +1,5 @@
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE BangPatterns #-}
 
 
@@ -33,6 +34,8 @@ module Std.IO.StdStream
   ( -- * Standard input & output streams
     StdStream
   , isStdStreamTTY
+  , UVTTYMode(UV_TTY_MODE_NORMAL, UV_TTY_MODE_RAW)
+  , setStdinTTYMode
   , stdin, stdout, stderr
   , stdinBuf, stdoutBuf, stderrBuf
     -- * utils
@@ -63,8 +66,8 @@ import Foreign.Ptr
 -- 'uv_guess_handle' is called to decide which type of devices are connected
 -- to standard streams.
 --
--- 'StdStream' is different from other 'UVStream' in that exception during reading & writing
--- won't close 'StdStream'.
+-- Note 'StdStream' is not thread safe, you shouldn't use them without lock.
+-- For the same reason you shouldn't use stderr directly, use `Std.IO.Logger` module instead.
 
 data StdStream
     = StdTTY {-# UNPACK #-}!(Ptr UVHandle) {-# UNPACK #-}!UVSlot UVManager -- similar to UVStream
@@ -82,7 +85,15 @@ instance Input StdStream where
             throwUVIfMinus_ (hs_uv_read_start handle)
             pokeBufferTable uvm slot buf len
             tryTakeMVar m
-        r <- takeMVar m
+        -- since we are inside mask, this is the only place
+        -- async exceptions could possibly kick in, and we should stop reading
+        r <- catch (takeMVar m) (\ (e :: SomeException) -> do
+                withUVManager_ uvm (uv_read_stop handle)
+                -- after we locked uvm and stop reading, the reading probably finished
+                -- so try again
+                r <- tryTakeMVar m
+                case r of Just r -> return r
+                          _      -> throwIO e)
         if  | r > 0  -> return r
             -- r == 0 should be impossible, since we guard this situation in c side
             | r == fromIntegral UV_EOF -> return 0
@@ -98,7 +109,7 @@ instance Output StdStream where
             m <- getBlockMVar uvm slot
             tryTakeMVar m
             return (slot, m)
-        throwUVIfMinus_  (takeMVar m)
+        throwUVIfMinus_  (uninterruptibleMask_ $ takeMVar m)
     writeOutput (StdFile fd) buf len = go buf len
       where
         go !buf !bufSiz = do
@@ -115,6 +126,7 @@ stdout :: StdStream
 {-# NOINLINE stdout #-}
 stdout = unsafePerformIO (makeStdStream 1)
 
+-- | Don't use 'stderr' directly, use 'Std.IO.Logger' instead.
 stderr :: StdStream
 {-# NOINLINE stderr #-}
 stderr = unsafePerformIO (makeStdStream 2)
@@ -145,6 +157,13 @@ makeStdStream fd = do
                 `onException` hs_uv_handle_free handle
             return (StdTTY handle slot uvm)
     else return (StdFile fd)
+
+-- | Change terminal's mode if stdin is connected to a terminal.
+setStdinTTYMode :: UVTTYMode -> IO ()
+setStdinTTYMode mode = case stdin of
+    StdTTY handle _ uvm ->
+        withUVManager_ uvm . throwUVIfMinus_ $ uv_tty_set_mode handle mode
+    _ -> return ()
 
 --------------------------------------------------------------------------------
 

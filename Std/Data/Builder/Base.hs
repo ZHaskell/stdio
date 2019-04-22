@@ -90,6 +90,7 @@ import qualified Std.Data.Text.Base                 as T
 import qualified Std.Data.Text.UTF8Codec            as T
 import qualified Std.Data.Vector.Base               as V
 import           System.IO.Unsafe
+import           Test.QuickCheck.Arbitrary (Arbitrary(..), CoArbitrary(..))
 
 -- | 'AllocateStrategy' will decide how each 'BuildStep' proceed when previous buffer is not enough.
 --
@@ -159,6 +160,13 @@ instance Monoid (Builder ()) where
 instance (a ~ ()) => IsString (Builder a) where
     {-# INLINE fromString #-}
     fromString = stringModifiedUTF8
+
+instance Arbitrary (Builder ()) where
+    arbitrary = bytes <$> arbitrary
+    shrink b = (bytes . V.pack) <$> shrink (V.unpack (buildBytes b))
+
+instance CoArbitrary (Builder ()) where
+    coarbitrary = coarbitrary . buildBytes
 
 -- | Encode string with modified UTF-8 encoding, will be rewritten to a memcpy if possible.
 stringModifiedUTF8 :: String -> Builder ()
@@ -268,7 +276,7 @@ insertChunk !chunkSiz !wantSiz k buffer@(Buffer buf offset) = do
                 buf' <- A.newArr (max wantSiz chunkSiz)        -- make a new buffer
                 xs <- unsafeInterleaveST (k (Buffer buf' 0))  -- delay the rest building process
                 let v = V.fromArr arr 0 offset
-                v `seq` return (v : xs)
+                v `seq` pure (v : xs)
             | wantSiz <= siz -> k (Buffer buf 0)
             | otherwise -> do
                 buf' <- A.newArr wantSiz        -- make a new buffer
@@ -307,13 +315,13 @@ buildBytesWith :: Int -> Builder a -> V.Bytes
 buildBytesWith initSiz (Builder b) = runST $ do
     buf <- A.newArr initSiz
     [bs] <- b DoubleBuffer lastStep (Buffer buf 0 )
-    return bs
+    pure bs
   where
     lastStep _ (Buffer buf offset) = do
         siz <- A.sizeofMutableArr buf
         when (offset < siz) (A.shrinkMutableArr buf offset)
         arr <- A.unsafeFreezeArr buf
-        return [V.PrimVector arr 0 offset]
+        pure [V.PrimVector arr 0 offset]
 
 -- | shortcut to 'buildBytesListWith' 'V.defaultChunkSize'.
 buildBytesList :: Builder a -> [V.Bytes]
@@ -330,7 +338,7 @@ buildBytesListWith initSiz chunkSiz (Builder b) = runST $ do
   where
     lastStep _ (Buffer buf offset) = do
         arr <- A.unsafeFreezeArr buf
-        return [V.PrimVector arr 0 offset]
+        pure [V.PrimVector arr 0 offset]
 
 -- | shortcut to 'buildAndRunWith' 'V.defaultChunkSize'.
 buildAndRun :: (V.Bytes -> IO ()) -> Builder a -> IO ()
@@ -342,19 +350,19 @@ buildAndRunWith :: Int -> (V.Bytes -> IO ()) -> Builder a -> IO ()
 buildAndRunWith chunkSiz action (Builder b) = do
     buf <- A.newArr chunkSiz
     _ <- stToIO (b (OneShotAction (\ bs -> ioToPrim (action bs))) lastStep (Buffer buf 0))
-    return ()
+    pure ()
   where
     lastStep :: a -> BuildStep RealWorld
     lastStep _ (Buffer buf offset) = do
         arr <- A.unsafeFreezeArr buf
         ioToPrim (action (V.PrimVector arr 0 offset))
-        return [] -- to match the silly return type
+        pure [] -- to match the silly pure type
 {-# INLINABLE buildAndRun #-}
 
 --------------------------------------------------------------------------------
 
 atMost :: Int  -- ^ size bound
-       -> (forall s. A.MutablePrimArray s Word8 -> Int -> ST s Int)  -- ^ the writer which return a new offset
+       -> (forall s. A.MutablePrimArray s Word8 -> Int -> ST s Int)  -- ^ the writer which pure a new offset
                                                                        -- for next write
        -> Builder ()
 {-# INLINE atMost #-}
@@ -363,7 +371,7 @@ atMost n f = ensureN n `append`
         f buf offset >>= \ offset' -> k () (Buffer buf offset'))
 
 writeN :: Int  -- ^ size bound
-       -> (forall s. A.MutablePrimArray s Word8 -> Int -> ST s ())  -- ^ the writer which return a new offset
+       -> (forall s. A.MutablePrimArray s Word8 -> Int -> ST s ())  -- ^ the writer which pure a new offset
                                                                     -- for next write
        -> Builder ()
 {-# INLINE writeN #-}

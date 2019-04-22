@@ -27,6 +27,7 @@ extra-source-files:  ChangeLog.md
                      cbits/dtoa.c
                      cbits/hs_uv_base.c
                      cbits/hs_uv_stream.c
+                     cbits/hs_uv_udp.c
                      cbits/hs_uv_file.c
                      cbits/text.c
 
@@ -119,6 +120,7 @@ source-repository head
 flag no-pkg-config
   description: Don't use pkg-config to check for library dependences
   default: False
+  manual: True
 
 flag integer-simple
   description:
@@ -135,7 +137,9 @@ library
                             Std.Data.Vector.Sort
                             Std.Data.Vector.QQ
                             Std.Data.Vector.FlatIntMap
+                            Std.Data.Vector.FlatIntSet
                             Std.Data.Vector.FlatMap
+                            Std.Data.Vector.FlatSet
                             Std.Data.PrimArray.Cast
                             Std.Data.PrimArray.QQ
                             Std.Data.PrimArray.BitTwiddle
@@ -183,6 +187,7 @@ library
                             Std.IO.FileSystem
                             Std.IO.FileSystemT
                             Std.IO.TCP
+                            Std.IO.UDP
                             Std.IO.SockAddr
                             Std.IO.StdStream
 
@@ -207,6 +212,7 @@ library
                         ,   template-haskell == 2.14.*
                         ,   stm        == 2.5.*
                         ,   unordered-containers == 0.2.*
+                        ,   tagged     == 0.8.*
 
   if flag(integer-simple)
     cpp-options: -DINTEGER_SIMPLE
@@ -240,6 +246,7 @@ library
                         cbits/text.c
                         cbits/hs_uv_base.c
                         cbits/hs_uv_stream.c
+                        cbits/hs_uv_udp.c
                         cbits/hs_uv_file.c
                         third_party/utf8rewind/source/unicodedatabase.c
                         third_party/utf8rewind/source/internal/casemapping.c
@@ -353,6 +360,7 @@ test-suite test
         Std.IO.FileSystemTSpec
         Std.IO.LowResTimerSpec
         Std.IO.ResourceSpec
+        Std.IO.UDPSpec
 
 
   if flag(integer-simple)

@@ -1,22 +1,24 @@
-{-# LANGUAGE CPP #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE MagicHash #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE CPP                   #-}
+{-# LANGUAGE DataKinds             #-}
+{-# LANGUAGE DefaultSignatures     #-}
+{-# LANGUAGE DeriveAnyClass        #-}
+{-# LANGUAGE DeriveDataTypeable    #-}
+{-# LANGUAGE DeriveGeneric         #-}
+{-# LANGUAGE DerivingStrategies    #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE KindSignatures        #-}
+{-# LANGUAGE MagicHash             #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE QuantifiedConstraints #-}
-{-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE RankNTypes            #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE StandaloneDeriving    #-}
+{-# LANGUAGE TypeApplications      #-}
+{-# LANGUAGE TypeFamilies          #-}
+{-# LANGUAGE TypeOperators         #-}
 
 {-|
 Module      : Std.Data.JSON.Base
@@ -33,27 +35,52 @@ module Std.Data.JSON.Base where
 
 import           Control.Applicative
 import           Control.Monad
+import qualified Control.Monad.Fail           as Fail
 import           Control.Monad.ST
-import qualified Data.HashMap.Strict     as HM
-import qualified Std.Data.Vector.FlatMap as FM
-import qualified Std.Data.Vector.Base    as V
-import qualified Std.Data.Vector.Extra   as V
-import qualified Std.Data.Text           as T
-import qualified Control.Monad.Fail      as Fail
-import           Data.Scientific         (Scientific, toBoundedInteger)
-import qualified Std.Data.Builder        as B
-import qualified Std.Data.TextBuilder    as TB
-import qualified Std.Data.Parser         as P
+import           Data.Data
+import           Data.Fixed
+import           Data.Functor.Compose
+import           Data.Functor.Const
+import           Data.Functor.Identity
+import           Data.Functor.Product
+import           Data.Functor.Sum
+import           Data.Hashable
+import qualified Data.HashMap.Strict          as HM
+import qualified Data.HashSet                 as HS
+import           Data.Int
+import           Data.List.NonEmpty           (NonEmpty (..))
+import qualified Data.Monoid                  as Monoid
+import           Data.Primitive.Types         (Prim)
+import qualified Data.Primitive.SmallArray    as A
+import           Data.Proxy                   (Proxy (..))
+import           Data.Ratio                   (Ratio, (%))
+import           Data.Scientific              (Scientific, base10Exponent, toBoundedInteger)
+import qualified Data.Scientific              as Scientific
+import qualified Data.Semigroup               as Semigroup
+import           Data.Tagged                  (Tagged (..))
+import           Data.Typeable
+import           Data.Version                 (Version, parseVersion)
+import           Data.Word
+import           Data.Word
+import           GHC.Exts                     (Proxy#, proxy#)
+import           GHC.Generics
+import           GHC.Natural
+import           GHC.TypeNats
+import qualified Std.Data.Builder             as B
 import           Std.Data.Generics.Utils
 import           Std.Data.JSON.Value
-import qualified Std.Data.JSON.Value.Builder as JB
-import qualified Data.Primitive.SmallArray as A
-import Data.Data
-import Data.Word
-import Data.Typeable
-import GHC.Generics
-import GHC.TypeNats
-import GHC.Exts (proxy#, Proxy#)
+import qualified Std.Data.JSON.Value.Builder  as JB
+import qualified Std.Data.Parser              as P
+import qualified Std.Data.Parser.Numeric      as P
+import qualified Std.Data.Text                as T
+import qualified Std.Data.TextBuilder         as TB
+import qualified Std.Data.Vector.Base         as V
+import qualified Std.Data.Vector.Extra        as V
+import qualified Std.Data.Vector.FlatIntMap   as FIM
+import qualified Std.Data.Vector.FlatIntSet   as FIS
+import qualified Std.Data.Vector.FlatMap      as FM
+import qualified Std.Data.Vector.FlatSet      as FS
+import           Text.ParserCombinators.ReadP (readP_to_S)
 
 #define BACKSLASH 92
 #define CLOSE_CURLY 125
@@ -158,12 +185,13 @@ fail' msg = Parser (\ kf _ -> kf [] msg)
 --------------------------------------------------------------------------------
 
 typeMismatch :: T.Text     -- ^ The name of the type you are trying to parse.
+             -> T.Text     -- ^ The JSON value type you expecting to meet.
              -> Value      -- ^ The actual value encountered.
              -> Parser a
-typeMismatch expected actual =
-    fail' $ T.concat ["expected ", expected, ", encountered ", name]
+typeMismatch name expected v =
+    fail' $ T.concat ["parsing ", name, " failed, expected ", expected, ", encountered ", actual]
   where
-    name = case actual of
+    actual = case v of
         Object _ -> "Object"
         Array _  -> "Array"
         String _ -> "String"
@@ -177,7 +205,7 @@ typeMismatch expected actual =
 -- When parsing a complex structure, it helps to annotate (sub)parsers
 -- with context, so that if an error occurs, you can find its location.
 --
--- > withObject "Person" $ \o ->
+-- > withFlatMapR "Person" $ \o ->
 -- >   Person
 -- >     <$> o .: "name" <?> Key "name"
 -- >     <*> o .: "age" <?> Key "age"
@@ -201,57 +229,123 @@ prependContext :: T.Text -> Parser a -> Parser a
 prependContext name (Parser p) = Parser (\ kf k ->
     p (\ paths msg -> kf paths (T.concat ["parsing ", name, " failed, ", msg])) k)
 
-withBool :: (Bool -> Parser a) -> Value ->  Parser a
-withBool f (Bool x)  = f x
-withBool f v         = typeMismatch "Bool" v
+fromNull :: T.Text -> a -> Value -> Parser a
+fromNull _ a Null = pure a
+fromNull c _ v    = typeMismatch c "Null" v
 
-withNumber :: (Scientific -> Parser a) -> Value ->  Parser a
-withNumber f (Number x)  = f x
-withNumber f v           = typeMismatch "Number" v
+withBool :: T.Text -> (Bool -> Parser a) -> Value ->  Parser a
+{-# INLINE withBool #-}
+withBool _    f (Bool x)  = f x
+withBool name f v         = typeMismatch name "Bool" v
 
-withString :: (T.Text -> Parser a) -> Value -> Parser a
-withString f (String x)  = f x
-withString f v           = typeMismatch "String" v
+-- | @'withScientific' name f value@ applies @f@ to the 'Scientific' number
+-- when @value@ is a 'Data.Aeson.Number' and fails using 'typeMismatch'
+-- otherwise.
+--
+-- /Warning/: If you are converting from a scientific to an unbounded
+-- type such as 'Integer' you may want to add a restriction on the
+-- size of the exponent (see 'withBoundedScientific') to prevent
+-- malicious input from filling up the memory of the target system.
+--
+-- ==== Error message example
+--
+-- > withScientific "MyType" f (String "oops")
+-- > -- Error: "parsing MyType failed, expected Number, but encountered String"
+withScientific :: T.Text -> (Scientific -> Parser a) -> Value ->  Parser a
+{-# INLINE withScientific #-}
+withScientific _    f (Number x)  = f x
+withScientific name f v           = typeMismatch name "Number" v
 
-withArray :: (V.Vector Value -> Parser a) -> Value -> Parser a
-withArray f (Array arr)  = f arr
-withArray f v            = typeMismatch "Array" v
+-- | @'withRealFloat' try to parse floating number with following rules:
+--
+--   * Use @±Infinity@ to represent out of range numbers.
+--   * Parse @Null@ as @NaN@
+--
+withRealFloat :: RealFloat a => T.Text -> (a -> Parser r) -> Value -> Parser r
+{-# INLINE withRealFloat #-}
+withRealFloat _    f (Number s) = f (Scientific.toRealFloat s)
+withRealFloat _    f Null       = f (0/0)
+withRealFloat name f v          = typeMismatch name "Number or Null" v
+
+-- | @'withBoundedScientific' name f value@ applies @f@ to the 'Scientific' number
+-- when @value@ is a 'Number' with exponent less than or equal to 1024.
+withBoundedScientific :: T.Text -> (Scientific -> Parser a) -> Value ->  Parser a
+{-# INLINE withBoundedScientific #-}
+withBoundedScientific name f (Number x)
+    | e <= 1024 = f x
+    | otherwise = fail' . TB.buildText $ do
+        "parsing "
+        TB.text name
+        " failed, found a number with exponent "
+        TB.int e
+        ", but it must not be greater than 1024"
+  where e = base10Exponent x
+withBoundedScientific name f v = typeMismatch name "Number" v
+
+-- | @'withBoundedScientific' name f value@ applies @f@ to the 'Scientific' number
+-- when @value@ is a 'Number' and value is within @minBound ~ maxBound@.
+withBoundedIntegral :: (Bounded a, Integral a) => T.Text -> (a -> Parser r) -> Value -> Parser r
+{-# INLINE withBoundedIntegral #-}
+withBoundedIntegral name f (Number x) =
+    case toBoundedInteger x of
+        Just i -> f i
+        _      -> fail' . TB.buildText $ do
+            "parsing "
+            TB.text name
+            "failed, value is either floating or will cause over or underflow "
+            TB.scientific x
+withBoundedIntegral name f v = typeMismatch name "Number" v
+
+withText :: T.Text -> (T.Text -> Parser a) -> Value -> Parser a
+{-# INLINE withText #-}
+withText _    f (String x)  = f x
+withText name f v           = typeMismatch name "String" v
+
+withArray :: T.Text -> (V.Vector Value -> Parser a) -> Value -> Parser a
+{-# INLINE withArray #-}
+withArray _ f (Array arr)  = f arr
+withArray name f v         = typeMismatch name "Array" v
 
 -- | Directly use 'Object' as key-values for further parsing.
-withKeyValues :: (V.Vector (T.Text, Value) -> Parser a) -> Value -> Parser a
-withKeyValues f (Object kvs) = f kvs
-withKeyValues f v            = typeMismatch "Object" v
+withKeyValues :: T.Text -> (V.Vector (T.Text, Value) -> Parser a) -> Value -> Parser a
+{-# INLINE withKeyValues #-}
+withKeyValues _    f (Object kvs) = f kvs
+withKeyValues name f v            = typeMismatch name "Object" v
 
 -- | Take a 'Object' as an 'FM.FlatMap T.Text Value', on key duplication prefer first one.
-withFlatMap :: (FM.FlatMap T.Text Value -> Parser a) -> Value -> Parser a
-withFlatMap f (Object obj) = f (FM.packVector obj)
-withFlatMap f v            = typeMismatch "Object" v
+withFlatMap :: T.Text -> (FM.FlatMap T.Text Value -> Parser a) -> Value -> Parser a
+{-# INLINE withFlatMap #-}
+withFlatMap _    f (Object obj) = f (FM.packVector obj)
+withFlatMap name f v            = typeMismatch name "Object" v
 
 -- | Take a 'Object' as an 'FM.FlatMap T.Text Value', on key duplication prefer last one.
-withFlatMapR :: (FM.FlatMap T.Text Value -> Parser a) -> Value -> Parser a
-withFlatMapR f (Object obj) = f (FM.packVectorR obj)
-withFlatMapR f v            = typeMismatch "Object" v
+withFlatMapR :: T.Text -> (FM.FlatMap T.Text Value -> Parser a) -> Value -> Parser a
+{-# INLINE withFlatMapR #-}
+withFlatMapR _    f (Object obj) = f (FM.packVectorR obj)
+withFlatMapR name f v            = typeMismatch name "Object" v
 
 -- | Take a 'Object' as an 'HM.HashMap T.Text Value', on key duplication prefer first one.
-withHashMap :: (HM.HashMap T.Text Value -> Parser a) -> Value -> Parser a
-withHashMap f (Object obj) = f (HM.fromList (V.unpackR obj))
-withHashMap f v            = typeMismatch "Object" v
+withHashMap :: T.Text -> (HM.HashMap T.Text Value -> Parser a) -> Value -> Parser a
+{-# INLINE withHashMap #-}
+withHashMap _    f (Object obj) = f (HM.fromList (V.unpackR obj))
+withHashMap name f v            = typeMismatch name "Object" v
 
 -- | Take a 'Object' as an 'HM.HashMap T.Text Value', on key duplication prefer last one.
-withHashMapR :: (HM.HashMap T.Text Value -> Parser a) -> Value -> Parser a
-withHashMapR f (Object obj) = f (HM.fromList (V.unpack obj))
-withHashMapR f v            = typeMismatch "Object" v
+withHashMapR :: T.Text -> (HM.HashMap T.Text Value -> Parser a) -> Value -> Parser a
+{-# INLINE withHashMapR #-}
+withHashMapR _    f (Object obj) = f (HM.fromList (V.unpack obj))
+withHashMapR name f v            = typeMismatch name "Object" v
 
 -- | Decode a nested JSON-encoded string.
-withEmbeddedJSON :: (Value -> Parser a)     -- ^ a inner parser which will get the parsed 'Value'.
+withEmbeddedJSON :: T.Text                  -- ^ data type name
+                 -> (Value -> Parser a)     -- ^ a inner parser which will get the parsed 'Value'.
                  -> Value -> Parser a       -- a parser take a JSON String
-withEmbeddedJSON innerParser (String txt) = Parser (\ kf k ->
+{-# INLINE withEmbeddedJSON #-}
+withEmbeddedJSON name innerParser (String txt) = Parser (\ kf k ->
         case parse (T.getUTF8Bytes txt) of
             Success v -> runParser (innerParser v) (\ paths msg -> kf (EmbeddedJSON:paths) msg) k
-            Failure paths msg -> kf paths msg)
-  where
-withEmbeddedJSON _ v = typeMismatch "String" v
-{-# INLINE withEmbeddedJSON #-}
+            Failure paths msg -> kf paths (T.concat ["parsing ", name, "failed, ", msg]))
+withEmbeddedJSON name _ v = typeMismatch name "String" v
 
 -- | Retrieve the value associated with the given key of an 'Object'.
 -- The result is 'empty' if the key is not present or the value cannot
@@ -289,7 +383,7 @@ parseField :: (Value -> Parser a)  -- ^ the field parser (value part of a key va
            -> FM.FlatMap T.Text Value -> T.Text -> Parser a
 parseField p obj key = case FM.lookup key obj of
     Just v -> p v <?> Key key
-    _      -> fail (T.unpack . T.concat $ ["key ", key, " not present"])
+    _      -> fail' (T.concat $ ["key ", key, " not present"])
 
 -- | Variant of '.:?' with explicit parser function.
 parseFieldMaybe :: (Value -> Parser a) -> FM.FlatMap T.Text Value -> T.Text -> Parser (Maybe a)
@@ -325,16 +419,15 @@ defaultSetting = Settings T.pack T.pack
 -- ToJSON
 --------------------------------------------------------------------------------
 
+-- | Typeclass for converting to JSON 'Value'.
 class ToJSON a where
     toJSON :: a -> Value
     default toJSON :: (Generic a, GToJSON (Rep a)) => a -> Value
     toJSON = gToJSON defaultSetting . from
 
-instance ToJSON Int where
-    toJSON = Number . fromIntegral
-
 class GToJSON f where
     gToJSON :: Settings -> f a -> Value
+
 
 --------------------------------------------------------------------------------
 -- Selectors
@@ -347,7 +440,7 @@ type family Field f where
 class GWriteFields f where
     gWriteFields :: Settings -> A.SmallMutableArray s (Field f) -> Int -> f a -> ST s ()
 
-instance (ProductSize a, KnownNat (PSize a), GWriteFields a, GWriteFields b, Field a ~ Field b) => GWriteFields (a :*: b) where
+instance (ProductSize a, GWriteFields a, GWriteFields b, Field a ~ Field b) => GWriteFields (a :*: b) where
     {-# INLINE gWriteFields #-}
     gWriteFields s marr idx (a :*: b) = do
         gWriteFields s marr idx a
@@ -388,14 +481,14 @@ instance GMergeFields (S1 (MetaSel Nothing u ss ds) f) where
     gMergeFields _ marr = do
         arr <- A.unsafeFreezeSmallArray marr
         let l = A.sizeofSmallArray arr
-        return (Array (V.Vector arr 0 l))
+        pure (Array (V.Vector arr 0 l))
 
 instance GMergeFields (S1 (MetaSel (Just l) u ss ds) f) where
     {-# INLINE gMergeFields #-}
     gMergeFields _ marr = do
         arr <- A.unsafeFreezeSmallArray marr
         let l = A.sizeofSmallArray arr
-        return (Object (V.Vector arr 0 l))
+        pure (Object (V.Vector arr 0 l))
 
 --------------------------------------------------------------------------------
 -- Constructors
@@ -427,7 +520,7 @@ instance (Constructor c, GToJSON (S1 sc f)) => GConstrToJSON (C1 c (S1 sc f)) wh
         in Object (V.singleton (k, v))
 
 -- | Constructor with multiple payloads
-instance (ProductSize (a :*: b), KnownNat (PSize (a :*: b)), GWriteFields (a :*: b), GMergeFields (a :*: b), Constructor c)
+instance (ProductSize (a :*: b), GWriteFields (a :*: b), GMergeFields (a :*: b), Constructor c)
     => GConstrToJSON (C1 c (a :*: b)) where
     {-# INLINE gConstrToJSON #-}
     gConstrToJSON False s (M1 x) = runST (do
@@ -458,36 +551,9 @@ class EncodeJSON a where
     default encodeJSON :: (Generic a, GEncodeJSON (Rep a)) => a -> B.Builder ()
     encodeJSON = gEncodeJSON defaultSetting . from
 
-encodeJSON' :: EncodeJSON a => a -> TB.TextBuilder ()
-{-# INLINE encodeJSON' #-}
-encodeJSON' = TB.TextBuilder . encodeJSON
-
-instance EncodeJSON Int where
-    {-# INLINE encodeJSON #-}
-    encodeJSON = B.int
-
-instance EncodeJSON Char where
-    {-# INLINE encodeJSON #-}
-    encodeJSON = JB.string . T.singleton
-
-instance EncodeJSON T.Text where
-    {-# INLINE encodeJSON #-}
-    encodeJSON = JB.string
-
-instance {-# OVERLAPPING #-} EncodeJSON String where
-    {-# INLINE encodeJSON #-}
-    encodeJSON = JB.string . T.pack
-
-instance {-# OVERLAPPABLE #-} EncodeJSON a => EncodeJSON [a] where
-    {-# INLINE encodeJSON #-}
-    encodeJSON xs = do
-        B.encodePrim @Word8 OPEN_SQUARE
-        go xs
-        B.encodePrim @Word8 CLOSE_SQUARE
-      where
-        go [] = return ()
-        go [x] = encodeJSON x
-        go (x:xs) = encodeJSON x >> B.encodePrim @Word8 COMMA >> go xs
+encodeJSONText :: EncodeJSON a => a -> TB.TextBuilder ()
+{-# INLINE encodeJSONText #-}
+encodeJSONText = TB.unsafeFromBuilder . encodeJSON
 
 
 class GEncodeJSON f where
@@ -601,45 +667,9 @@ class FromJSON a where
     default fromJSON :: (Generic a, GFromJSON (Rep a)) => Value -> Parser a
     fromJSON v = to <$> gFromJSON defaultSetting v
 
-parseBoundedIntegralFromScientific :: (Bounded a, Integral a) => Scientific -> Parser a
-{-# INLINE parseBoundedIntegralFromScientific #-}
-parseBoundedIntegralFromScientific s = maybe
-    (fail $ "value is either floating or will cause over or underflow " ++ show s)
-    pure
-    (toBoundedInteger s)
-
-parseBoundedIntegral :: (Bounded a, Integral a) => T.Text -> Value -> Parser a
-{-# INLINE parseBoundedIntegral #-}
-parseBoundedIntegral name =
-    prependContext name . withNumber parseBoundedIntegralFromScientific
-
-instance FromJSON Int where
-    fromJSON = parseBoundedIntegral "Int"
-
-instance FromJSON Value where
-    fromJSON = return
-
-instance FromJSON a => FromJSON (V.Vector (T.Text, a)) where
-    {-# INLINE fromJSON #-}
-    fromJSON (Object kvs) = mapM (\ (k,v) -> fromJSON v >>= \ !v' -> return (k, v')) kvs
-    fromJSON v            = typeMismatch "Object" v
-
--- | default instance prefer later key
-instance FromJSON a => FromJSON (FM.FlatMap T.Text a) where
-    {-# INLINE fromJSON #-}
-    fromJSON = withFlatMapR (mapM fromJSON)
-
--- | default instance prefer later key
-instance FromJSON a => FromJSON (HM.HashMap T.Text a) where
-    {-# INLINE fromJSON #-}
-    fromJSON = withHashMapR (mapM fromJSON)
-
-instance FromJSON a => FromJSON (V.Vector a) where
-    {-# INLINE fromJSON #-}
-    fromJSON = withArray (mapM fromJSON)
-
 class GFromJSON f where
     gFromJSON :: Settings -> Value -> Parser (f a)
+
 
 --------------------------------------------------------------------------------
 -- Selectors
@@ -652,18 +682,18 @@ type family LookupTable f where
 class GFromFields f where
     gFromFields :: Settings -> LookupTable f -> Int -> Parser (f a)
 
-instance (ProductSize a, KnownNat (PSize a), GFromFields a, GFromFields b, LookupTable a ~ LookupTable b)
+instance (ProductSize a, GFromFields a, GFromFields b, LookupTable a ~ LookupTable b)
     => GFromFields (a :*: b) where
     {-# INLINE gFromFields #-}
     gFromFields s v idx = do
-        !a <- gFromFields s v idx
-        !b <- gFromFields s v (idx + productSize (proxy# :: Proxy# a))
-        return (a :*: b)
+        a <- gFromFields s v idx
+        b <- gFromFields s v (idx + productSize (proxy# :: Proxy# a))
+        pure (a :*: b)
 
 instance (GFromJSON f) => GFromFields (S1 (MetaSel Nothing u ss ds) f) where
     {-# INLINE gFromFields #-}
     gFromFields s v idx = do
-        !v' <- V.unsafeIndexM v idx
+        v' <- V.unsafeIndexM v idx
         M1 <$> gFromJSON s v' <?> Index idx
 
 instance (GFromJSON f, Selector (MetaSel (Just l) u ss ds)) => GFromFields (S1 (MetaSel (Just l) u ss ds) f) where
@@ -679,23 +709,55 @@ instance GFromJSON f => GFromJSON (S1 (MetaSel Nothing u ss ds) f) where
     {-# INLINE gFromJSON #-}
     gFromJSON s x = M1 <$> gFromJSON s x
 
+instance (GFromJSON f, Selector (MetaSel (Just l) u ss ds)) => GFromJSON (S1 (MetaSel (Just l) u ss ds) f) where
+    {-# INLINE gFromJSON #-}
+    gFromJSON s (Object v) = do
+        case FM.lookup fn (FM.packVectorR v) of
+            Just v' -> M1 <$> gFromJSON s v' <?> Key fn
+            _       -> fail' ("Std.Data.JSON.Base: missing field " <>  fn)
+      where fn = (fieldFmt s) (selName (undefined :: S1 (MetaSel (Just l) u ss ds) f a))
+    gFromJSON s v = typeMismatch ("field " <> fn) "Object" v <?> Key fn
+      where fn = (fieldFmt s) (selName (undefined :: S1 (MetaSel (Just l) u ss ds) f a))
+
 instance FromJSON a => GFromJSON (K1 i a) where
     {-# INLINE gFromJSON #-}
     gFromJSON s x = K1 <$> fromJSON x
 
 class GBuildLookup f where
-    gBuildLookup :: Proxy# f -> Value -> Parser (LookupTable f)
+    gBuildLookup :: Proxy# f -> Int -> T.Text -> Value -> Parser (LookupTable f)
 
 instance (GBuildLookup a, GBuildLookup b) => GBuildLookup (a :*: b) where
-    gBuildLookup _ x = gBuildLookup (proxy# :: Proxy# a) x
+    {-# INLINE gBuildLookup #-}
+    gBuildLookup _ siz = gBuildLookup (proxy# :: Proxy# a) siz
 
 instance GBuildLookup (S1 (MetaSel Nothing u ss ds) f) where
-    gBuildLookup _ (Array v) = return v
-    gBuildLookup _ x         = typeMismatch "Array" x
+    {-# INLINE gBuildLookup #-}
+    gBuildLookup _ siz name (Array v)
+        | siz' /= siz = fail' . TB.buildText $ do
+            "parsing "
+            TB.text name
+            " failed, product size mismatch, expected "
+            TB.int siz
+            ", get"
+            TB.int siz'
+        | otherwise = pure v
+      where siz' = V.length v
+    gBuildLookup _ _   name x         = typeMismatch name "Array" x
 
 instance GBuildLookup (S1 ((MetaSel (Just l) u ss ds)) f) where
-    gBuildLookup _ (Object v) = return $! FM.packVectorR v
-    gBuildLookup _ x         = typeMismatch "Object" x
+    {-# INLINE gBuildLookup #-}
+    gBuildLookup _ siz name (Object v)
+        | siz' /= siz = fail' . TB.buildText $ do
+            "parsing "
+            TB.text name
+            " failed, product size mismatch, expected "
+            TB.int siz
+            ", get"
+            TB.int siz'
+        | otherwise = pure m
+      where siz' = FM.size m
+            m = FM.packVectorR v
+    gBuildLookup _ _   name x       = typeMismatch name "Object" x
 
 --------------------------------------------------------------------------------
 -- Constructors
@@ -715,10 +777,12 @@ instance (GConstrFromJSON f, GConstrFromJSON g) => GConstrFromJSON (f :+: g) whe
 instance (Constructor c) => GConstrFromJSON (C1 c U1) where
     {-# INLINE gConstrFromJSON #-}
     gConstrFromJSON _ s (String x)
-        | cn == x   = return (M1 U1)
-        | otherwise = fail' ("Std.Data.JSON.Base: unknown constructor name " <> x)
+        | cn == x   = pure (M1 U1)
+        | otherwise = fail' . T.concat $ ["parsing ", cn', "failed, unknown constructor name ", x]
       where cn = constrFmt s $ conName (undefined :: t c U1 a)
-    gConstrFromJSON _ _ v = typeMismatch "String" v
+            cn' = T.pack $ conName (undefined :: t c U1 a)
+    gConstrFromJSON _ _ v = typeMismatch cn' "String" v
+      where cn' = T.pack $ conName (undefined :: t c U1 a)
 
 -- | Constructor with a single payload
 instance (Constructor c, GFromJSON (S1 sc f)) => GConstrFromJSON (C1 c (S1 sc f)) where
@@ -727,27 +791,311 @@ instance (Constructor c, GFromJSON (S1 sc f)) => GConstrFromJSON (C1 c (S1 sc f)
     gConstrFromJSON True s x = case x of
         Object v -> case V.indexM v 0 of
             Just (k, v') | k == cn -> M1 <$> gFromJSON s v' <?> Key cn
-            _                      -> fail' ("Std.Data.JSON.Base: constructor not found" <> cn)
-        _ ->  typeMismatch "Object" x
+            _                      -> fail' .T.concat $ ["parsing ", cn', " failed, constructor not found"]
+        _ ->  typeMismatch cn' "Object" x
       where cn = constrFmt s $ conName (undefined :: t c f a)
+            cn' = T.pack $ conName (undefined :: t c f a)
 
 -- | Constructor with multiple payloads
-instance (GFromFields (a :*: b), GBuildLookup (a :*: b), Constructor c)
+instance (ProductSize (a :*: b), GFromFields (a :*: b), GBuildLookup (a :*: b), Constructor c)
     => GConstrFromJSON (C1 c (a :*: b)) where
     {-# INLINE gConstrFromJSON #-}
     gConstrFromJSON False s x = do
-        t <- gBuildLookup (proxy# :: Proxy# (a :*: b)) x
+        t <- gBuildLookup p (productSize p) cn' x
         M1 <$> gFromFields s t 0
+      where cn' = T.pack $ conName (undefined :: t c f a)
+            p = proxy# :: Proxy# (a :*: b)
     gConstrFromJSON True s x = case x of
         Object v -> case V.indexM v 0 of
-            Just (k, v') | k == cn -> do t <- gBuildLookup (proxy# :: Proxy# (a :*: b)) v'
+            Just (k, v') | k == cn -> do t <- gBuildLookup p (productSize p) cn' v'
                                          M1 <$> gFromFields s t 0
-            _                      -> fail' ("Std.Data.JSON.Base: constructor not found" <> cn)
-        _ ->  typeMismatch "Object" x
+            _                      -> fail' .T.concat $ ["parsing ", cn', " failed, constructor not found"]
+        _ ->  typeMismatch cn' "Object" x
       where cn = constrFmt s $ conName (undefined :: t c f a)
+            cn' = T.pack $ conName (undefined :: t c f a)
+            p = proxy# :: Proxy# (a :*: b)
 
 --------------------------------------------------------------------------------
 -- Data types
 instance GConstrFromJSON f => GFromJSON (D1 c f) where
     {-# INLINE gFromJSON #-}
     gFromJSON s x = M1 <$> gConstrFromJSON False s x
+
+--------------------------------------------------------------------------------
+-- Built-in Instances
+--------------------------------------------------------------------------------
+-- | Use 'Null' as @Proxy a@
+instance FromJSON (Proxy a)   where {{-# INLINE fromJSON #-}; fromJSON = fromNull "Proxy" Proxy;}
+instance ToJSON (Proxy a)     where {{-# INLINE toJSON #-}; toJSON _ = Null;}
+instance EncodeJSON (Proxy a) where {{-# INLINE encodeJSON #-}; encodeJSON _ = "null";}
+
+instance FromJSON Value   where {{-# INLINE fromJSON #-}; fromJSON = pure;}
+instance ToJSON Value     where { {-# INLINE toJSON #-}; toJSON = id; }
+instance EncodeJSON Value where { {-# INLINE encodeJSON #-}; encodeJSON = JB.value; }
+
+instance FromJSON T.Text   where {{-# INLINE fromJSON #-}; fromJSON = withText "Text" pure;}
+instance ToJSON T.Text     where {{-# INLINE toJSON #-}; toJSON = String;}
+instance EncodeJSON T.Text where {{-# INLINE encodeJSON #-}; encodeJSON = JB.string;}
+
+instance FromJSON Scientific where {{-# INLINE fromJSON #-}; fromJSON = withScientific "Scientific" pure;}
+instance ToJSON Scientific where {{-# INLINE toJSON #-}; toJSON = Number;}
+instance EncodeJSON Scientific where {{-# INLINE encodeJSON #-}; encodeJSON = B.scientific;}
+
+-- | default instance prefer later key
+instance FromJSON a => FromJSON (FM.FlatMap T.Text a) where
+    {-# INLINE fromJSON #-}
+    fromJSON = withFlatMapR "Std.Data.Vector.FlatMap.FlatMap"
+        (FM.traverseWithKey $ \ k v -> fromJSON v <?> Key k)
+instance ToJSON a => ToJSON (FM.FlatMap T.Text a) where
+    {-# INLINE toJSON #-}
+    toJSON = Object . FM.sortedKeyValues . FM.map' toJSON
+instance EncodeJSON a => EncodeJSON (FM.FlatMap T.Text a) where
+    {-# INLINE encodeJSON #-}
+    encodeJSON = JB.object' encodeJSON . FM.sortedKeyValues
+
+instance (Ord a, FromJSON a) => FromJSON (FS.FlatSet a) where
+    {-# INLINE fromJSON #-}
+    fromJSON = withArray "Std.Data.Vector.FlatSet.FlatSet" $ \ v ->
+        FS.packRN (V.length v) <$>
+            (zipWithM (\ k v -> fromJSON v <?> Index k) [0..] (V.unpack v))
+instance ToJSON a => ToJSON (FS.FlatSet a) where
+    {-# INLINE toJSON #-}
+    toJSON = Array . V.map' toJSON . FS.sortedValues
+instance EncodeJSON a => EncodeJSON (FS.FlatSet a) where
+    {-# INLINE encodeJSON #-}
+    encodeJSON = JB.array' encodeJSON . FS.sortedValues
+
+-- | default instance prefer later key
+instance FromJSON a => FromJSON (HM.HashMap T.Text a) where
+    {-# INLINE fromJSON #-}
+    fromJSON = withHashMapR "Data.HashMap.HashMap"
+        (HM.traverseWithKey $ \ k v -> fromJSON v <?> Key k)
+instance ToJSON a => ToJSON (HM.HashMap T.Text a) where
+    {-# INLINE toJSON #-}
+    toJSON = Object . V.pack . HM.toList . HM.map toJSON
+instance EncodeJSON a => EncodeJSON (HM.HashMap T.Text a) where
+    {-# INLINE encodeJSON #-}
+    encodeJSON m
+        | HM.null m = "{}"
+        | otherwise = do
+            let (x:xs) = HM.toList m
+            B.encodePrim @Word8 OPEN_CURLY
+            JB.string (fst x) >> B.encodePrim @Word8 COLON >> encodeJSON (snd x)
+            forM xs $ \ x ->
+                B.encodePrim @Word8 COMMA >> JB.string (fst x) >> B.encodePrim @Word8 COLON >> encodeJSON (snd x)
+            B.encodePrim @Word8 CLOSE_CURLY
+
+instance FromJSON a => FromJSON (FIM.FlatIntMap a) where
+    {-# INLINE fromJSON #-}
+    fromJSON = withFlatMapR "Std.Data.Vector.FlatIntMap.FlatIntMap" $ \ m ->
+        let kvs = FM.sortedKeyValues m
+        in FIM.packVectorR <$> (forM kvs $ \ (k, v) -> do
+            case P.parse_ P.int (T.getUTF8Bytes k) of
+                Right k' -> do
+                    v' <- fromJSON v <?> Key k
+                    return (V.IPair k' v')
+                _ -> fail' ("parsing Std.Data.Vector.FlatIntMap.FlatIntMap failed, unexpected key " <> k))
+
+instance FromJSON FIS.FlatIntSet where
+    {-# INLINE fromJSON #-}
+    fromJSON = withArray "Std.Data.Vector.FlatIntSet.FlatIntSet" $ \ v ->
+        FIS.packRN (V.length v) <$>
+            (zipWithM (\ k v -> fromJSON v <?> Index k) [0..] (V.unpack v))
+
+instance FromJSON a => FromJSON (V.Vector a) where
+    {-# INLINE fromJSON #-}
+    fromJSON = withArray "Std.Data.Vector.Vector"
+        (V.traverseWithIndex $ \ k v -> fromJSON v <?> Index k)
+
+instance (Prim a, FromJSON a) => FromJSON (V.PrimVector a) where
+    {-# INLINE fromJSON #-}
+    fromJSON = withArray "Std.Data.Vector.PrimVector"
+        (V.traverseWithIndex $ \ k v -> fromJSON v <?> Index k)
+
+instance (Eq a, Hashable a, FromJSON a) => FromJSON (HS.HashSet a) where
+    {-# INLINE fromJSON #-}
+    fromJSON = withArray "Std.Data.Vector.FlatSet.FlatSet" $ \ v ->
+        HS.fromList <$>
+            (zipWithM (\ k v -> fromJSON v <?> Index k) [0..] (V.unpack v))
+
+instance {-# OVERLAPPABLE #-} FromJSON a => FromJSON [a] where
+    {-# INLINE fromJSON #-}
+    fromJSON = withArray "[a]" $ \ v ->
+        zipWithM (\ k v -> fromJSON v <?> Index k) [0..] (V.unpack v)
+instance {-# OVERLAPPABLE #-} ToJSON a => ToJSON [a] where
+    {-# INLINE toJSON #-}
+    toJSON = Array . V.pack . map toJSON
+instance {-# OVERLAPPABLE #-} EncodeJSON a => EncodeJSON [a] where
+    {-# INLINE encodeJSON #-}
+    encodeJSON xs = do
+        B.encodePrim @Word8 OPEN_SQUARE
+        go xs
+        B.encodePrim @Word8 CLOSE_SQUARE
+      where
+        go [] = pure ()
+        go [x] = encodeJSON x
+        go (x:xs) = encodeJSON x >> B.encodePrim @Word8 COMMA >> go xs
+
+instance {-# OVERLAPPING #-} FromJSON String where
+    {-# INLINE fromJSON #-}
+    fromJSON = withText "String" (pure . T.unpack)
+instance {-# OVERLAPPING #-} ToJSON String where
+    {-# INLINE toJSON #-}
+    toJSON = String . T.pack
+instance {-# OVERLAPPING #-} EncodeJSON String where
+    {-# INLINE encodeJSON #-}
+    encodeJSON = JB.string . T.pack
+
+instance FromJSON a => FromJSON (NonEmpty a) where
+    {-# INLINE fromJSON #-}
+    fromJSON = withArray "NonEmpty" $ \ v -> do
+        l <- zipWithM (\ k v -> fromJSON v <?> Index k) [0..] (V.unpack v)
+        case l of (x:xs) -> pure (x :| xs)
+                  _      -> fail' "unexpected empty array"
+
+
+instance FromJSON Bool where
+    {-# INLINE fromJSON #-}
+    fromJSON = withBool "Bool" pure
+
+instance FromJSON Char where
+    {-# INLINE fromJSON #-}
+    fromJSON = withText "Char" $ \ t ->
+        case T.headMaybe t of
+            Just c -> pure c
+            _      -> fail' (T.concat ["parsing Char failed, expected a string of length 1"])
+instance ToJSON Char where
+    {-# INLINE toJSON #-}
+    toJSON = String . T.singleton
+instance EncodeJSON Char where
+    {-# INLINE encodeJSON #-}
+    encodeJSON = JB.string . T.singleton
+
+
+instance FromJSON Double where {{-# INLINE fromJSON #-}; fromJSON = withRealFloat "Double" pure;}
+instance FromJSON Float  where {{-# INLINE fromJSON #-}; fromJSON = withRealFloat "Double" pure;}
+instance ToJSON Float  where {{-# INLINE toJSON #-}; toJSON = Number . P.floatToScientific;}
+instance ToJSON Double where {{-# INLINE toJSON #-}; toJSON = Number . P.doubleToScientific;}
+instance EncodeJSON Float  where {{-# INLINE encodeJSON #-}; encodeJSON = B.float;}
+instance EncodeJSON Double where {{-# INLINE encodeJSON #-}; encodeJSON = B.double;}
+
+instance FromJSON Int    where {{-# INLINE fromJSON #-}; fromJSON = withBoundedIntegral "Int" pure;}
+instance FromJSON Int8   where {{-# INLINE fromJSON #-}; fromJSON = withBoundedIntegral "Int8" pure;}
+instance FromJSON Int16  where {{-# INLINE fromJSON #-}; fromJSON = withBoundedIntegral "Int16" pure;}
+instance FromJSON Int32  where {{-# INLINE fromJSON #-}; fromJSON = withBoundedIntegral "Int32" pure;}
+instance FromJSON Int64  where {{-# INLINE fromJSON #-}; fromJSON = withBoundedIntegral "Int64" pure;}
+instance FromJSON Word   where {{-# INLINE fromJSON #-}; fromJSON = withBoundedIntegral "Word" pure;}
+instance FromJSON Word8  where {{-# INLINE fromJSON #-}; fromJSON = withBoundedIntegral "Word8" pure;}
+instance FromJSON Word16 where {{-# INLINE fromJSON #-}; fromJSON = withBoundedIntegral "Word16" pure;}
+instance FromJSON Word32 where {{-# INLINE fromJSON #-}; fromJSON = withBoundedIntegral "Word32" pure;}
+instance FromJSON Word64 where {{-# INLINE fromJSON #-}; fromJSON = withBoundedIntegral "Word64" pure;}
+instance ToJSON Int    where {{-# INLINE toJSON #-}; toJSON = Number . fromIntegral;}
+instance ToJSON Int8   where {{-# INLINE toJSON #-}; toJSON = Number . fromIntegral;}
+instance ToJSON Int16  where {{-# INLINE toJSON #-}; toJSON = Number . fromIntegral;}
+instance ToJSON Int32  where {{-# INLINE toJSON #-}; toJSON = Number . fromIntegral;}
+instance ToJSON Int64  where {{-# INLINE toJSON #-}; toJSON = Number . fromIntegral;}
+instance ToJSON Word   where {{-# INLINE toJSON #-}; toJSON = Number . fromIntegral;}
+instance ToJSON Word8  where {{-# INLINE toJSON #-}; toJSON = Number . fromIntegral;}
+instance ToJSON Word16 where {{-# INLINE toJSON #-}; toJSON = Number . fromIntegral;}
+instance ToJSON Word32 where {{-# INLINE toJSON #-}; toJSON = Number . fromIntegral;}
+instance ToJSON Word64 where {{-# INLINE toJSON #-}; toJSON = Number . fromIntegral;}
+instance EncodeJSON Int   where {{-# INLINE encodeJSON #-}; encodeJSON = B.int;}
+instance EncodeJSON Int8  where {{-# INLINE encodeJSON #-}; encodeJSON = B.int;}
+instance EncodeJSON Int16 where {{-# INLINE encodeJSON #-}; encodeJSON = B.int;}
+instance EncodeJSON Int32 where {{-# INLINE encodeJSON #-}; encodeJSON = B.int;}
+instance EncodeJSON Int64 where {{-# INLINE encodeJSON #-}; encodeJSON = B.int;}
+instance EncodeJSON Word   where {{-# INLINE encodeJSON #-}; encodeJSON = B.int;}
+instance EncodeJSON Word8  where {{-# INLINE encodeJSON #-}; encodeJSON = B.int;}
+instance EncodeJSON Word16 where {{-# INLINE encodeJSON #-}; encodeJSON = B.int;}
+instance EncodeJSON Word32 where {{-# INLINE encodeJSON #-}; encodeJSON = B.int;}
+instance EncodeJSON Word64 where {{-# INLINE encodeJSON #-}; encodeJSON = B.int;}
+
+-- | This instance includes a bounds check to prevent maliciously large inputs to fill up the memory of the target system. You can newtype Scientific and provide your own instance using 'withScientific' if you want to allow larger inputs.
+instance FromJSON Integer where
+    {-# INLINE fromJSON #-}
+    fromJSON = withBoundedScientific "Integer" $ \ n ->
+        case Scientific.floatingOrInteger n :: Either Double Integer of
+            Right x -> pure x
+            Left _  -> fail' . TB.buildText $ do
+                "parsing Integer failed, unexpected floating number "
+                TB.scientific n
+
+instance FromJSON Natural where
+    {-# INLINE fromJSON #-}
+    fromJSON = withBoundedScientific "Natural" $ \ n ->
+        if n < 0
+        then fail' . TB.buildText $ do
+                "parsing Natural failed, unexpected negative number "
+                TB.scientific n
+        else case Scientific.floatingOrInteger n :: Either Double Natural of
+            Right x -> pure x
+            Left _  -> fail' . TB.buildText $ do
+                "parsing Natural failed, unexpected floating number "
+                TB.scientific n
+
+instance FromJSON Ordering where
+    fromJSON = withText "Ordering" $ \ s ->
+        case s of
+            "LT" -> pure LT
+            "EQ" -> pure EQ
+            "GT" -> pure GT
+            _ -> fail' . T.concat $ ["parsing Ordering failed, unexpected ",
+                                        s, " expected \"LT\", \"EQ\", or \"GT\""]
+
+instance FromJSON () where
+    {-# INLINE fromJSON #-}
+    fromJSON = withArray "()" $ \ v ->
+        if V.null v
+        then pure ()
+        else fail' "parsing () failed, expected an empty array"
+
+instance FromJSON Version where
+    {-# INLINE fromJSON #-}
+    fromJSON = withText "Version" (go . readP_to_S parseVersion . T.unpack)
+      where
+        go [(v,[])] = pure v
+        go (_ : xs) = go xs
+        go _        = fail "parsing Version failed"
+
+instance FromJSON a => FromJSON (Maybe a) where
+    {-# INLINE fromJSON #-}
+    fromJSON Null = pure Nothing
+    fromJSON v = Just <$> fromJSON v
+
+-- | This instance includes a bounds check to prevent maliciously large inputs to fill up the memory of the target system. You can newtype Ratio and provide your own instance using 'withScientific' if you want to allow larger inputs.
+instance (FromJSON a, Integral a) => FromJSON (Ratio a) where
+    {-# INLINE fromJSON #-}
+    fromJSON = withFlatMapR "Rational" $ \obj -> do
+        numerator <- obj .: "numerator"
+        denominator <- obj .: "denominator"
+        if denominator == 0
+        then fail' "Ratio denominator was 0"
+        else pure (numerator % denominator)
+
+-- | This instance includes a bounds check to prevent maliciously large inputs to fill up the memory of the target system. You can newtype Fixed and provide your own instance using 'withScientific' if you want to allow larger inputs.
+instance HasResolution a => FromJSON (Fixed a) where
+    {-# INLINE fromJSON #-}
+    fromJSON = withBoundedScientific "Fixed" (pure . realToFrac)
+
+deriving newtype instance FromJSON (f (g a)) => FromJSON (Compose f g a)
+deriving newtype instance FromJSON a => FromJSON (Semigroup.Min a)
+deriving newtype instance FromJSON a => FromJSON (Semigroup.Max a)
+deriving newtype instance FromJSON a => FromJSON (Semigroup.First a)
+deriving newtype instance FromJSON a => FromJSON (Semigroup.Last a)
+deriving newtype instance FromJSON a => FromJSON (Semigroup.WrappedMonoid a)
+deriving newtype instance FromJSON a => FromJSON (Semigroup.Dual a)
+deriving newtype instance FromJSON a => FromJSON (Monoid.First a)
+deriving newtype instance FromJSON a => FromJSON (Monoid.Last a)
+deriving newtype instance FromJSON a => FromJSON (Identity a)
+deriving newtype instance FromJSON a => FromJSON (Const a b)
+deriving newtype instance FromJSON b => FromJSON (Tagged a b)
+
+deriving anyclass instance (FromJSON (f a), FromJSON (g a), FromJSON a) => FromJSON (Sum f g a)
+deriving anyclass instance (FromJSON a, FromJSON b) => FromJSON (Either a b)
+deriving anyclass instance (FromJSON (f a), FromJSON (g a)) => FromJSON (Product f g a)
+deriving anyclass instance (FromJSON a, FromJSON b) => FromJSON (a, b)
+deriving anyclass instance (FromJSON a, FromJSON b, FromJSON c) => FromJSON (a, b, c)
+deriving anyclass instance (FromJSON a, FromJSON b, FromJSON c, FromJSON d) => FromJSON (a, b, c, d)
+deriving anyclass instance (FromJSON a, FromJSON b, FromJSON c, FromJSON d, FromJSON e) => FromJSON (a, b, c, d, e)
+deriving anyclass instance (FromJSON a, FromJSON b, FromJSON c, FromJSON d, FromJSON e, FromJSON f) => FromJSON (a, b, c, d, e, f)
+deriving anyclass instance (FromJSON a, FromJSON b, FromJSON c, FromJSON d, FromJSON e, FromJSON f, FromJSON g) => FromJSON (a, b, c, d, e, f, g)

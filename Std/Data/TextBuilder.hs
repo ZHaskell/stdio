@@ -20,7 +20,9 @@ UTF8 compatible textual builders.
 module Std.Data.TextBuilder
   (
   -- * Textual Builder
-    TextBuilder(..)
+    TextBuilder
+  , toBuilder
+  , unsafeFromBuilder
   , buildText
   -- * Basic UTF8 builders
   , stringUTF8, charUTF8, string7, char7, text
@@ -49,7 +51,8 @@ import           Data.String
 import           Data.Bits
 import qualified Std.Data.Builder.Base    as B
 import qualified Std.Data.Builder.Numeric as B
-import           Std.Data.Text.Base       (Text (..))
+import qualified Std.Data.Text.Base       as T
+import           Test.QuickCheck.Arbitrary (Arbitrary(..), CoArbitrary(..))
 
 -- | Buidlers which guarantee UTF-8 encoding, thus can be used to build
 -- text directly.
@@ -70,15 +73,28 @@ instance (a ~ ()) => IsString (TextBuilder a) where
     {-# INLINE fromString #-}
     fromString = stringUTF8
 
+instance Arbitrary (TextBuilder ()) where
+    arbitrary = text <$> arbitrary
+    shrink b = text <$> shrink (buildText b)
+
+instance CoArbitrary (TextBuilder ()) where
+    coarbitrary = coarbitrary . buildText
+
 instance Show (TextBuilder a) where
     show = show . buildText
 
 deriving instance Semigroup (TextBuilder ())
 deriving instance Monoid (TextBuilder ())
 
-buildText :: TextBuilder a -> Text
+buildText :: TextBuilder a -> T.Text
 {-# INLINE buildText #-}
-buildText = Text . B.buildBytes . toBuilder
+buildText = T.Text . B.buildBytes . toBuilder
+
+-- | Unsafely turn a 'B.Builder' into 'TextBuilder', thus it's user's responsibility to
+-- ensure only UTF-8 complied bytes are written.
+unsafeFromBuilder :: B.Builder a -> TextBuilder a
+{-# INLINE unsafeFromBuilder #-}
+unsafeFromBuilder = TextBuilder
 
 --------------------------------------------------------------------------------
 
@@ -110,12 +126,12 @@ char7 :: Char -> TextBuilder ()
 {-# INLINE char7 #-}
 char7 = TextBuilder . B.char7
 
--- | Write UTF8 encoded 'Text' using 'Builder'.
+-- | Write UTF8 encoded 'T.Text' using 'Builder'.
 --
 -- Note, if you're trying to write string literals builders,
 -- please open 'OverloadedStrings' and use 'Builder's 'IsString' instance,
 -- it will be rewritten into a memcpy.
-text :: Text -> TextBuilder ()
+text :: T.Text -> TextBuilder ()
 {-# INLINE text #-}
 text = TextBuilder . B.text
 
@@ -198,3 +214,11 @@ scientificWith :: B.FFormat
                -> TextBuilder ()
 {-# INLINE scientificWith #-}
 scientificWith fmt ds x = TextBuilder (B.scientificWith fmt ds x)
+
+--------------------------------------------------------------------------------
+
+class Format a where
+    fmt :: a -> TextBuilder ()
+
+fmt' :: Format a => a -> T.Text
+fmt' = buildText . fmt

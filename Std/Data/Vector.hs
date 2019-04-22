@@ -91,7 +91,7 @@ module Std.Data.Vector (
   , null
   , length
   , append
-  , map, map', imap'
+  , map, map', imap', traverseVector, traverseWithIndex
   , foldl', ifoldl', foldl1', foldl1Maybe'
   , foldr', ifoldr', foldr1', foldr1Maybe'
     -- ** Special folds

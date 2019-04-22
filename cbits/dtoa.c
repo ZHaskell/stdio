@@ -1,5 +1,5 @@
 /*
- * Copyright Winterland1989
+ * Copyright (c) 2017-2019 Dong Han
  * Copyright author of MathGeoLib (https://github.com/juj)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");

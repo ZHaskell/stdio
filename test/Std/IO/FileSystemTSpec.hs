@@ -26,17 +26,16 @@ spec = describe "filesystem (threadpool version) operations" $ do
             size = V.length content
             size2 = V.length content2
 
-        tempdir <- runIO $ mkdtemp "stdio-filesystem-unit"
-
         it "create a temp dir" $ do
-
+            tempdir <- mkdtemp "stdio-filesystem-unit"
             dirs <- scandir "./"
+            rmdir tempdir
             List.lookup tempdir dirs @?= Just DirEntDir
 
 
         let flags = O_RDWR .|. O_CREAT
             mode = DEFAULT_MODE
-            filename = tempdir <> "/test-file"
+            filename = "test-file"
 
         it "Opens and writes a file" $ do
             withResource (initUVFile filename flags mode) $ \ file -> do
@@ -79,18 +78,20 @@ spec = describe "filesystem (threadpool version) operations" $ do
                     firstLine  @=? fst (V.break (== V.c2w '\n') content2)
             unlink filename
 
-        let dirname  = tempdir <> "/test-dir"
 
         it "create and remove dir" $ do
+            tempdir <- mkdtemp "stdio-filesystem-unit"
+            let dirname  = tempdir <> "/test-dir"
             mkdir dirname mode
             dirs <- scandir tempdir
             print dirs
-            List.lookup "test-dir" dirs @?= Just DirEntDir
             rmdir dirname
+            rmdir tempdir
+            List.lookup "test-dir" dirs @?= Just DirEntDir
 
-        let linkname  = tempdir <> "/test-link"
-            symlinkname  = tempdir <> "/test-symlink"
-            symlinkname2  = tempdir <> "/test-symlink2"
+        let linkname  = "test-link"
+            symlinkname  = "test-symlink"
+            symlinkname2  = "test-symlink2"
 
         it "link stat should be equal to target file" $ do
 
@@ -143,4 +144,3 @@ spec = describe "filesystem (threadpool version) operations" $ do
                 uvtNanoSecond (stMtim s) @?= 800000000
             unlink filename
 
-        it "remove test temp dir" $ rmdir tempdir

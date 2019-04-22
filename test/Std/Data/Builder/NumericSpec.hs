@@ -228,3 +228,9 @@ spec = describe "builder numeric" . modifyMaxSuccess (*50) . modifyMaxSize (*50)
         prop "doubleWith === formatRealFloat" $ \ i l ->
             formatRealFloat FFExponent l i ===
                 (T.unpack . T.validate . B.buildBytes  $ B.doubleWith B.Exponent l i)
+
+    describe "grisu3, grisu3_sp === floatToDigits 10" $ do
+        prop "grisu3 === floatToDigits" $ \ (Positive f) ->
+            B.grisu3 f === floatToDigits 10 f
+        prop "grisu3_sp === floatToDigits" $ \ (Positive f) ->
+            B.grisu3_sp f === floatToDigits 10 f

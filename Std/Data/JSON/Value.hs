@@ -120,16 +120,16 @@ instance Arbitrary Value where
             i <- arbitrary :: Gen Word
             case (i `mod` 6) of
                 0 -> if d < s then Object . V.pack <$> listOf (arbitraryKV (d+1) s)
-                              else return Null
+                              else pure Null
                 1 -> if d < s then Array . V.pack <$> listOf (arbitraryValue (d+1) s)
-                              else return Null
+                              else pure Null
                 2 -> String <$> arbitrary
                 3 -> do
                     c <- arbitrary
                     e <- arbitrary
-                    return . Number $ scientific c e
+                    pure . Number $ scientific c e
                 4 -> Bool <$> arbitrary
-                _ -> return Null
+                _ -> pure Null
 
         arbitraryKV d s = (,) <$> arbitrary <*> arbitraryValue d s
 
@@ -162,7 +162,7 @@ parseValueChunks' mi inp = snd <$> P.parseChunks (value <* skipSpaces <* P.endOf
 --------------------------------------------------------------------------------
 
 -- | The only valid whitespace in a JSON document is space, newline,
--- carriage return, and tab.
+-- carriage pure, and tab.
 skipSpaces :: P.Parser ()
 {-# INLINE skipSpaces #-}
 skipSpaces = P.skipWhile (\ w -> w == 0x20 || w == 0x0a || w == 0x0d || w == 0x09)
@@ -206,7 +206,7 @@ array_ = do
         ch <- P.satisfy $ \w -> w == COMMA || w == CLOSE_SQUARE
         if ch == COMMA
         then skipSpaces *> loop acc' (n+1)
-        else return $! V.packRN n acc'  -- n start from 1, so no need to +1 here
+        else pure $! V.packRN n acc'  -- n start from 1, so no need to +1 here
 
 -- | parse json array with leading OPEN_CURLY.
 object :: P.Parser (V.Vector (T.Text, Value))
@@ -234,7 +234,7 @@ object_ = do
         ch <- P.satisfy $ \w -> w == COMMA || w == CLOSE_CURLY
         if ch == COMMA
         then skipSpaces *> loop acc' (n+1)
-        else return $! V.packRN n acc'  -- n start from 1, so no need to +1 here
+        else pure $! V.packRN n acc'  -- n start from 1, so no need to +1 here
 
 --------------------------------------------------------------------------------
 
@@ -255,8 +255,8 @@ string_ = do
                         withPrimVectorUnsafe bs (decode_json_string mba#))
                     !pa <- unsafeFreezePrimArray mpa
                     if len' >= 0
-                    then return (Just (T.Text (V.PrimVector pa 0 len')))  -- unescaping also validate utf8
-                    else return Nothing)
+                    then pure (Just (T.Text (V.PrimVector pa 0 len')))  -- unescaping also validate utf8
+                    else pure Nothing)
             3 -> Nothing    -- reject unescaped control characters
             _ -> T.validateMaybe bs
     case mt of
