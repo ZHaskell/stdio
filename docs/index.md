@@ -27,7 +27,7 @@ haskell-stdio is a self contained IO toolkit for Haskell (more specifically, GHC
     
         - [Std.Data.Parser](http://hackage.haskell.org/package/stdio/docs/Std-Data-Parser.html) `Parser` umbrella module, re-exports many things from following modules.
         - [Std.Data.Parser.Base](http://hackage.haskell.org/package/stdio/docs/Std-Data-Parser-Base.html) `Parser` monad type, basic parsers.
-        - [Std.Data.Builder.Numeric](http://hackage.haskell.org/package/stdio/docs/Std-Data-Builder-Numeric.html) Various numeric parsers.
+        - [Std.Data.Parser.Numeric](http://hackage.haskell.org/package/stdio/docs/Std-Data-Parser-Numeric.html) Various numeric parsers.
     
 2. IO related stuff:
 
