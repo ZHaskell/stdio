@@ -73,9 +73,35 @@ spec = describe "builder numeric" . modifyMaxSuccess (*50) . modifyMaxSize (*50)
         prop "padding roundtrip" $ \ i ->
             i === (read . T.unpack . T.validate . B.buildBytes $ B.intWith @Int f i)
 
+    describe "c_intWith == hs_intWith" $ do
+        prop "c_intWith == hs_intWith @Word" $ \ i f ->
+            (B.buildBytes $ B.hs_intWith f i) === (B.buildBytes $ B.c_intWith @Word f i)
+        prop "c_intWith == hs_intWith @Word8" $ \ i f ->
+            (B.buildBytes $ B.hs_intWith f i) === (B.buildBytes $ B.c_intWith @Word8 f i)
+        prop "c_intWith == hs_intWith @Word16" $ \ i f ->
+            (B.buildBytes $ B.hs_intWith f i) === (B.buildBytes $ B.c_intWith @Word16 f i)
+        prop "c_intWith == hs_intWith @Word32" $ \ i f ->
+            (B.buildBytes $ B.hs_intWith f i) === (B.buildBytes $ B.c_intWith @Word32 f i)
+        prop "c_intWith == hs_intWith @Word64" $ \ i f ->
+            (B.buildBytes $ B.hs_intWith f i) === (B.buildBytes $ B.c_intWith @Word64 f i)
+        prop "c_intWith == hs_intWith @Int" $ \ i f ->
+            (B.buildBytes $ B.hs_intWith f i) === (B.buildBytes $ B.c_intWith @Int f i)
+        prop "c_intWith == hs_intWith @Int8" $ \ i f ->
+            (B.buildBytes $ B.hs_intWith f i) === (B.buildBytes $ B.c_intWith @Int8 f i)
+        prop "c_intWith == hs_intWith @Int16" $ \ i f ->
+            (B.buildBytes $ B.hs_intWith f i) === (B.buildBytes $ B.c_intWith @Int16 f i)
+        prop "c_intWith == hs_intWith @Int32" $ \ i f ->
+            (B.buildBytes $ B.hs_intWith f i) === (B.buildBytes $ B.c_intWith @Int32 f i)
+        prop "c_intWith == hs_intWith @Int64" $ \ i f ->
+            (B.buildBytes $ B.hs_intWith f i) === (B.buildBytes $ B.c_intWith @Int64 f i)
+
     describe "integer roundtrip" $ do
         prop "integer roundtrip" $ \ i ->
             i === (read . T.unpack . T.validate . B.buildBytes $ B.integer i)
+        prop "integer roundtrip II" $
+            -- there're an issue with leading zeros in front of an block, so we add a case manually here
+            (2132132100000000000000000000000000213213 :: Integer) ===
+                (read . T.unpack . T.validate . B.buildBytes $ B.integer 2132132100000000000000000000000000213213)
 
     describe "scientific roundtrip" $ do
         prop "scientific roundtrip" $ \ c e ->
@@ -181,23 +207,22 @@ spec = describe "builder numeric" . modifyMaxSuccess (*50) . modifyMaxSize (*50)
             show i === (T.unpack . T.validate . B.buildBytes $ B.int @Int8 i)
 
     describe "intWith === printf" $ do
-        prop "int === printf" $ \ i ->
+        prop "int === printf %d" $ \ i ->
             printf "%d" i ===
                 (T.unpack . T.validate . B.buildBytes $ B.intWith @Int B.defaultIFormat i)
-        prop "int === printf" $ \ i (Positive w) ->
+        prop "int === printf %xxd" $ \ i (Positive w) ->
             printf ("%" ++ show w ++ "d") i ===
                 (T.unpack . T.validate . B.buildBytes $ B.intWith @Int B.defaultIFormat
                     {B.padding = B.LeftSpacePadding, B.width = w} i)
-        prop "int === printf" $ \ i (Positive w) ->
+        prop "int === printf %0xxd" $ \ i (Positive w) ->
             printf ("%0" ++ show w ++ "d") i ===
                 (T.unpack . T.validate . B.buildBytes $ B.intWith @Int B.defaultIFormat
                     {B.padding = B.ZeroPadding, B.width = w} i)
-        prop "int === printf" $ \ i (Positive w) ->
+        prop "int === printf %-xx%" $ \ i (Positive w) ->
             printf ("%-" ++ show w ++ "d") i ===
                 (T.unpack . T.validate . B.buildBytes $ B.intWith @Int B.defaultIFormat
                     {B.padding = B.RightSpacePadding, B.width = w} i)
-
-        prop "int === printf" $ \ i ->
+        prop "hex === printf %08x" $ \ i ->
             printf "%08x" i ===
                 (T.unpack . T.validate . B.buildBytes $ B.hex @Int32 i)
 

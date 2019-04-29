@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP                   #-}
+{-# LANGUAGE BangPatterns          #-}
 {-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE DefaultSignatures     #-}
 {-# LANGUAGE DeriveAnyClass        #-}
@@ -34,6 +35,7 @@ Portability : non-portable
 module Std.Data.JSON.Base where
 
 import           Control.Applicative
+import           Control.DeepSeq
 import           Control.Monad
 import qualified Control.Monad.Fail           as Fail
 import           Control.Monad.ST
@@ -111,13 +113,14 @@ data PathElement
         -- array, \"array[index]\".
     | EmbeddedJSON
         -- ^ JSON path of a embedded JSON String
-  deriving (Eq, Show, Typeable, Ord)
+  deriving (Eq, Show, Typeable, Ord, Generic, NFData)
 
 type Path = [PathElement]
 
 data Result r
     = Success r
     | Failure Path T.Text
+  deriving (Generic, NFData)
 
 instance Show r => Show (Result r) where
     -- TODO use standard format
@@ -137,9 +140,9 @@ instance Show r => Show (Result r) where
 newtype Parser a = Parser { runParser :: forall r. (Path -> T.Text -> r) -> (a -> r) -> r }
 
 -- | Run a 'Parser' with input value.
-parseEither :: (a -> Parser r) -> a -> Result r
+parseEither :: (a -> Parser r) -> a -> Either (Path, T.Text) r
 {-# INLINE parseEither #-}
-parseEither m v = runParser (m v) Failure Success
+parseEither m v = case runParser (m v) Failure Success
 
 instance Functor Parser where
     fmap f m = Parser (\ kf k -> runParser m kf (k . f))
@@ -895,6 +898,31 @@ instance FromJSON a => FromJSON (FIM.FlatIntMap a) where
                     v' <- fromJSON v <?> Key k
                     return (V.IPair k' v')
                 _ -> fail' ("parsing Std.Data.Vector.FlatIntMap.FlatIntMap failed, unexpected key " <> k))
+instance ToJSON a => ToJSON (FIM.FlatIntMap a) where
+    {-# INLINE toJSON #-}
+    toJSON = Object . V.map' toKV . FIM.sortedKeyValues
+      where toKV (V.IPair i x) = let !k = TB.buildText (TB.int i)
+                                     !v = toJSON x
+                                 in (k, v)
+instance EncodeJSON a => EncodeJSON (FIM.FlatIntMap a) where
+    {-# INLINE encodeJSON #-}
+    encodeJSON m = do
+        let ips = FIM.sortedKeyValues m
+        B.encodePrim @Word8 OPEN_CURLY
+        forM_ (V.initMayEmpty ips) $ \ (V.IPair i x) -> do
+            B.encodePrim @Word8 DOUBLE_QUOTE
+            B.int i
+            B.encodePrim @Word8 DOUBLE_QUOTE
+            B.encodePrim @Word8 COLON
+            encodeJSON x
+            B.encodePrim @Word8 COMMA
+        forM_ (V.lastMaybe ips) $ \ (V.IPair i x) -> do
+            B.encodePrim @Word8 DOUBLE_QUOTE
+            B.int i
+            B.encodePrim @Word8 DOUBLE_QUOTE
+            B.encodePrim @Word8 COLON
+            encodeJSON x
+        B.encodePrim @Word8 CLOSE_CURLY
 
 instance FromJSON FIS.FlatIntSet where
     {-# INLINE fromJSON #-}
@@ -953,10 +981,9 @@ instance FromJSON a => FromJSON (NonEmpty a) where
         case l of (x:xs) -> pure (x :| xs)
                   _      -> fail' "unexpected empty array"
 
-
-instance FromJSON Bool where
-    {-# INLINE fromJSON #-}
-    fromJSON = withBool "Bool" pure
+instance FromJSON Bool where {{-# INLINE fromJSON #-}; fromJSON = withBool "Bool" pure;}
+instance ToJSON Bool where {{-# INLINE toJSON #-}; toJSON = Bool; }
+instance EncodeJSON Bool where {{-# INLINE encodeJSON #-}; encodeJSON True = "true"; encodeJSON _ = "false";}
 
 instance FromJSON Char where
     {-# INLINE fromJSON #-}
@@ -1048,6 +1075,12 @@ instance FromJSON () where
         if V.null v
         then pure ()
         else fail' "parsing () failed, expected an empty array"
+instance ToJSON () where
+    {-# INLINE toJSON #-}
+    toJSON () = Array V.empty
+instance EncodeJSON () where
+    {-# INLINE encodeJSON #-}
+    encodeJSON () = "[]"
 
 instance FromJSON Version where
     {-# INLINE fromJSON #-}

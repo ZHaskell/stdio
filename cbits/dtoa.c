@@ -365,3 +365,88 @@ HsInt grisu3_sp(float v, char *buffer, HsInt *length, HsInt *d_exp)
     *d_exp = kappa - mk;
     return (HsInt)success;
 }
+
+////////////////////////////////////////////////////////////////////////////////
+
+static const char* digits = "0123456789abcdef";
+
+// convert a positive uint64_t to ascii digits, with following params
+// sign: 
+//  -1: negative 
+//  0: non-negative
+//  1: non-negative with show positive sign options
+// width: value smaller than necessary will be ignored
+// pad:
+//   0: no padding 
+//   1: right space padding 
+//   2: left space padding
+//   3: left zero padding
+// ba, off: buffer bytearray and offset
+// buffer must be guaranteed to be have max(width, 21) bytes left for (sign + digits)
+//
+// return: new offset for next writing
+HsInt c_int_dec (uint64_t x, HsInt sign, HsInt width, uint8_t pad, char* ba, HsInt off)
+{
+    // writing from the right end
+    char *start = ba + off, *end = start + (width > 21 ? width : 21), *p = end, *q = start;
+    uint64_t mod;
+
+    // encode positive number as little-endian decimal
+    do {
+        mod = x % 10;
+        x = x / 10;
+        *(--p) = digits[mod];
+    } while ( x );
+
+    switch(pad){
+        // no padding, copy to left part
+        case 0:
+            if (sign != 0) *(q++) = (sign == -1 ? '-' : '+');
+            if (q < p) {
+                do {
+                    *(q++) = *(p++);
+                } while (p < end);
+                return (q - start) + off;
+            } else return (end - start) + off;
+        // write right space paddings
+        case 1:
+            if (sign != 0) *(q++) = (sign == -1 ? '-' : '+');
+            if (q < p) {
+                do {
+                    *(q++) = *(p++);
+                } while (p < end);
+                while (q < start + width) {
+                    *(q++) = ' ';
+                }
+                return (q - start) + off;
+            } else return (end - start) + off;
+        // write left space paddings
+        case 2:
+            if (sign != 0) *(--p) = (sign == -1 ? '-' : '+');
+            while (p > end - width){
+                *(--p) = ' ';
+            }
+            if (q < p) {
+                do {
+                    *(q++) = *(p++);
+                } while (p < end);
+                return (q - start) + off;
+            } else return (end - start) + off;
+        // write left zero paddings
+        //case 3:
+        default:
+            if (sign != 0) {
+                *(q++) = (sign == -1 ? '-' : '+');
+                // we have to make one byte's room for the sign
+                while (p > end - width + 1) *(--p) = '0';
+            } else  {
+                while (p > end - width) *(--p) = '0';
+            }
+            if (q < p) {
+                do {
+                    *(q++) = *(p++);
+                } while (p < end);
+                return (q - start) + off;
+            } else return (end -start) + off;
+    } 
+}
