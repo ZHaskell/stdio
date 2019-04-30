@@ -70,7 +70,8 @@ import           GHC.Natural
 import           GHC.TypeNats
 import qualified Std.Data.Builder             as B
 import           Std.Data.Generics.Utils
-import           Std.Data.JSON.Value
+import           Std.Data.JSON.Value          (Value(..))
+import qualified Std.Data.JSON.Value          as JV
 import qualified Std.Data.JSON.Value.Builder  as JB
 import qualified Std.Data.Parser              as P
 import qualified Std.Data.Parser.Numeric      as P
@@ -95,11 +96,59 @@ import           Text.ParserCombinators.ReadP (readP_to_S)
 
 --------------------------------------------------------------------------------
 
-parse :: FromJSON a => V.Bytes -> Result a
-parse = undefined
+-- There're two possible failures here:
+--
+--   * 'P.ParseError' is an error during parsing bytes to 'Value'.
+--   * 'ConvertError' is an error when converting 'Value' to target data type.
+type DecodeError = Either P.ParseError ConvertError
 
-parseChunks :: (FromJSON a, Monad m) => m V.Bytes -> V.Bytes -> m (V.Bytes, Result a)
-parseChunks = undefined
+-- | Decode a JSON doc, only trailing JSON whitespace are allowed.
+--
+decode' :: FromJSON a => V.Bytes -> Either DecodeError a
+{-# INLINE decode' #-}
+decode' bs = case P.parse_ (JV.value <* JV.skipSpaces <* P.endOfInput) bs of
+    Left pErr -> Left (Left pErr)
+    Right v -> case convert fromJSON v of
+        Left cErr -> Left (Right cErr)
+        Right r -> Right r
+
+-- | Decode a JSON bytes, return any trailing bytes.
+decode :: FromJSON a => V.Bytes -> (V.Bytes, Either DecodeError a)
+{-# INLINE decode #-}
+decode bs = case P.parse JV.value bs of
+    (bs', Left pErr) -> (bs', Left (Left pErr))
+    (bs', Right v) -> case convert fromJSON v of
+        Left cErr -> (bs', Left (Right cErr))
+        Right r -> (bs', Right r)
+
+encodeBytes :: EncodeJSON a => a -> V.Bytes
+{-# INLINE encodeBytes #-}
+encodeBytes = B.buildBytes . encodeJSON
+
+encodeText :: EncodeJSON a => a -> T.Text
+{-# INLINE encodeText #-}
+encodeText = TB.buildText . TB.unsafeFromBuilder . encodeJSON
+
+-- | Decode a JSON doc chunks, return trailing bytes.
+decodeChunks :: (FromJSON a, Monad m) => m V.Bytes -> V.Bytes -> m (V.Bytes, Either DecodeError a)
+{-# INLINE decodeChunks #-}
+decodeChunks mb bs = do
+    mr <- (P.parseChunks JV.value mb bs)
+    case mr of
+        (bs', Left pErr) -> pure (bs', Left (Left pErr))
+        (bs', Right v) -> case convert fromJSON v of
+            Left cErr -> pure (bs', Left (Right cErr))
+            Right r -> pure (bs', Right r)
+
+-- | Run a 'Converter' with input value.
+convert :: (a -> Converter r) -> a -> Either ConvertError r
+{-# INLINE convert #-}
+convert m v = runConverter (m v) (\ paths msg -> (Left (ConvertError paths msg))) Right
+
+-- | Run a 'Converter' with input value.
+convert' :: (FromJSON a) => Value -> Either ConvertError a
+{-# INLINE convert' #-}
+convert' = convert fromJSON
 
 --------------------------------------------------------------------------------
 
@@ -111,88 +160,78 @@ data PathElement
     | Index {-# UNPACK #-} !Int
         -- ^ JSON path element of an index into an
         -- array, \"array[index]\".
-    | EmbeddedJSON
+    | Embedded
         -- ^ JSON path of a embedded JSON String
   deriving (Eq, Show, Typeable, Ord, Generic, NFData)
 
-type Path = [PathElement]
+data ConvertError = ConvertError { errPath :: [PathElement], errMsg :: T.Text } deriving (Eq, Ord, Generic, NFData)
 
-data Result r
-    = Success r
-    | Failure Path T.Text
-  deriving (Generic, NFData)
-
-instance Show r => Show (Result r) where
+instance Show ConvertError where
     -- TODO use standard format
-    show (Success r) = "Success " ++ show r
-    show (Failure paths msg) = T.unpack . TB.buildText $ do
-        "Failure <"
+    show (ConvertError paths msg) = T.unpack . TB.buildText $ do
+        "<"
         mapM_ renderPath (reverse paths)
         "> "
         TB.text msg
       where
         renderPath (Index ix) = TB.char7 '[' >> TB.int ix >> TB.char7 ']'
         renderPath (Key k) = TB.char7 '.' >> TB.text k
-        renderPath EmbeddedJSON = "<EmbeddedJSON>"
+        renderPath Embedded = "<Embedded>"
 
+-- | 'Converter' for convert result from JSON 'Value'.
+--
+-- This is intended to be named differently from 'P.Parser' to clear confusions.
+newtype Converter a = Converter { runConverter :: forall r. ([PathElement] -> T.Text -> r) -> (a -> r) -> r }
 
--- | 'Parser' for parsing result from JSON 'Value'.
-newtype Parser a = Parser { runParser :: forall r. (Path -> T.Text -> r) -> (a -> r) -> r }
-
--- | Run a 'Parser' with input value.
-parseEither :: (a -> Parser r) -> a -> Either (Path, T.Text) r
-{-# INLINE parseEither #-}
-parseEither m v = case runParser (m v) Failure Success
-
-instance Functor Parser where
-    fmap f m = Parser (\ kf k -> runParser m kf (k . f))
+instance Functor Converter where
+    fmap f m = Converter (\ kf k -> runConverter m kf (k . f))
     {-# INLINE fmap #-}
 
-instance Applicative Parser where
-    pure a = Parser (\ _ k -> k a)
+instance Applicative Converter where
+    pure a = Converter (\ _ k -> k a)
     {-# INLINE pure #-}
-    (Parser f) <*> (Parser g) = Parser (\ kf k ->
+    (Converter f) <*> (Converter g) = Converter (\ kf k ->
         f kf (\ f' ->  g kf (k . f')))
     {-# INLINE (<*>) #-}
 
-instance Alternative Parser where
+instance Alternative Converter where
     {-# INLINE (<|>) #-}
-    (Parser f) <|> (Parser g) = Parser (\ kf k -> f (\ _ _ -> g kf k) k)
+    (Converter f) <|> (Converter g) = Converter (\ kf k -> f (\ _ _ -> g kf k) k)
     {-# INLINE empty #-}
     empty = fail' "Std.Data.JSON.Base(Alternative).empty"
 
-instance MonadPlus Parser where
+instance MonadPlus Converter where
     mzero = empty
     {-# INLINE mzero #-}
     mplus = (<|>)
     {-# INLINE mplus #-}
 
-instance Monad Parser where
-    (Parser f) >>= g = Parser (\ kf k ->
-        f kf (\ a -> runParser (g a) kf k))
+instance Monad Converter where
+    (Converter f) >>= g = Converter (\ kf k ->
+        f kf (\ a -> runConverter (g a) kf k))
     {-# INLINE (>>=) #-}
     return = pure
     {-# INLINE return #-}
     fail = Fail.fail
     {-# INLINE fail #-}
 
-instance Fail.MonadFail Parser where
+instance Fail.MonadFail Converter where
     {-# INLINE fail #-}
     fail = fail' . T.pack
 
 -- | 'T.Text' version of 'fail'.
-fail' :: T.Text -> Parser a
+fail' :: T.Text -> Converter a
 {-# INLINE fail' #-}
-fail' msg = Parser (\ kf _ -> kf [] msg)
+fail' msg = Converter (\ kf _ -> kf [] msg)
 
 --------------------------------------------------------------------------------
 
-typeMismatch :: T.Text     -- ^ The name of the type you are trying to parse.
+typeMismatch :: T.Text     -- ^ The name of the type you are trying to convert.
              -> T.Text     -- ^ The JSON value type you expecting to meet.
              -> Value      -- ^ The actual value encountered.
-             -> Parser a
+             -> Converter a
 typeMismatch name expected v =
-    fail' $ T.concat ["parsing ", name, " failed, expected ", expected, ", encountered ", actual]
+    fail' $ T.concat ["converting ", name, " failed, expected ", expected, ", encountered ", actual]
   where
     actual = case v of
         Object _ -> "Object"
@@ -202,10 +241,9 @@ typeMismatch name expected v =
         Bool _   -> "Boolean"
         Null     -> "Null"
 
-
--- | Add JSON Path context to a parser
+-- | Add JSON Path context to a converter
 --
--- When parsing a complex structure, it helps to annotate (sub)parsers
+-- When converting a complex structure, it helps to annotate (sub)converters
 -- with context, so that if an error occurs, you can find its location.
 --
 -- > withFlatMapR "Person" $ \o ->
@@ -217,26 +255,26 @@ typeMismatch name expected v =
 --
 -- With such annotations, if an error occurs, you will get a JSON Path
 -- location of that error.
-(<?>) :: Parser a -> PathElement -> Parser a
+(<?>) :: Converter a -> PathElement -> Converter a
 {-# INLINE (<?>) #-}
-(Parser p) <?> path = Parser (\ kf k -> p (kf . (path:)) k)
+(Converter p) <?> path = Converter (\ kf k -> p (kf . (path:)) k)
 infixl 9 <?>
 
 -- | Add context to a failure message, indicating the name of the structure
--- being parsed.
+-- being converted.
 --
 -- > prependContext "MyType" (fail "[error message]")
--- > -- Error: "parsing MyType failed, [error message]"
-prependContext :: T.Text -> Parser a -> Parser a
+-- > -- Error: "converting MyType failed, [error message]"
+prependContext :: T.Text -> Converter a -> Converter a
 {-# INLINE prependContext #-}
-prependContext name (Parser p) = Parser (\ kf k ->
-    p (\ paths msg -> kf paths (T.concat ["parsing ", name, " failed, ", msg])) k)
+prependContext name (Converter p) = Converter (\ kf k ->
+    p (\ paths msg -> kf paths (T.concat ["converting ", name, " failed, ", msg])) k)
 
-fromNull :: T.Text -> a -> Value -> Parser a
+fromNull :: T.Text -> a -> Value -> Converter a
 fromNull _ a Null = pure a
 fromNull c _ v    = typeMismatch c "Null" v
 
-withBool :: T.Text -> (Bool -> Parser a) -> Value ->  Parser a
+withBool :: T.Text -> (Bool -> Converter a) -> Value ->  Converter a
 {-# INLINE withBool #-}
 withBool _    f (Bool x)  = f x
 withBool name f v         = typeMismatch name "Bool" v
@@ -253,18 +291,18 @@ withBool name f v         = typeMismatch name "Bool" v
 -- ==== Error message example
 --
 -- > withScientific "MyType" f (String "oops")
--- > -- Error: "parsing MyType failed, expected Number, but encountered String"
-withScientific :: T.Text -> (Scientific -> Parser a) -> Value ->  Parser a
+-- > -- Error: "converting MyType failed, expected Number, but encountered String"
+withScientific :: T.Text -> (Scientific -> Converter a) -> Value ->  Converter a
 {-# INLINE withScientific #-}
 withScientific _    f (Number x)  = f x
 withScientific name f v           = typeMismatch name "Number" v
 
--- | @'withRealFloat' try to parse floating number with following rules:
+-- | @'withRealFloat' try to convert floating number with following rules:
 --
 --   * Use @±Infinity@ to represent out of range numbers.
---   * Parse @Null@ as @NaN@
+--   * Convert @Null@ as @NaN@
 --
-withRealFloat :: RealFloat a => T.Text -> (a -> Parser r) -> Value -> Parser r
+withRealFloat :: RealFloat a => T.Text -> (a -> Converter r) -> Value -> Converter r
 {-# INLINE withRealFloat #-}
 withRealFloat _    f (Number s) = f (Scientific.toRealFloat s)
 withRealFloat _    f Null       = f (0/0)
@@ -272,12 +310,12 @@ withRealFloat name f v          = typeMismatch name "Number or Null" v
 
 -- | @'withBoundedScientific' name f value@ applies @f@ to the 'Scientific' number
 -- when @value@ is a 'Number' with exponent less than or equal to 1024.
-withBoundedScientific :: T.Text -> (Scientific -> Parser a) -> Value ->  Parser a
+withBoundedScientific :: T.Text -> (Scientific -> Converter a) -> Value ->  Converter a
 {-# INLINE withBoundedScientific #-}
 withBoundedScientific name f (Number x)
     | e <= 1024 = f x
     | otherwise = fail' . TB.buildText $ do
-        "parsing "
+        "converting "
         TB.text name
         " failed, found a number with exponent "
         TB.int e
@@ -287,67 +325,68 @@ withBoundedScientific name f v = typeMismatch name "Number" v
 
 -- | @'withBoundedScientific' name f value@ applies @f@ to the 'Scientific' number
 -- when @value@ is a 'Number' and value is within @minBound ~ maxBound@.
-withBoundedIntegral :: (Bounded a, Integral a) => T.Text -> (a -> Parser r) -> Value -> Parser r
+withBoundedIntegral :: (Bounded a, Integral a) => T.Text -> (a -> Converter r) -> Value -> Converter r
 {-# INLINE withBoundedIntegral #-}
 withBoundedIntegral name f (Number x) =
     case toBoundedInteger x of
         Just i -> f i
         _      -> fail' . TB.buildText $ do
-            "parsing "
+            "converting "
             TB.text name
             "failed, value is either floating or will cause over or underflow "
             TB.scientific x
 withBoundedIntegral name f v = typeMismatch name "Number" v
 
-withText :: T.Text -> (T.Text -> Parser a) -> Value -> Parser a
+withText :: T.Text -> (T.Text -> Converter a) -> Value -> Converter a
 {-# INLINE withText #-}
 withText _    f (String x)  = f x
 withText name f v           = typeMismatch name "String" v
 
-withArray :: T.Text -> (V.Vector Value -> Parser a) -> Value -> Parser a
+withArray :: T.Text -> (V.Vector Value -> Converter a) -> Value -> Converter a
 {-# INLINE withArray #-}
 withArray _ f (Array arr)  = f arr
 withArray name f v         = typeMismatch name "Array" v
 
--- | Directly use 'Object' as key-values for further parsing.
-withKeyValues :: T.Text -> (V.Vector (T.Text, Value) -> Parser a) -> Value -> Parser a
+-- | Directly use 'Object' as key-values for further converting.
+withKeyValues :: T.Text -> (V.Vector (T.Text, Value) -> Converter a) -> Value -> Converter a
 {-# INLINE withKeyValues #-}
 withKeyValues _    f (Object kvs) = f kvs
 withKeyValues name f v            = typeMismatch name "Object" v
 
 -- | Take a 'Object' as an 'FM.FlatMap T.Text Value', on key duplication prefer first one.
-withFlatMap :: T.Text -> (FM.FlatMap T.Text Value -> Parser a) -> Value -> Parser a
+withFlatMap :: T.Text -> (FM.FlatMap T.Text Value -> Converter a) -> Value -> Converter a
 {-# INLINE withFlatMap #-}
 withFlatMap _    f (Object obj) = f (FM.packVector obj)
 withFlatMap name f v            = typeMismatch name "Object" v
 
 -- | Take a 'Object' as an 'FM.FlatMap T.Text Value', on key duplication prefer last one.
-withFlatMapR :: T.Text -> (FM.FlatMap T.Text Value -> Parser a) -> Value -> Parser a
+withFlatMapR :: T.Text -> (FM.FlatMap T.Text Value -> Converter a) -> Value -> Converter a
 {-# INLINE withFlatMapR #-}
 withFlatMapR _    f (Object obj) = f (FM.packVectorR obj)
 withFlatMapR name f v            = typeMismatch name "Object" v
 
 -- | Take a 'Object' as an 'HM.HashMap T.Text Value', on key duplication prefer first one.
-withHashMap :: T.Text -> (HM.HashMap T.Text Value -> Parser a) -> Value -> Parser a
+withHashMap :: T.Text -> (HM.HashMap T.Text Value -> Converter a) -> Value -> Converter a
 {-# INLINE withHashMap #-}
 withHashMap _    f (Object obj) = f (HM.fromList (V.unpackR obj))
 withHashMap name f v            = typeMismatch name "Object" v
 
 -- | Take a 'Object' as an 'HM.HashMap T.Text Value', on key duplication prefer last one.
-withHashMapR :: T.Text -> (HM.HashMap T.Text Value -> Parser a) -> Value -> Parser a
+withHashMapR :: T.Text -> (HM.HashMap T.Text Value -> Converter a) -> Value -> Converter a
 {-# INLINE withHashMapR #-}
 withHashMapR _    f (Object obj) = f (HM.fromList (V.unpack obj))
 withHashMapR name f v            = typeMismatch name "Object" v
 
 -- | Decode a nested JSON-encoded string.
 withEmbeddedJSON :: T.Text                  -- ^ data type name
-                 -> (Value -> Parser a)     -- ^ a inner parser which will get the parsed 'Value'.
-                 -> Value -> Parser a       -- a parser take a JSON String
+                 -> (Value -> Converter a)     -- ^ a inner converter which will get the converted 'Value'.
+                 -> Value -> Converter a       -- a converter take a JSON String
 {-# INLINE withEmbeddedJSON #-}
-withEmbeddedJSON name innerParser (String txt) = Parser (\ kf k ->
-        case parse (T.getUTF8Bytes txt) of
-            Success v -> runParser (innerParser v) (\ paths msg -> kf (EmbeddedJSON:paths) msg) k
-            Failure paths msg -> kf paths (T.concat ["parsing ", name, "failed, ", msg]))
+withEmbeddedJSON name innerConverter (String txt) = Converter (\ kf k ->
+        case decode' (T.getUTF8Bytes txt) of
+            Right v -> runConverter (innerConverter v) (\ paths msg -> kf (Embedded:paths) msg) k
+            Left (Left pErr) -> kf [] (T.intercalate ", " ("parsing embeded JSON failed ": pErr))
+            _                -> error "Std.JSON.Base: impossible, converting to Value should not fail")
 withEmbeddedJSON name _ v = typeMismatch name "String" v
 
 -- | Retrieve the value associated with the given key of an 'Object'.
@@ -357,9 +396,9 @@ withEmbeddedJSON name _ v = typeMismatch name "String" v
 -- This accessor is appropriate if the key and value /must/ be present
 -- in an object for it to be valid.  If the key and value are
 -- optional, use '.:?' instead.
-(.:) :: (FromJSON a) => FM.FlatMap T.Text Value -> T.Text -> Parser a
+(.:) :: (FromJSON a) => FM.FlatMap T.Text Value -> T.Text -> Converter a
 {-# INLINE (.:) #-}
-(.:) = parseField fromJSON
+(.:) = convertField fromJSON
 
 -- | Retrieve the value associated with the given key of an 'Object'. The
 -- result is 'Nothing' if the key is not present or if its value is 'Null',
@@ -368,38 +407,39 @@ withEmbeddedJSON name _ v = typeMismatch name "String" v
 -- This accessor is most useful if the key and value can be absent
 -- from an object without affecting its validity.  If the key and
 -- value are mandatory, use '.:' instead.
-(.:?) :: (FromJSON a) => FM.FlatMap T.Text Value -> T.Text -> Parser (Maybe a)
+(.:?) :: (FromJSON a) => FM.FlatMap T.Text Value -> T.Text -> Converter (Maybe a)
 {-# INLINE (.:?) #-}
-(.:?) = parseFieldMaybe fromJSON
+(.:?) = convertFieldMaybe fromJSON
 
 -- | Retrieve the value associated with the given key of an 'Object'.
 -- The result is 'Nothing' if the key is not present or 'empty' if the
 -- value cannot be converted to the desired type.
 --
--- This differs from '.:?' by attempting to parse 'Null' the same as any
+-- This differs from '.:?' by attempting to convert 'Null' the same as any
 -- other JSON value, instead of interpreting it as 'Nothing'.
-(.:!) :: (FromJSON a) => FM.FlatMap T.Text Value -> T.Text -> Parser (Maybe a)
+(.:!) :: (FromJSON a) => FM.FlatMap T.Text Value -> T.Text -> Converter (Maybe a)
 {-# INLINE (.:!) #-}
-(.:!) = parseFieldMaybe' fromJSON
+(.:!) = convertFieldMaybe' fromJSON
 
-parseField :: (Value -> Parser a)  -- ^ the field parser (value part of a key value pair)
-           -> FM.FlatMap T.Text Value -> T.Text -> Parser a
-parseField p obj key = case FM.lookup key obj of
+convertField :: (Value -> Converter a)  -- ^ the field converter (value part of a key value pair)
+           -> FM.FlatMap T.Text Value -> T.Text -> Converter a
+{-# INLINE convertField #-}
+convertField p obj key = case FM.lookup key obj of
     Just v -> p v <?> Key key
     _      -> fail' (T.concat $ ["key ", key, " not present"])
 
--- | Variant of '.:?' with explicit parser function.
-parseFieldMaybe :: (Value -> Parser a) -> FM.FlatMap T.Text Value -> T.Text -> Parser (Maybe a)
-{-# INLINE parseFieldMaybe #-}
-parseFieldMaybe p obj key = case FM.lookup key obj of
+-- | Variant of '.:?' with explicit converter function.
+convertFieldMaybe :: (Value -> Converter a) -> FM.FlatMap T.Text Value -> T.Text -> Converter (Maybe a)
+{-# INLINE convertFieldMaybe #-}
+convertFieldMaybe p obj key = case FM.lookup key obj of
     Just Null -> pure Nothing
     Just v    -> Just <$> p v <?> Key key
     _         -> pure Nothing
 
--- | Variant of '.:!' with explicitliftParseJSON p (listParser p) parser function.
-parseFieldMaybe' :: (Value -> Parser a) -> FM.FlatMap T.Text Value -> T.Text -> Parser (Maybe a)
-{-# INLINE parseFieldMaybe' #-}
-parseFieldMaybe' p obj key = case FM.lookup key obj of
+-- | Variant of '.:!' with explicit converter function.
+convertFieldMaybe' :: (Value -> Converter a) -> FM.FlatMap T.Text Value -> T.Text -> Converter (Maybe a)
+{-# INLINE convertFieldMaybe' #-}
+convertFieldMaybe' p obj key = case FM.lookup key obj of
     Just v  -> Just <$> p v <?> Key key
     _       -> pure Nothing
 
@@ -666,12 +706,12 @@ instance GConstrEncodeJSON f => GEncodeJSON (D1 c f) where
 --------------------------------------------------------------------------------
 
 class FromJSON a where
-    fromJSON :: Value -> Parser a
-    default fromJSON :: (Generic a, GFromJSON (Rep a)) => Value -> Parser a
+    fromJSON :: Value -> Converter a
+    default fromJSON :: (Generic a, GFromJSON (Rep a)) => Value -> Converter a
     fromJSON v = to <$> gFromJSON defaultSetting v
 
 class GFromJSON f where
-    gFromJSON :: Settings -> Value -> Parser (f a)
+    gFromJSON :: Settings -> Value -> Converter (f a)
 
 
 --------------------------------------------------------------------------------
@@ -683,7 +723,7 @@ type family LookupTable f where
     LookupTable (S1 (MetaSel (Just l) u ss ds) f) = FM.FlatMap T.Text Value
 
 class GFromFields f where
-    gFromFields :: Settings -> LookupTable f -> Int -> Parser (f a)
+    gFromFields :: Settings -> LookupTable f -> Int -> Converter (f a)
 
 instance (ProductSize a, GFromFields a, GFromFields b, LookupTable a ~ LookupTable b)
     => GFromFields (a :*: b) where
@@ -727,7 +767,7 @@ instance FromJSON a => GFromJSON (K1 i a) where
     gFromJSON s x = K1 <$> fromJSON x
 
 class GBuildLookup f where
-    gBuildLookup :: Proxy# f -> Int -> T.Text -> Value -> Parser (LookupTable f)
+    gBuildLookup :: Proxy# f -> Int -> T.Text -> Value -> Converter (LookupTable f)
 
 instance (GBuildLookup a, GBuildLookup b) => GBuildLookup (a :*: b) where
     {-# INLINE gBuildLookup #-}
@@ -737,7 +777,7 @@ instance GBuildLookup (S1 (MetaSel Nothing u ss ds) f) where
     {-# INLINE gBuildLookup #-}
     gBuildLookup _ siz name (Array v)
         | siz' /= siz = fail' . TB.buildText $ do
-            "parsing "
+            "converting "
             TB.text name
             " failed, product size mismatch, expected "
             TB.int siz
@@ -751,7 +791,7 @@ instance GBuildLookup (S1 ((MetaSel (Just l) u ss ds)) f) where
     {-# INLINE gBuildLookup #-}
     gBuildLookup _ siz name (Object v)
         | siz' /= siz = fail' . TB.buildText $ do
-            "parsing "
+            "converting "
             TB.text name
             " failed, product size mismatch, expected "
             TB.int siz
@@ -766,7 +806,7 @@ instance GBuildLookup (S1 ((MetaSel (Just l) u ss ds)) f) where
 -- Constructors
 
 class GConstrFromJSON f where
-    gConstrFromJSON :: Bool -> Settings -> Value -> Parser (f a)
+    gConstrFromJSON :: Bool -> Settings -> Value -> Converter (f a)
 
 instance GConstrFromJSON V1 where
     {-# INLINE gConstrFromJSON #-}
@@ -781,7 +821,7 @@ instance (Constructor c) => GConstrFromJSON (C1 c U1) where
     {-# INLINE gConstrFromJSON #-}
     gConstrFromJSON _ s (String x)
         | cn == x   = pure (M1 U1)
-        | otherwise = fail' . T.concat $ ["parsing ", cn', "failed, unknown constructor name ", x]
+        | otherwise = fail' . T.concat $ ["converting ", cn', "failed, unknown constructor name ", x]
       where cn = constrFmt s $ conName (undefined :: t c U1 a)
             cn' = T.pack $ conName (undefined :: t c U1 a)
     gConstrFromJSON _ _ v = typeMismatch cn' "String" v
@@ -794,7 +834,7 @@ instance (Constructor c, GFromJSON (S1 sc f)) => GConstrFromJSON (C1 c (S1 sc f)
     gConstrFromJSON True s x = case x of
         Object v -> case V.indexM v 0 of
             Just (k, v') | k == cn -> M1 <$> gFromJSON s v' <?> Key cn
-            _                      -> fail' .T.concat $ ["parsing ", cn', " failed, constructor not found"]
+            _                      -> fail' .T.concat $ ["converting ", cn', " failed, constructor not found"]
         _ ->  typeMismatch cn' "Object" x
       where cn = constrFmt s $ conName (undefined :: t c f a)
             cn' = T.pack $ conName (undefined :: t c f a)
@@ -812,7 +852,7 @@ instance (ProductSize (a :*: b), GFromFields (a :*: b), GBuildLookup (a :*: b), 
         Object v -> case V.indexM v 0 of
             Just (k, v') | k == cn -> do t <- gBuildLookup p (productSize p) cn' v'
                                          M1 <$> gFromFields s t 0
-            _                      -> fail' .T.concat $ ["parsing ", cn', " failed, constructor not found"]
+            _                      -> fail' .T.concat $ ["converting ", cn', " failed, constructor not found"]
         _ ->  typeMismatch cn' "Object" x
       where cn = constrFmt s $ conName (undefined :: t c f a)
             cn' = T.pack $ conName (undefined :: t c f a)
@@ -897,7 +937,7 @@ instance FromJSON a => FromJSON (FIM.FlatIntMap a) where
                 Right k' -> do
                     v' <- fromJSON v <?> Key k
                     return (V.IPair k' v')
-                _ -> fail' ("parsing Std.Data.Vector.FlatIntMap.FlatIntMap failed, unexpected key " <> k))
+                _ -> fail' ("converting Std.Data.Vector.FlatIntMap.FlatIntMap failed, unexpected key " <> k))
 instance ToJSON a => ToJSON (FIM.FlatIntMap a) where
     {-# INLINE toJSON #-}
     toJSON = Object . V.map' toKV . FIM.sortedKeyValues
@@ -990,7 +1030,7 @@ instance FromJSON Char where
     fromJSON = withText "Char" $ \ t ->
         case T.headMaybe t of
             Just c -> pure c
-            _      -> fail' (T.concat ["parsing Char failed, expected a string of length 1"])
+            _      -> fail' (T.concat ["converting Char failed, expected a string of length 1"])
 instance ToJSON Char where
     {-# INLINE toJSON #-}
     toJSON = String . T.singleton
@@ -1044,7 +1084,7 @@ instance FromJSON Integer where
         case Scientific.floatingOrInteger n :: Either Double Integer of
             Right x -> pure x
             Left _  -> fail' . TB.buildText $ do
-                "parsing Integer failed, unexpected floating number "
+                "converting Integer failed, unexpected floating number "
                 TB.scientific n
 
 instance FromJSON Natural where
@@ -1052,12 +1092,12 @@ instance FromJSON Natural where
     fromJSON = withBoundedScientific "Natural" $ \ n ->
         if n < 0
         then fail' . TB.buildText $ do
-                "parsing Natural failed, unexpected negative number "
+                "converting Natural failed, unexpected negative number "
                 TB.scientific n
         else case Scientific.floatingOrInteger n :: Either Double Natural of
             Right x -> pure x
             Left _  -> fail' . TB.buildText $ do
-                "parsing Natural failed, unexpected floating number "
+                "converting Natural failed, unexpected floating number "
                 TB.scientific n
 
 instance FromJSON Ordering where
@@ -1066,7 +1106,7 @@ instance FromJSON Ordering where
             "LT" -> pure LT
             "EQ" -> pure EQ
             "GT" -> pure GT
-            _ -> fail' . T.concat $ ["parsing Ordering failed, unexpected ",
+            _ -> fail' . T.concat $ ["converting Ordering failed, unexpected ",
                                         s, " expected \"LT\", \"EQ\", or \"GT\""]
 
 instance FromJSON () where
@@ -1074,7 +1114,7 @@ instance FromJSON () where
     fromJSON = withArray "()" $ \ v ->
         if V.null v
         then pure ()
-        else fail' "parsing () failed, expected an empty array"
+        else fail' "converting () failed, expected an empty array"
 instance ToJSON () where
     {-# INLINE toJSON #-}
     toJSON () = Array V.empty
@@ -1088,7 +1128,7 @@ instance FromJSON Version where
       where
         go [(v,[])] = pure v
         go (_ : xs) = go xs
-        go _        = fail "parsing Version failed"
+        go _        = fail "converting Version failed"
 
 instance FromJSON a => FromJSON (Maybe a) where
     {-# INLINE fromJSON #-}

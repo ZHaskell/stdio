@@ -1,4 +1,5 @@
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Main (main) where
@@ -50,12 +51,11 @@ compareBench name a b = v `deepseq` bgroup name
   , bench "stdio-encode"   (nf encode' b)
   , group "fromJSON" (nf (fromJSON :: Value -> Result a) v)
                      (nf (fromJSON :: Value -> Result b) v)
-  , bench "stdio-fromJSON" (nf (decode' :: JSON.Value -> JSON.Result b) v')
+  , bench "stdio-fromJSON" (nf (JSON.convert' :: JSON.Value -> Either JSON.ConvertError b) v')
   ] where
     v = toJSON a  -- == toJSON b
     v' = JSON.toJSON b
     encode' = B.buildBytes . JSON.encodeJSON
-    decode' = JSON.parseEither (JSON.fromJSON)
 
 sanityCheck :: IO ()
 sanityCheck = do
@@ -86,11 +86,10 @@ check x = do
 check' :: (Show a, Eq a, JSON.FromJSON a, JSON.ToJSON a, JSON.EncodeJSON a)
       => a -> IO ()
 check' x = do
-    unless (Right x == (JSON.fromJSON . JSON.toJSON) x) $ fail $ "toJSON: " ++ show x
-    unless (Right x == (decode' . encode') x) $ fail $ "encode: " ++ show x
+    unless (Right x == (JSON.convert' . JSON.toJSON) x) $ fail $ "toJSON: " ++ show x
+    unless (Right x == (JSON.parse' . encode') x) $ fail $ "encode: " ++ show x
   where
     encode' = B.buildBytes . JSON.encodeJSON
-    decode' = JSON.parseEither (JSON.fromJSON)
 
 main :: IO ()
 main = do
