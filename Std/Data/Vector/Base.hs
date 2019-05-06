@@ -56,7 +56,7 @@ module Std.Data.Vector.Base (
   , null
   , length
   , append
-  , map, map', imap'
+  , map, map', imap', traverseVector, traverseWithIndex, traverseVector_, traverseWithIndex_
   , foldl', ifoldl', foldl1', foldl1Maybe'
   , foldr', ifoldr', foldr1', foldr1Maybe'
     -- ** Special folds
@@ -79,7 +79,7 @@ module Std.Data.Vector.Base (
   -- * Searching by equality
   , elem, notElem, elemIndex
   -- * Misc
-  , IPair(..)
+  , IPair(..), mapIPair'
   , defaultInitSize
   , chunkOverhead
   , defaultChunkSize
@@ -110,7 +110,6 @@ import           Data.Hashable.Lifted          (Hashable1(..), hashWithSalt1)
 import qualified Data.List                     as List
 import           Data.Maybe
 import           Data.Monoid                   (Monoid (..))
-import           Data.Word8                    (toLower)
 import qualified Data.CaseInsensitive          as CI
 import           Data.Primitive
 import           Data.Primitive.PrimArray
@@ -133,6 +132,7 @@ import           Prelude                       hiding (concat, concatMap,
                                                 foldl, foldl1, foldr, foldr1,
                                                 maximum, minimum, product, sum,
                                                 all, any, replicate, traverse)
+import           Test.QuickCheck.Arbitrary (Arbitrary(..), CoArbitrary(..))
 import           System.IO.Unsafe              (unsafeDupablePerformIO)
 
 import           Std.Data.Array
@@ -141,6 +141,8 @@ import           Std.Data.PrimArray.Cast
 
 -- | Typeclass for box and unboxed vectors, which are created by slicing arrays.
 --
+-- Instead of providing a generalized vector with polymorphric array field, we use this typeclass
+-- so that instances use concrete array type can unpack their array payload.
 class (Arr (MArray v) (IArray v) a) => Vec v a where
     -- | Vector's mutable array type
     type MArray v = (marr :: * -> * -> *) | marr -> v
@@ -277,7 +279,15 @@ instance F.Foldable Vector where
     sum = sum
 
 instance T.Traversable Vector where
-    traverse = traverse
+    {-# INLINE traverse #-}
+    traverse = traverseVector
+
+instance Arbitrary a => Arbitrary (Vector a) where
+    arbitrary = pack <$> arbitrary
+    shrink v = pack <$> shrink (unpack v)
+
+instance CoArbitrary a => CoArbitrary (Vector a) where
+    coarbitrary = coarbitrary . unpack
 
 instance Hashable a => Hashable (Vector a) where
     {-# INLINE hashWithSalt #-}
@@ -292,15 +302,21 @@ instance Hashable1 Vector where
             | i >= end  = salt
             | otherwise = go (h salt (indexArr arr i)) (i+1)
 
-traverse :: (Vec v a, Vec u b, Applicative f) => (a -> f b) -> v a -> f (u b)
-{-# INLINE [1] traverse #-}
-{-# RULES "traverse/ST" traverse = traverseST #-}
-{-# RULES "traverse/IO" traverse = traverseIO #-}
-traverse f v = packN (length v) <$> T.traverse f (unpack v)
+traverseVector :: (Vec v a, Vec u b, Applicative f) => (a -> f b) -> v a -> f (u b)
+{-# INLINE [1] traverseVector #-}
+{-# RULES "traverseVector/ST" forall f. traverseVector f = traverseWithIndexST (const f) #-}
+{-# RULES "traverseVector/IO" forall f. traverseVector f = traverseWithIndexIO (const f) #-}
+traverseVector f v = packN (length v) <$> T.traverse f (unpack v)
 
-traverseST :: forall v u a b s. (Vec v a, Vec u b) => (a -> ST s b) -> v a -> ST s (u b)
-{-# INLINE traverseST #-}
-traverseST f (Vec arr s l)
+traverseWithIndex :: (Vec v a, Vec u b, Applicative f) => (Int -> a -> f b) -> v a -> f (u b)
+{-# INLINE [1] traverseWithIndex #-}
+{-# RULES "traverseWithIndex/ST" traverseWithIndex = traverseWithIndexST #-}
+{-# RULES "traverseWithIndex/IO" traverseWithIndex = traverseWithIndexIO #-}
+traverseWithIndex f v = packN (length v) <$> zipWithM f [0..] (unpack v)
+
+traverseWithIndexST :: forall v u a b s. (Vec v a, Vec u b) => (Int -> a -> ST s b) -> v a -> ST s (u b)
+{-# INLINE traverseWithIndexST #-}
+traverseWithIndexST f (Vec arr s l)
     | l == 0    = return empty
     | otherwise = do
         marr <- newArr l
@@ -312,13 +328,13 @@ traverseST f (Vec arr s l)
     go !marr !i
         | i >= l = return ()
         | otherwise = do
-            x <- indexArrM arr i
-            writeArr marr i =<< f x
+            x <- indexArrM arr (i+s)
+            writeArr marr i =<< f i x
             go marr (i+1)
 
-traverseIO :: forall v u a b. (Vec v a, Vec u b) => (a -> IO b) -> v a -> IO (u b)
-{-# INLINE traverseIO #-}
-traverseIO f (Vec arr s l)
+traverseWithIndexIO :: forall v u a b. (Vec v a, Vec u b) => (Int -> a -> IO b) -> v a -> IO (u b)
+{-# INLINE traverseWithIndexIO #-}
+traverseWithIndexIO f (Vec arr s l)
     | l == 0    = return empty
     | otherwise = do
         marr <- newArr l
@@ -330,9 +346,22 @@ traverseIO f (Vec arr s l)
     go !marr !i
         | i >= l = return ()
         | otherwise = do
-            x <- indexArrM arr i
-            writeArr marr i =<< f x
+            x <- indexArrM arr (i+s)
+            writeArr marr i =<< f i x
             go marr (i+1)
+
+traverseVector_ :: (Vec v a, Applicative f) => (a -> f b) -> v a -> f ()
+{-# INLINE traverseVector_ #-}
+traverseVector_ f = traverseWithIndex_ (\ _ x -> f x)
+
+traverseWithIndex_ :: (Vec v a, Applicative f) => (Int -> a -> f b) -> v a -> f ()
+{-# INLINE traverseWithIndex_ #-}
+traverseWithIndex_ f (Vec arr s l) = go s
+  where
+    end = s + l
+    go !i
+        | i >= l = pure ()
+        | otherwise = f (i-s) (indexArr arr i) *> go (i+1)
 
 --------------------------------------------------------------------------------
 -- | Primitive vector
@@ -421,6 +450,13 @@ instance (Prim a, Show a) => Show (PrimVector a) where
 instance (Prim a, Read a) => Read (PrimVector a) where
     readsPrec p str = [ (pack x, y) | (x, y) <- readsPrec p str ]
 
+instance (Prim a, Arbitrary a) => Arbitrary (PrimVector a) where
+    arbitrary = pack <$> arbitrary
+    shrink v = pack <$> shrink (unpack v)
+
+instance (Prim a, CoArbitrary a) => CoArbitrary (PrimVector a) where
+    coarbitrary = coarbitrary . unpack
+
 instance  {-# OVERLAPPABLE #-}  (Hashable a, Prim a) => Hashable (PrimVector a) where
     {-# INLINE hashWithSalt #-}
     -- we don't do a final hash with length to keep consistent with Bytes's instance
@@ -447,28 +483,31 @@ instance (a ~ Word8) => IsString (PrimVector a) where
 
 instance CI.FoldCase Bytes where
     {-# INLINE foldCase #-}
-    foldCase = map toLower
+    foldCase = map toLower8
+      where
+        toLower8 :: Word8 -> Word8
+        toLower8 w
+          |  65 <= w && w <=  90 ||
+            192 <= w && w <= 214 ||
+            216 <= w && w <= 222 = w + 32
+          | otherwise            = w
 
 packASCII :: String -> Bytes
-{-# INLINE CONLIKE [1] packASCII #-}
+{-# INLINE CONLIKE [0] packASCII #-}
 {-# RULES
-    "packASCII/packStringAddr" forall addr . packASCII (unpackCString# addr) = packStringAddr addr
+    "packASCII/packASCIIAddr" forall addr . packASCII (unpackCString# addr) = packASCIIAddr addr
   #-}
 packASCII = pack . fmap (fromIntegral . ord)
 
-packStringAddr :: Addr# -> Bytes
-{-# INLINABLE packStringAddr #-}
-packStringAddr addr# = validateAndCopy addr#
+packASCIIAddr :: Addr# -> Bytes
+packASCIIAddr addr# = copy addr#
   where
     len = fromIntegral . unsafeDupablePerformIO $ c_strlen addr#
-    valid = unsafeDupablePerformIO $ c_ascii_validate_addr addr# len
-    validateAndCopy addr#
-        | valid == 0 = pack . fmap (fromIntegral . ord) $ unpackCString# addr#
-        | otherwise = runST $ do
-            marr <- newPrimArray len
-            copyPtrToMutablePrimArray marr 0 (Ptr addr#) len
-            arr <- unsafeFreezePrimArray marr
-            return (PrimVector arr 0 len)
+    copy addr# = runST $ do
+        marr <- newPrimArray len
+        copyPtrToMutablePrimArray marr 0 (Ptr addr#) len
+        arr <- unsafeFreezePrimArray marr
+        return (PrimVector arr 0 len)
 
 -- | Conversion between 'Word8' and 'Char'. Should compile to a no-op.
 --
@@ -1187,7 +1226,35 @@ elemIndexBytes w (PrimVector (PrimArray ba#) s l) =
 --------------------------------------------------------------------------------
 
 -- | Index pair type to help GHC unpack in some loops, useful when write fast folds.
-data IPair a = IPair {-# UNPACK #-}!Int a
+data IPair a = IPair { ifst :: {-# UNPACK #-}!Int, isnd :: a } deriving (Show, Eq, Ord)
+
+instance (Arbitrary v) => Arbitrary (IPair v) where
+    arbitrary = iPairFromTuple <$> arbitrary
+    shrink v = iPairFromTuple <$> shrink (iPairToTuple v)
+
+instance (CoArbitrary v) => CoArbitrary (IPair v) where
+    coarbitrary = coarbitrary . iPairToTuple
+
+instance Functor IPair where
+    {-# INLINE fmap #-}
+    fmap f (IPair i v) = IPair i (f v)
+
+instance NFData a => NFData (IPair a) where
+    {-# INLINE rnf #-}
+    rnf (IPair _ a) = rnf a
+
+-- | Unlike 'Functor' instance, this mapping evaluate value inside 'IPair' strictly.
+mapIPair' :: (a -> b) -> IPair a -> IPair b
+{-# INLINE mapIPair' #-}
+mapIPair' f (IPair i v) = let !v' = f v in IPair i (f v)
+
+iPairToTuple :: IPair a -> (Int, a)
+{-# INLINE iPairToTuple #-}
+iPairToTuple (IPair i v) = (i, v)
+
+iPairFromTuple :: (Int, a) -> IPair a
+{-# INLINE iPairFromTuple #-}
+iPairFromTuple (i, v) = IPair i v
 
 -- | The chunk size used for I\/O. Currently set to @32k-chunkOverhead@
 defaultChunkSize :: Int

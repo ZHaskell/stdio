@@ -25,7 +25,9 @@ executable parser
                        bytestring,
                        cereal,
                        binary,
-                       store-core
+                       store-core,
+                       attoparsec
 
   hs-source-dirs:      .
   default-language:    Haskell2010
+  ghc-options:         -O

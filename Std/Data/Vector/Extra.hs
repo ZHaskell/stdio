@@ -54,12 +54,12 @@ module Std.Data.Vector.Extra (
   , tail
   , init
   , last
-  , index
+  , index, indexM
   , unsafeHead
   , unsafeTail
   , unsafeInit
   , unsafeLast
-  , unsafeIndex
+  , unsafeIndex, unsafeIndexM
   , unsafeTake
   , unsafeDrop
   ) where
@@ -268,6 +268,8 @@ dropAround f = dropWhile f . dropWhileR f
 
 
 -- | /O(n)/ Split the vector into the longest prefix of elements that do not satisfy the predicate and the rest without copying.
+--
+-- @break (==x)@ will be rewritten using a @memchr@.
 break :: Vec v a => (a -> Bool) -> v a -> (v a, v a)
 {-# INLINE break #-}
 break f vs@(Vec arr s l) =
@@ -277,9 +279,13 @@ break f vs@(Vec arr s l) =
     in (v1, v2)
 
 -- | /O(n)/ Split the vector into the longest prefix of elements that satisfy the predicate and the rest without copying.
+--
+-- @span (/=x)@ will be rewritten using a @memchr@.
 span :: Vec v a => (a -> Bool) -> v a -> (v a, v a)
-{-# INLINE span #-}
+{-# INLINE [1] span #-}
 span f = break (not . f)
+{-# RULES "spanNEq/breakEq1" forall w. span (w `neWord8`) = break (w `eqWord8`) #-}
+{-# RULES "spanNEq/breakEq2" forall w. span (`neWord8` w) = break (`eqWord8` w) #-}
 
 -- | 'breakR' behaves like 'break' but from the end of the vector.
 --
@@ -782,6 +788,14 @@ index :: (Vec v a, HasCallStack) => v a -> Int -> a
 index (Vec arr s l) i | i < 0 || i >= l = errorOutRange i
                       | otherwise       = arr `indexArr` (s + i)
 
+-- | /O(1)/ Index array element.
+--
+-- Throw 'IndexOutOfVectorRange' if index outside of the vector.
+indexM :: (Vec v a, Monad m, HasCallStack) => v a -> Int -> m a
+{-# INLINE indexM #-}
+indexM (Vec arr s l) i | i < 0 || i >= l = errorOutRange i
+                       | otherwise       = arr `indexArrM` (s + i)
+
 -- | /O(1)/ Extract the first element of a vector.
 --
 -- Make sure vector is non-empty, otherwise segmentation fault await!
@@ -816,6 +830,13 @@ unsafeLast (Vec arr s l) = assert (l > 0) (indexArr arr (s+l-1))
 unsafeIndex :: Vec v a => v a -> Int -> a
 {-# INLINE unsafeIndex #-}
 unsafeIndex (Vec arr s l) i = indexArr arr (s + i)
+
+-- | /O(1)/ Index array element.
+--
+-- Make sure index is in bound, otherwise segmentation fault await!
+unsafeIndexM :: (Vec v a, Monad m) => v a -> Int -> m a
+{-# INLINE unsafeIndexM #-}
+unsafeIndexM (Vec arr s l) i = indexArrM arr (s + i)
 
 -- | /O(1)/ 'take' @n@, applied to a vector @xs@, returns the prefix
 -- of @xs@ of length @n@.

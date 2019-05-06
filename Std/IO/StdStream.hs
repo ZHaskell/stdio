@@ -37,7 +37,7 @@ module Std.IO.StdStream
   , UVTTYMode(UV_TTY_MODE_NORMAL, UV_TTY_MODE_RAW)
   , setStdinTTYMode
   , stdin, stdout, stderr
-  , stdinBuf, stdoutBuf
+  , stdinBuf, stdoutBuf, stderrBuf
     -- * utils
   , printStd
   , readLineStd
@@ -139,6 +139,10 @@ stdoutBuf :: BufferedOutput StdStream
 {-# NOINLINE stdoutBuf #-}
 stdoutBuf = unsafePerformIO (newBufferedOutput stdout defaultChunkSize)
 
+stderrBuf :: BufferedOutput StdStream
+{-# NOINLINE stderrBuf #-}
+stderrBuf = unsafePerformIO (newBufferedOutput stderr defaultChunkSize)
+
 makeStdStream :: UVFD -> IO StdStream
 makeStdStream fd = do
     typ <- uv_guess_handle fd
@@ -166,19 +170,19 @@ setStdinTTYMode mode = case stdin of
 -- | print a 'Show' to stdout
 printStd :: Show a => a -> IO ()
 printStd s = do
-    writeBuffer stdoutBuf (B.buildBytes . B.stringUTF8 . show $ s)
+    writeBuilder stdoutBuf (B.stringUTF8 . show $ s)
     flushBuffer stdoutBuf
 
 -- | print a 'Builder' and flush to stdout.
 putStd :: Builder a -> IO ()
 putStd b = do
-    writeBuffer stdoutBuf (B.buildBytes b)
+    writeBuilder stdoutBuf b
     flushBuffer stdoutBuf
 
 -- | print a 'Builder' and flush to stdout stdout, with a linefeed.
 putLineStd :: Builder a -> IO ()
 putLineStd b = do
-    writeBuffer stdoutBuf (B.buildBytes $ b >> B.char8 '\n')
+    writeBuilder stdoutBuf (b >> B.char8 '\n')
     flushBuffer stdoutBuf
 
 -- | read a line from stdin

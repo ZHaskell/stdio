@@ -136,12 +136,17 @@ library
                             Std.Data.Vector.Search
                             Std.Data.Vector.Sort
                             Std.Data.Vector.QQ
+                            Std.Data.Vector.FlatIntMap
+                            Std.Data.Vector.FlatIntSet
+                            Std.Data.Vector.FlatMap
+                            Std.Data.Vector.FlatSet
                             Std.Data.PrimArray.Cast
                             Std.Data.PrimArray.QQ
                             Std.Data.PrimArray.BitTwiddle
                             Std.Data.PrimArray.UnalignedAccess
                             Std.Data.Array
                             Std.Data.Array.Checked
+                            -- Std.Data.Array.Compound
                             Std.Data.CBytes
 
                             Std.Data.Text
@@ -156,7 +161,9 @@ library
                             Std.Data.Builder.Base
                             Std.Data.Builder.Numeric
                             Std.Data.Builder.Numeric.DigitTable
-
+                            
+                            Std.Data.Generics.Utils
+                            
                             Std.Data.Parser
                             Std.Data.Parser.Base
                             Std.Data.Parser.Numeric
@@ -166,6 +173,10 @@ library
                             Std.Data.PrimSTRef.Base
 
                             Std.Data.LEON
+                            Std.Data.JSON
+                            Std.Data.JSON.Base
+                            Std.Data.JSON.Value
+                            Std.Data.JSON.Value.Builder
 
                             Std.Foreign.PrimArray
 
@@ -193,14 +204,16 @@ library
                         ,   ghc-prim  >= 0.5.3 && <= 0.5.4
                         ,   primitive >= 0.6.4 && <= 0.6.5
                         ,   exceptions == 0.10.*
-                        ,   word8      == 0.1.*
                         ,   scientific == 0.3.*
                         ,   hashable   == 1.2.*
                         ,   case-insensitive == 1.2.*
                         ,   time       >= 1.8 && < 2.0
                         ,   deepseq    >= 1.4 && < 1.5
+                        ,   QuickCheck >= 2.10
                         ,   template-haskell == 2.14.*
                         ,   stm        == 2.5.*
+                        ,   unordered-containers == 0.2.*
+                        ,   tagged     == 0.8.*
 
   if flag(integer-simple)
     cpp-options: -DINTEGER_SIMPLE
@@ -331,7 +344,7 @@ test-suite test
 
     other-modules:
         Std.Data.Builder.NumericSpec
-        Std.Data.CBytesSpec
+        Std.Data.JSON.ValueSpec
         Std.Data.Parser.BaseSpec
         Std.Data.Parser.NumericSpec
         Std.Data.PrimArray.UnalignedAccessSpec
@@ -342,10 +355,15 @@ test-suite test
         Std.Data.Vector.ExtraSpec
         Std.Data.Vector.SearchSpec
         Std.Data.Vector.SortSpec
+        Std.Data.Vector.FlatMapSpec 
+        Std.Data.Vector.FlatSetSpec
+        Std.Data.CBytesSpec
+        Std.Data.LEONSpec
         Std.IO.FileSystemSpec
         Std.IO.FileSystemTSpec
         Std.IO.LowResTimerSpec
         Std.IO.ResourceSpec
+        Std.IO.UDPSpec
 
 
   if flag(integer-simple)

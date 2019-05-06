@@ -4,6 +4,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE CPP #-}
 
 {-|
@@ -125,7 +126,9 @@ import           Data.Char          hiding (toLower, toUpper, toTitle)
 import           Data.Foldable            (foldlM)
 import           Data.Hashable            (Hashable(..))
 import qualified Data.List                as List
+import           Data.Monoid                   (Monoid (..))
 import           Data.Primitive.PrimArray
+import           Data.Semigroup                (Semigroup ((<>)))
 import           Data.Typeable
 import           Data.String              (IsString(..))
 import           Data.Word
@@ -134,7 +137,7 @@ import           GHC.Exts                 (build)
 import           GHC.Ptr
 import           GHC.Types
 import           GHC.Stack
-import           GHC.CString              (unpackCString#)
+import           GHC.CString              (unpackCString#, unpackCStringUtf8#)
 import           Std.Data.Array
 import           Std.Data.Text.UTF8Codec
 import           Std.Data.Text.UTF8Rewind
@@ -151,11 +154,13 @@ import           Prelude                       hiding (concat, concatMap,
                                                 maximum, minimum, product, sum,
                                                 all, any, replicate, traverse)
 
+import           Test.QuickCheck.Arbitrary (Arbitrary(..), CoArbitrary(..))
+
 -- | 'Text' represented as UTF-8 encoded 'Bytes'
 --
 newtype Text = Text
     { getUTF8Bytes :: Bytes -- ^ Extract UTF-8 encoded 'Bytes' from 'Text'
-    }
+    } deriving (Semigroup, Monoid)
 
 instance Eq Text where
     Text b1 == Text b2 = b1 == b2
@@ -174,6 +179,13 @@ instance Read Text where
 instance NFData Text where
     rnf (Text bs) = rnf bs
 
+instance Arbitrary Text where
+    arbitrary = pack <$> arbitrary
+    shrink a = pack <$> shrink (unpack a)
+
+instance CoArbitrary Text where
+    coarbitrary = coarbitrary . unpack
+
 instance Hashable Text where
     {-# INLINE hashWithSalt #-}
     hashWithSalt salt (Text bs) = hashWithSalt salt bs
@@ -182,14 +194,25 @@ instance IsString Text where
     {-# INLINE fromString #-}
     fromString = pack
 
-packStringAddr :: Addr# -> Text
-{-# INLINABLE packStringAddr #-}
-packStringAddr addr# = validateAndCopy addr#
+packASCIIAddr :: Addr# -> Text
+packASCIIAddr addr# = copy addr#
+  where
+    len = fromIntegral . unsafeDupablePerformIO $ c_strlen addr#
+    copy addr# = runST $ do
+        marr <- newPrimArray len
+        copyPtrToMutablePrimArray marr 0 (Ptr addr#) len
+        arr <- unsafeFreezePrimArray marr
+        return $ Text (PrimVector arr 0 len)
+
+packUTF8Addr :: Addr# -> Text
+packUTF8Addr addr# = validateAndCopy addr#
   where
     len = fromIntegral . unsafeDupablePerformIO $ c_strlen addr#
     valid = unsafeDupablePerformIO $ c_utf8_validate_addr addr# len
     validateAndCopy addr#
-        | valid == 0 = pack (unpackCString# addr#)
+        | valid == 0 = packN len (unpackCStringUtf8# addr#) -- three bytes surrogate -> three bytes replacement
+                                                        -- two bytes NUL -> \NUL
+                                                        -- the result's length will either smaller or equal
         | otherwise  = runST $ do
             marr <- newPrimArray len
             copyPtrToMutablePrimArray marr 0 (Ptr addr#) len
@@ -286,13 +309,12 @@ foreign import ccall unsafe "text.h utf8_validate_addr"
 
 -- | /O(n)/ Convert a string into a text
 --
--- Alias for @'packN' 'defaultInitSize'@.
+-- Alias for @'packN' 'defaultInitSize'@, will be rewritten to a memcpy if possible.
 pack :: String -> Text
 pack = packN V.defaultInitSize
-{-# INLINE CONLIKE [1] pack #-}
-{-# RULES
-    "pack/packStringAddr" forall addr . pack (unpackCString# addr) = packStringAddr addr
-  #-}
+{-# INLINE CONLIKE [0] pack #-}
+{-# RULES "pack/packASCIIAddr" forall addr . pack (unpackCString# addr) = packASCIIAddr addr #-}
+{-# RULES "pack/packUTF8Addr" forall addr . pack (unpackCStringUtf8# addr) = packUTF8Addr addr #-}
 
 -- | /O(n)/ Convert a list into a text with an approximate size(in bytes, not codepoints).
 --

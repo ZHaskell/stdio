@@ -20,12 +20,12 @@ import           Test.Hspec.QuickCheck
 
 
 parse' :: P.Parser a -> [Word8] -> Maybe a
-parse' p str = case P.parse p (V.pack str) of
+parse' p str = case P.parse_ p (V.pack str) of
     Left msg -> Nothing
     Right a  -> Just a
 
 parse'' :: P.Parser a -> [Word8] -> Maybe (V.Bytes, a)
-parse'' p str = case P.parse' p (V.pack str) of
+parse'' p str = case P.parse p (V.pack str) of
     (rest, Right a)  -> Just (rest, a)
     _                -> Nothing
 
@@ -69,11 +69,10 @@ spec = describe "parsers" . modifyMaxSuccess (*10) . modifyMaxSize (*10)  $ do
                     then Just (V.pack (L.drop n s), ())
                     else Nothing
 
-        prop "anyWord8" $ \ s ->
-            parse' ((,) <$> P.anyWord8 <*> P.takeWhile (const True)) s ===
+        prop "skipWord8" $ \ s ->
+            parse' (P.skipWord8 *> P.takeWhile (const True)) s ===
                 case s of [] -> Nothing
-                          (w:s') -> Just (w, V.pack s')
-
+                          (w:s') -> Just (V.pack s')
 
         prop "peek" $ \ s ->
             parse' ((,) <$> P.peek <*> P.takeWhile (const True)) s ===
@@ -101,15 +100,15 @@ spec = describe "parsers" . modifyMaxSuccess (*10) . modifyMaxSize (*10)  $ do
         prop "bytesCI" $ \ s t ->
             parse'' (P.bytesCI . V.pack $ t) (L.map toLower t ++ s) === Just (V.pack s, ())
 
-        prop "endOfInput" $ \ s ->
-            parse' P.endOfInput s ===
+        prop "atEnd" $ \ s ->
+            parse' P.atEnd s ===
                 case s of [] -> Just True
                           _  -> Just False
 
         prop "scan" $ \ s l ->
             let go l  _ | l <= 0    = Nothing
                         | otherwise = Just (l-1)
-            in parse' (P.scan l go) s === Just (V.pack $ L.take l s)
+            in (fst <$> parse' (P.scan l go) s) === Just (V.pack $ L.take l s)
 
         prop "endOfLine" $ \ s ->
             let r = fromIntegral (fromEnum '\r')

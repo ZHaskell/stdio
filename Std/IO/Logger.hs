@@ -61,7 +61,7 @@ import Std.IO.LowResTimer
 import Std.IO.StdStream
 import Std.IO.Buffered
 import System.IO.Unsafe (unsafePerformIO)
-import Data.Word8 (_space, _lf, _bracketleft, _bracketright)
+import Std.IO.Exception
 import Data.IORef
 import Control.Concurrent.MVar
 import qualified Std.Data.Builder.Base as B
@@ -78,8 +78,7 @@ data Logger = Logger
 
 -- | Logger configuration.
 data LoggerConfig = LoggerConfig
-    { loggerBufferSize       :: {-# UNPACK #-} !Int -- ^ Buffer size used when creating logger's 'BufferedOutput'
-    , loggerMinFlushInterval :: {-# UNPACK #-} !Int -- ^ Minimal flush interval, see Notes on 'debug'
+    { loggerMinFlushInterval :: {-# UNPACK #-} !Int -- ^ Minimal flush interval, see Notes on 'debug'
     , loggerTsCache          :: IO (B.Builder ())   -- ^ A IO action return a formatted date/time string
     , loggerLineBufSize      :: {-# UNPACK #-} !Int -- ^ Buffer size to build each log/line
     , loggerShowDebug        :: Bool                -- ^ Set to 'False' to filter debug logs
@@ -89,20 +88,25 @@ data LoggerConfig = LoggerConfig
 -- | A default logger config with
 --
 --   * debug ON
---   * data/time@%Y-%m-%dT%H:%M:%S%Z@ ON
 --   * 0.1s minimal flush interval
+--   * defaultTSCache
 --   * line buffer size 128 bytes
+--   * show debug True
+--   * show timestamp True
 --   * 'BufferedOutput' buffer size equals to 'V.defaultChunkSize'.
 defaultLoggerConfig :: LoggerConfig
-{-# NOINLINE defaultLoggerConfig #-}
-defaultLoggerConfig = unsafePerformIO $ do
-    tsCache <- throttle 1 $ do
+defaultLoggerConfig = LoggerConfig 1 defaultTSCache 128 True True
+
+-- | A default timestamp cache with format @%Y-%m-%dT%H:%M:%S%Z@
+defaultTSCache :: IO (B.Builder ())
+{-# NOINLINE defaultTSCache #-}
+defaultTSCache = unsafePerformIO $ do
+    throttle 1 $ do
         t <- Time.getCurrentTime
         return . B.string8 $
             Time.formatTime Time.defaultTimeLocale "%Y-%m-%dT%H:%M:%S%Z" t
-    return $ LoggerConfig V.defaultChunkSize 10 tsCache 128 True True
 
-flushLog :: Output o => MVar (BufferedOutput o) -> IORef [V.Bytes] -> IO ()
+flushLog :: (HasCallStack, Output o) => MVar (BufferedOutput o) -> IORef [V.Bytes] -> IO ()
 flushLog oLock bList =
     withMVar oLock $ \ o -> do
         bss <- atomicModifyIORef' bList (\ bss -> ([], bss))
@@ -112,11 +116,11 @@ flushLog oLock bList =
 -- | Make a new logger
 newLogger :: Output o
           => LoggerConfig
-          -> o
+          -> BufferedOutput o
           -> IO Logger
 newLogger config o = do
     bList <- newIORef []
-    oLock <- newMVar =<< newBufferedOutput o (loggerBufferSize config)
+    oLock <- newMVar o
     let flush = flushLog oLock bList
     throttledFlush <- throttleTrailing_ (loggerMinFlushInterval config) flush
     return $ Logger flush throttledFlush bList config
@@ -124,7 +128,7 @@ newLogger config o = do
 globalLogger :: IORef Logger
 {-# NOINLINE globalLogger #-}
 globalLogger = unsafePerformIO $
-    newIORef =<< newLogger defaultLoggerConfig stderr
+    newIORef =<< newLogger defaultLoggerConfig stderrBuf
 
 -- | Change stderr logger.
 setStdLogger :: Logger -> IO ()
@@ -187,15 +191,15 @@ otherLevelWith :: Logger
                -> B.Builder ()      -- ^ log content
                -> IO ()
 otherLevelWith logger level flushNow b = case logger of
-    (Logger flush throttledFlush blist (LoggerConfig _ _ tscache lbsiz showdebug showts)) -> do
+    (Logger flush throttledFlush blist (LoggerConfig _ tscache lbsiz showdebug showts)) -> do
         ts <- if showts then tscache else return ""
         when showdebug $ do
             pushLog blist lbsiz $ do
-                B.encodePrim _bracketleft
+                B.char8 '['
                 level
-                B.encodePrim _bracketright
-                B.encodePrim _space
-                when showts $ ts >> B.encodePrim _space
+                B.char8 ']'
+                B.char8 ' '
+                when showts $ ts >> B.char8 ' '
                 b
-                B.encodePrim _lf
+                B.char8 '\n'
             if flushNow then flush else throttledFlush

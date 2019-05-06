@@ -53,6 +53,11 @@ module Std.Data.Vector.Sort (
   , radixSort
   , Radix(..)
   , RadixDown(..)
+  -- * merge duplicated
+  , mergeDupAdjacent
+  , mergeDupAdjacentLeft
+  , mergeDupAdjacentRight
+  , mergeDupAdjacentBy
   ) where
 
 import           Control.Monad.ST
@@ -136,10 +141,10 @@ mergeSortBy cmp v@(Vec _ _ l)
                 then copyMutableArr target k' src j (rightEnd - j)
                 else mergeBlock src target leftEnd rightEnd i' j k'
 
--- | The mergesort tile size, @mergeTileSize = 16@.
+-- | The mergesort tile size, @mergeTileSize = 8@.
 mergeTileSize :: Int
 {-# INLINE mergeTileSize #-}
-mergeTileSize = 16
+mergeTileSize = 8
 
 -- | /O(n^2)/ Sort vector based on element's 'Ord' instance with simple
 -- <https://en.wikipedia.org/wiki/Insertion_sort insertion-sort> algorithm.
@@ -152,8 +157,8 @@ insertSort = insertSortBy compare
 
 insertSortBy :: Vec v a => (a -> a -> Ordering) -> v a -> v a
 {-# INLINE insertSortBy #-}
-insertSortBy _ v@(Vec _ _ 0) = empty
-insertSortBy _ v@(Vec arr s 1) = case indexArr' arr s of (# x #) -> singleton x
+insertSortBy _ v@(Vec _ _ 0) = v
+insertSortBy _ v@(Vec arr s 1) = v
 insertSortBy cmp v@(Vec arr s l) = create l (insertSortToMArr cmp v 0)
 
 insertSortToMArr  :: Vec v a
@@ -287,8 +292,8 @@ instance Radix a => Radix (RadixDown a) where
 -- vectors (turning point around 2^(2*passes)).
 radixSort :: forall v a. (Vec v a, Radix a) => v a -> v a
 {-# INLINABLE radixSort #-}
-radixSort v@(Vec _ _ 0) = empty
-radixSort v@(Vec arr s 1) = case indexArr' arr s of (# x #) -> singleton x
+radixSort v@(Vec _ _ 0) = v
+radixSort v@(Vec arr s 1) = v
 radixSort (Vec arr s l) = runST (do
         bucket <- newArrWith buktSiz 0 :: ST s (MutablePrimArray s Int)
         w1 <- newArr l
@@ -442,3 +447,55 @@ instance Radix RadixFloat where
 radixSortFloat :: PrimVector Float -> PrimVector Float
 radixSortFloat v =  castVector (radixSort (castVector v :: PrimVector RadixFloat))
 -}
+
+--------------------------------------------------------------------------------
+-- | merge duplicated adjacent element, prefer left element.
+--
+-- Use this function on a sorted vector will have the same effects as 'nub'.
+mergeDupAdjacent :: (Vec v a, Eq a) => v a -> v a
+{-# INLINE mergeDupAdjacent #-}
+mergeDupAdjacent = mergeDupAdjacentBy (==) const
+
+-- | Merge duplicated adjacent element, prefer left element.
+mergeDupAdjacentLeft :: Vec v a
+                     => (a -> a -> Bool)   -- ^ equality tester, @\ left right -> eq left right@
+                     -> v a
+                     -> v a
+mergeDupAdjacentLeft eq = mergeDupAdjacentBy eq const
+{-# INLINE mergeDupAdjacentLeft #-}
+
+-- | Merge duplicated adjacent element, prefer right element.
+mergeDupAdjacentRight :: Vec v a
+                      => (a -> a -> Bool)  -- ^ equality tester, @\ left right -> eq left right@
+                      -> v a
+                      -> v a
+{-# INLINE mergeDupAdjacentRight #-}
+mergeDupAdjacentRight eq = mergeDupAdjacentBy eq (\ _ x -> x)
+
+-- | Merge duplicated adjacent element, based on a equality tester and a merger function.
+mergeDupAdjacentBy :: Vec v a
+                   => (a -> a -> Bool)  -- ^ equality tester, @\ left right -> eq left right@
+                   -> (a -> a -> a)     -- ^ the merger, @\ left right -> merge left right@
+                   -> v a -> v a
+{-# INLINABLE mergeDupAdjacentBy #-}
+mergeDupAdjacentBy eq merger v@(Vec arr s l)
+    | l == 0 = empty
+    | l == 1 = v
+    | otherwise = createN l $ \ marr -> do
+        x0 <- indexArrM arr 0
+        writeArr marr 0 x0
+        go arr marr s 1 x0
+  where
+    !end = s + l
+    go !arr !marr !i !j !x
+        | i >= end  = return j
+        | otherwise = do
+            x' <- indexArrM arr i
+            if x `eq` x'
+            then do
+                let !x'' = merger x x'
+                writeArr marr (j-1) x''
+                go arr marr (i+1) j x''
+            else do
+                writeArr marr j x'
+                go arr marr (i+1) (j+1) x'

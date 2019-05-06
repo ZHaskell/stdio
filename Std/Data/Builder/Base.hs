@@ -80,7 +80,7 @@ import           Data.Semigroup                     (Semigroup (..))
 import           Data.String                        (IsString (..))
 import           Data.Word
 import           Data.Int
-import           GHC.CString                        (unpackCString#)
+import           GHC.CString                        (unpackCString#, unpackCStringUtf8#)
 import           GHC.Prim
 import           GHC.Ptr
 import           GHC.Types
@@ -90,6 +90,7 @@ import qualified Std.Data.Text.Base                 as T
 import qualified Std.Data.Text.UTF8Codec            as T
 import qualified Std.Data.Vector.Base               as V
 import           System.IO.Unsafe
+import           Test.QuickCheck.Arbitrary (Arbitrary(..), CoArbitrary(..))
 
 -- | 'AllocateStrategy' will decide how each 'BuildStep' proceed when previous buffer is not enough.
 --
@@ -120,6 +121,9 @@ type BuildStep s = Buffer s -> ST s [V.Bytes]
 --
 newtype Builder a = Builder
     { runBuilder :: forall s. AllocateStrategy s -> (a -> BuildStep s) -> BuildStep s}
+
+instance Show (Builder a) where
+    show = show . buildBytes
 
 instance Functor Builder where
     {-# INLINE fmap #-}
@@ -157,11 +161,21 @@ instance (a ~ ()) => IsString (Builder a) where
     {-# INLINE fromString #-}
     fromString = stringModifiedUTF8
 
+instance Arbitrary (Builder ()) where
+    arbitrary = bytes <$> arbitrary
+    shrink b = (bytes . V.pack) <$> shrink (V.unpack (buildBytes b))
+
+instance CoArbitrary (Builder ()) where
+    coarbitrary = coarbitrary . buildBytes
+
 -- | Encode string with modified UTF-8 encoding, will be rewritten to a memcpy if possible.
 stringModifiedUTF8 :: String -> Builder ()
-{-# INLINE CONLIKE [1] stringModifiedUTF8 #-}
+{-# INLINE CONLIKE [0] stringModifiedUTF8 #-}
 {-# RULES
-    "stringModifiedUTF8/addrLiteral" forall addr . stringModifiedUTF8 (unpackCString# addr) = addrLiteral addr
+    "stringModifiedUTF8/packAddrModified" forall addr . stringModifiedUTF8 (unpackCString# addr) = packAddrModified addr
+  #-}
+{-# RULES
+    "stringModifiedUTF8/packAddrModified" forall addr . stringModifiedUTF8 (unpackCStringUtf8# addr) = packAddrModified addr
   #-}
 stringModifiedUTF8 = mapM_ charModifiedUTF8
 
@@ -176,9 +190,8 @@ charModifiedUTF8 chr = do
         i' <- T.encodeCharModifiedUTF8 mba i chr
         k () (Buffer mba i'))
 
-addrLiteral :: Addr# -> Builder ()
-{-# INLINE addrLiteral #-}
-addrLiteral addr# = copy addr#
+packAddrModified :: Addr# -> Builder ()
+packAddrModified addr# = copy addr#
   where
     len = fromIntegral . unsafeDupablePerformIO $ V.c_strlen addr#
     copy addr# = do
@@ -256,18 +269,18 @@ insertChunk !chunkSiz !wantSiz k buffer@(Buffer buf offset) = do
     !siz <- A.sizeofMutableArr buf
     case () of
         _
-            | offset /= 0 -> do     -- this is certainly hold, but we still guard it
+            | offset /= 0 -> do
                 when (offset < siz)
                     (A.shrinkMutableArr buf offset)            -- shrink old buffer if not full
                 arr <- A.unsafeFreezeArr buf                   -- popup old buffer
                 buf' <- A.newArr (max wantSiz chunkSiz)        -- make a new buffer
-                xs <- unsafeInterleaveST (k (Buffer buf' 0))  -- delay the rest building process
+                xs <- unsafeInterleaveST (k (Buffer buf' 0))   -- delay the rest building process
                 let v = V.fromArr arr 0 offset
-                v `seq` return (v : xs)
-            | wantSiz <= siz -> k (Buffer buf 0)
+                v `seq` pure (v : xs)
+            | wantSiz <= siz -> k (Buffer buf 0) -- this should certainly not hold, but we still guard it
             | otherwise -> do
-                buf' <- A.newArr wantSiz        -- make a new buffer
-                k (Buffer buf' 0 )
+                buf' <- A.newArr (max wantSiz chunkSiz)        -- make a new buffer
+                k (Buffer buf' 0)
 
 oneShotAction :: (V.Bytes -> ST s ()) -> Int -> BuildStep s -> BuildStep s
 {-# INLINE oneShotAction #-}
@@ -302,13 +315,13 @@ buildBytesWith :: Int -> Builder a -> V.Bytes
 buildBytesWith initSiz (Builder b) = runST $ do
     buf <- A.newArr initSiz
     [bs] <- b DoubleBuffer lastStep (Buffer buf 0 )
-    return bs
+    pure bs
   where
     lastStep _ (Buffer buf offset) = do
         siz <- A.sizeofMutableArr buf
         when (offset < siz) (A.shrinkMutableArr buf offset)
         arr <- A.unsafeFreezeArr buf
-        return [V.PrimVector arr 0 offset]
+        pure [V.PrimVector arr 0 offset]
 
 -- | shortcut to 'buildBytesListWith' 'V.defaultChunkSize'.
 buildBytesList :: Builder a -> [V.Bytes]
@@ -325,7 +338,7 @@ buildBytesListWith initSiz chunkSiz (Builder b) = runST $ do
   where
     lastStep _ (Buffer buf offset) = do
         arr <- A.unsafeFreezeArr buf
-        return [V.PrimVector arr 0 offset]
+        pure [V.PrimVector arr 0 offset]
 
 -- | shortcut to 'buildAndRunWith' 'V.defaultChunkSize'.
 buildAndRun :: (V.Bytes -> IO ()) -> Builder a -> IO ()
@@ -337,19 +350,19 @@ buildAndRunWith :: Int -> (V.Bytes -> IO ()) -> Builder a -> IO ()
 buildAndRunWith chunkSiz action (Builder b) = do
     buf <- A.newArr chunkSiz
     _ <- stToIO (b (OneShotAction (\ bs -> ioToPrim (action bs))) lastStep (Buffer buf 0))
-    return ()
+    pure ()
   where
     lastStep :: a -> BuildStep RealWorld
     lastStep _ (Buffer buf offset) = do
         arr <- A.unsafeFreezeArr buf
         ioToPrim (action (V.PrimVector arr 0 offset))
-        return [] -- to match the silly return type
+        pure [] -- to match the silly pure type
 {-# INLINABLE buildAndRun #-}
 
 --------------------------------------------------------------------------------
 
 atMost :: Int  -- ^ size bound
-       -> (forall s. A.MutablePrimArray s Word8 -> Int -> ST s Int)  -- ^ the writer which return a new offset
+       -> (forall s. A.MutablePrimArray s Word8 -> Int -> ST s Int)  -- ^ the writer which pure a new offset
                                                                        -- for next write
        -> Builder ()
 {-# INLINE atMost #-}
@@ -358,7 +371,7 @@ atMost n f = ensureN n `append`
         f buf offset >>= \ offset' -> k () (Buffer buf offset'))
 
 writeN :: Int  -- ^ size bound
-       -> (forall s. A.MutablePrimArray s Word8 -> Int -> ST s ())  -- ^ the writer which return a new offset
+       -> (forall s. A.MutablePrimArray s Word8 -> Int -> ST s ())  -- ^ the writer which pure a new offset
                                                                     -- for next write
        -> Builder ()
 {-# INLINE writeN #-}
@@ -426,15 +439,27 @@ encodePrimBE = encodePrim . BE
 -- This function will be rewritten into a memcpy if possible, (running a fast UTF-8 validation
 -- at runtime first).
 stringUTF8 :: String -> Builder ()
-{-# INLINE CONLIKE [1] stringUTF8 #-}
+{-# INLINE CONLIKE [0] stringUTF8 #-}
 {-# RULES
-    "stringUTF8/addrUTF8" forall addr . stringUTF8 (unpackCString# addr) = addrUTF8 addr
+    "stringUTF8/packASCIIAddr" forall addr . stringUTF8 (unpackCString# addr) = packASCIIAddr addr
+  #-}
+{-# RULES
+    "stringUTF8/packUTF8Addr" forall addr . stringUTF8 (unpackCString# addr) = packUTF8Addr addr
   #-}
 stringUTF8 = mapM_ charUTF8
 
-addrUTF8 :: Addr# -> Builder ()
-{-# INLINABLE addrUTF8 #-}
-addrUTF8 addr# = validateAndCopy addr#
+packASCIIAddr :: Addr# -> Builder ()
+packASCIIAddr addr# = copy addr#
+  where
+    len = fromIntegral . unsafeDupablePerformIO $ V.c_strlen addr#
+    copy addr# = do
+        ensureN len
+        Builder (\ _  k (Buffer mba i) -> do
+           copyPtrToMutablePrimArray mba i (Ptr addr#) len
+           k () (Buffer mba (i + len)))
+
+packUTF8Addr :: Addr# -> Builder ()
+packUTF8Addr addr# = validateAndCopy addr#
   where
     len = fromIntegral . unsafeDupablePerformIO $ V.c_strlen addr#
     valid = unsafeDupablePerformIO $ T.c_utf8_validate_addr addr# len

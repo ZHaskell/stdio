@@ -23,6 +23,7 @@ Textual numeric builders.
 
 module Std.Data.Builder.Numeric (
   -- * Integral type formatting
+
     IFormat(..)
   , defaultIFormat
   , Padding(..)
@@ -44,10 +45,12 @@ module Std.Data.Builder.Numeric (
   , grisu3_sp
   , i2wDec, i2wHex, i2wHeX
   , countDigits
+  , c_intWith, hs_intWith
 ) where
 
 import           Control.Monad
 import           Control.Monad.ST
+import           Control.Monad.ST.Unsafe
 import           Data.Bits
 import           Data.Char
 import           Data.Int
@@ -70,8 +73,11 @@ import           System.IO.Unsafe
 import           GHC.Integer.GMP.Internals
 #endif
 import           GHC.Float                           (roundTo)
+import           Test.QuickCheck.Arbitrary (Arbitrary(..), CoArbitrary(..))
 
 --------------------------------------------------------------------------------
+
+foreign import ccall unsafe "dtoa.h" c_int_dec :: Word64 -> Int -> Int -> Word8 -> MBA# Word8 -> Int -> IO Int
 
 -- | Integral formatting options.
 --
@@ -81,41 +87,68 @@ data IFormat = IFormat
     , postiveSign :: Bool           -- ^ show @+@ when the number is positive
     } deriving (Show, Eq, Ord)
 
+instance Arbitrary IFormat where
+    arbitrary = IFormat <$> arbitrary <*> arbitrary <*> arbitrary
+
 -- | @defaultIFormat = IFormat 0 NoPadding False@
 defaultIFormat :: IFormat
 defaultIFormat = IFormat 0 NoPadding False
 
-data Padding = NoPadding | ZeroPadding | LeftSpacePadding | RightSpacePadding deriving (Show, Eq, Ord)
+data Padding = NoPadding | RightSpacePadding | LeftSpacePadding | ZeroPadding deriving (Show, Eq, Ord, Enum)
+
+instance Arbitrary Padding where
+    arbitrary = toEnum . (`mod` 4) <$> arbitrary
 
 -- | @int = intWith defaultIFormat@
 int :: (Integral a, Bounded a) => a -> Builder ()
+{-# INLINE int #-}
 int = intWith defaultIFormat
 
 -- | Format a 'Bounded' 'Integral' type like @Int@ or @Word16@ into decimal ASCII digits.
-intWith :: (Integral a, Bounded a)
-        => IFormat
-        -> a
-        -> Builder ()
-{-# INLINE[1] intWith #-}
-{-# RULES "intWith'/Int8"    intWith = intWith' :: IFormat -> Int8    -> Builder () #-}
-{-# RULES "intWith'/Int"     intWith = intWith' :: IFormat -> Int     -> Builder () #-}
-{-# RULES "intWith'/Int16"   intWith = intWith' :: IFormat -> Int16   -> Builder () #-}
-{-# RULES "intWith'/Int32"   intWith = intWith' :: IFormat -> Int32   -> Builder () #-}
-{-# RULES "intWith'/Int64"   intWith = intWith' :: IFormat -> Int64   -> Builder () #-}
-{-# RULES "intWith'/Word"    intWith = positiveInt  :: IFormat -> Word    -> Builder () #-}
-{-# RULES "intWith'/Word8"   intWith = positiveInt  :: IFormat -> Word8   -> Builder () #-}
-{-# RULES "intWith'/Word16"  intWith = positiveInt  :: IFormat -> Word16  -> Builder () #-}
-{-# RULES "intWith'/Word32"  intWith = positiveInt  :: IFormat -> Word32  -> Builder () #-}
-{-# RULES "intWith'/Word64"  intWith = positiveInt  :: IFormat -> Word64  -> Builder () #-}
-intWith = intWith'
+intWith :: (Integral a, Bounded a) => IFormat -> a -> Builder ()
+intWith = hs_intWith
+{-# INLINE[0] intWith #-}
+{-# RULES "intWith'/Int8"    intWith = c_intWith  :: IFormat -> Int8    -> Builder () #-}
+{-# RULES "intWith'/Int"     intWith = c_intWith  :: IFormat -> Int     -> Builder () #-}
+{-# RULES "intWith'/Int16"   intWith = c_intWith  :: IFormat -> Int16   -> Builder () #-}
+{-# RULES "intWith'/Int32"   intWith = c_intWith  :: IFormat -> Int32   -> Builder () #-}
+{-# RULES "intWith'/Int64"   intWith = c_intWith  :: IFormat -> Int64   -> Builder () #-}
+{-# RULES "intWith'/Word"    intWith = c_intWith  :: IFormat -> Word    -> Builder () #-}
+{-# RULES "intWith'/Word8"   intWith = c_intWith  :: IFormat -> Word8   -> Builder () #-}
+{-# RULES "intWith'/Word16"  intWith = c_intWith  :: IFormat -> Word16  -> Builder () #-}
+{-# RULES "intWith'/Word32"  intWith = c_intWith  :: IFormat -> Word32  -> Builder () #-}
+{-# RULES "intWith'/Word64"  intWith = c_intWith  :: IFormat -> Word64  -> Builder () #-}
 
-intWith' :: (Integral a, Bounded a) => IFormat -> a -> Builder ()
-{-# SPECIALIZE INLINE intWith' :: IFormat -> Int   -> Builder () #-}
-{-# SPECIALIZE INLINE intWith' :: IFormat -> Int8  -> Builder () #-}
-{-# SPECIALIZE INLINE intWith' :: IFormat -> Int16 -> Builder () #-}
-{-# SPECIALIZE INLINE intWith' :: IFormat -> Int32 -> Builder () #-}
-{-# SPECIALIZE INLINE intWith' :: IFormat -> Int64 -> Builder () #-}
-intWith' format@(IFormat width padding _) i
+-- | Internal formatting backed by C FFI, it must be used with type smaller than 'Word64'.
+--
+-- We use rewrite rules to rewrite most of the integral types formatting to this function.
+c_intWith :: (Integral a, Bits a) => IFormat -> a -> Builder ()
+{-# INLINE c_intWith #-}
+c_intWith (IFormat width padding posSign) x
+    | x < 0 =
+        let !x' = (fromIntegral (complement x) :: Word64) + 1
+        in atMost width' (\ mba@(MutablePrimArray mba#) i ->
+            unsafeIOToST (c_int_dec x' (-1) width pad (unsafeCoerce# mba#) i))
+    | posSign =
+        atMost width' (\ mba@(MutablePrimArray mba#) i ->
+            unsafeIOToST (c_int_dec (fromIntegral x) 1 width pad (unsafeCoerce# mba#) i))
+    | otherwise =
+        atMost width' (\ mba@(MutablePrimArray mba#) i ->
+            unsafeIOToST (c_int_dec (fromIntegral x) 0 width pad (unsafeCoerce# mba#) i))
+  where
+    width' = max 21 width
+    pad = case padding of NoPadding          -> 0
+                          RightSpacePadding  -> 1
+                          LeftSpacePadding   -> 2
+                          ZeroPadding        -> 3
+
+-- | Internal formatting in haskell, it can be used with any bounded integral type.
+--
+-- Other than provide fallback for the c version, this function is also used to check
+-- the c version's formatting result.
+hs_intWith :: (Integral a, Bounded a) => IFormat -> a -> Builder ()
+{-# INLINABLE hs_intWith #-}
+hs_intWith format@(IFormat width padding _) i
     | i < 0 =
         if i == minBound            -- can't directly negate in this case
         then do
@@ -213,16 +246,7 @@ intWith' format@(IFormat width padding _) i
     | otherwise = positiveInt format i
 
 positiveInt :: (Integral a) => IFormat -> a -> Builder ()
-{-# SPECIALIZE INLINE positiveInt :: IFormat -> Int    -> Builder () #-}
-{-# SPECIALIZE INLINE positiveInt :: IFormat -> Int8   -> Builder () #-}
-{-# SPECIALIZE INLINE positiveInt :: IFormat -> Int16  -> Builder () #-}
-{-# SPECIALIZE INLINE positiveInt :: IFormat -> Int32  -> Builder () #-}
-{-# SPECIALIZE INLINE positiveInt :: IFormat -> Int64  -> Builder () #-}
-{-# SPECIALIZE INLINE positiveInt :: IFormat -> Word   -> Builder () #-}
-{-# SPECIALIZE INLINE positiveInt :: IFormat -> Word8  -> Builder () #-}
-{-# SPECIALIZE INLINE positiveInt :: IFormat -> Word16 -> Builder () #-}
-{-# SPECIALIZE INLINE positiveInt :: IFormat -> Word32 -> Builder () #-}
-{-# SPECIALIZE INLINE positiveInt :: IFormat -> Word64 -> Builder () #-}
+{-# INLINABLE positiveInt #-}
 positiveInt (IFormat width padding ps) i =
     let !n = countDigits i
     in if ps
@@ -361,7 +385,7 @@ integer n0
     jprinth [] = errorWithoutStackTrace "jprinth []"
 
     jprintb :: [Integer] -> Builder ()
-    jprintb []     = return ()
+    jprintb []     = pure ()
     jprintb (n:ns) = case n `quotRemInteger` BASE of
                         (# q', r' #) ->
                             let q = fromInteger q'
@@ -374,7 +398,7 @@ integer n0
     jhead :: Int -> Builder ()
     jhead = int
     jblock :: Int -> Builder ()
-    jblock d = writeN DIGITS $ \ marr off -> writePositiveDec marr off DIGITS d
+    jblock = intWith defaultIFormat{padding = ZeroPadding, width=DIGITS}
 
     -- Split n into digits in base p. We first split n into digits
     -- in base p*p and then split each of these digits into two.
@@ -539,6 +563,7 @@ data FFormat = Exponent -- ^ Scientific notation (e.g. @2.3e123@).
                         -- @9,999,999@, and scientific notation otherwise.
            deriving (Enum, Read, Show)
 
+
 -- | Decimal encoding of an IEEE 'Float'.
 --
 -- Using standard decimal notation for arguments whose absolute value lies
@@ -564,13 +589,10 @@ floatWith :: FFormat
 floatWith fmt decs x
     | isNaN x                   = "NaN"
     | isInfinite x              = if x < 0 then "-Infinity" else "Infinity"
-    | x < 0                     = char8 '-' >> doFmt fmt decs (digits (-x))
+    | x < 0                     = char8 '-' >> doFmt fmt decs (grisu3_sp (-x))
     | isNegativeZero x          = char8 '-' >> doFmt fmt decs ([0], 0)
     | x == 0                    = doFmt fmt decs ([0], 0)
-    | otherwise                 = doFmt fmt decs (digits x) -- Grisu only handles strictly positive finite numbers.
-  where
-    digits y = case grisu3_sp y of Just r  -> r
-                                   Nothing -> floatToDigits 10 y
+    | otherwise                 = doFmt fmt decs (grisu3_sp x) -- Grisu only handles strictly positive finite numbers.
 
 -- | Format double-precision float using drisu3 with dragon4 fallback.
 doubleWith :: FFormat
@@ -581,13 +603,10 @@ doubleWith :: FFormat
 doubleWith fmt decs x
     | isNaN x                   = "NaN"
     | isInfinite x              = if x < 0 then "-Infinity" else "Infinity"
-    | x < 0                     = char8 '-' >> doFmt fmt decs (digits (-x))
+    | x < 0                     = char8 '-' >> doFmt fmt decs (grisu3 (-x))
     | isNegativeZero x          = char8 '-' >> doFmt fmt decs ([0], 0)
     | x == 0                    = doFmt fmt decs ([0], 0)
-    | otherwise                 = doFmt fmt decs (digits x) -- Grisu only handles strictly positive finite numbers.
-  where
-    digits y = case grisu3 y of Just r  -> r
-                                Nothing -> floatToDigits 10 y
+    | otherwise                 = doFmt fmt decs (grisu3 x) -- Grisu only handles strictly positive finite numbers.
 
 -- | Worker function to do formatting.
 doFmt :: FFormat
@@ -682,8 +701,8 @@ foreign import ccall unsafe "static grisu3" c_grisu3
     -> MBA# Int     -- ^ Int
     -> IO Int
 
--- | Decimal encoding of a 'Double'.
-grisu3 :: Double -> Maybe ([Int], Int)
+-- | Decimal encoding of a 'Double', note grisu only handles strictly positive finite numbers.
+grisu3 :: Double -> ([Int], Int)
 {-# INLINE grisu3 #-}
 grisu3 d = unsafePerformIO $
     withMutableByteArrayUnsafe GRISU3_DOUBLE_BUF_LEN $ \ pBuf -> do
@@ -691,13 +710,13 @@ grisu3 d = unsafePerformIO $
             withPrimUnsafe' $ \ pE ->
                 c_grisu3 (realToFrac d) pBuf pLen pE
         if success == 0 -- grisu3 fail
-        then return Nothing
+        then pure (floatToDigits 10 d)
         else do
             buf <- forM [0..len-1] $ \ i -> do
                 w8 <- readByteArray (MutableByteArray pBuf) i :: IO Word8
-                return (fromIntegral w8)
+                pure (fromIntegral w8)
             let !e' = e + len
-            return $ Just (buf, e')
+            pure (buf, e')
 
 foreign import ccall unsafe "static grisu3_sp" c_grisu3_sp
     :: Float
@@ -706,8 +725,8 @@ foreign import ccall unsafe "static grisu3_sp" c_grisu3_sp
     -> MBA# Int     -- ^ Int
     -> IO Int
 
--- | Decimal encoding of a 'Float'.
-grisu3_sp :: Float -> Maybe ([Int], Int)
+-- | Decimal encoding of a 'Float', note grisu3_sp only handles strictly positive finite numbers.
+grisu3_sp :: Float -> ([Int], Int)
 {-# INLINE grisu3_sp #-}
 grisu3_sp d = unsafePerformIO $
     withMutableByteArrayUnsafe GRISU3_SINGLE_BUF_LEN $ \ pBuf -> do
@@ -715,13 +734,13 @@ grisu3_sp d = unsafePerformIO $
             withPrimUnsafe' $ \ pE ->
                 c_grisu3_sp (realToFrac d) pBuf pLen pE
         if success == 0 -- grisu3 fail
-        then return Nothing
+        then pure (floatToDigits 10 d)
         else do
             buf <- forM [0..len-1] $ \ i -> do
                 w8 <- readByteArray (MutableByteArray pBuf) i :: IO Word8
-                return (fromIntegral w8)
+                pure (fromIntegral w8)
             let !e' = e + len
-            return $ Just (buf, e')
+            pure (buf, e')
 
 --------------------------------------------------------------------------------
 

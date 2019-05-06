@@ -32,3 +32,4 @@
 
 HsInt grisu3(double v, char *buffer, HsInt *length, HsInt *d_exp);
 HsInt grisu3_sp(float v, char *buffer, HsInt *length, HsInt *d_exp);
+HsInt c_int_dec (uint64_t x, HsInt sign, HsInt width, uint8_t pad, char* ba, HsInt off);
