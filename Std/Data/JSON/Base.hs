@@ -32,7 +32,30 @@ Portability : non-portable
 
 -}
 
-module Std.Data.JSON.Base where
+module Std.Data.JSON.Base
+  ( -- * Encode & Decode
+    DecodeError
+  , decode', decode, decodeChunks, decodeChunks', encodeBytes, encodeText, encodeTextBuilder
+  -- * Convert 'Value' to Haskell data
+  , convert, convert', Converter(..), fail', (<?>), prependContext
+  , PathElement(..), ConvertError
+  , typeMismatch, fromNull, withBool, withScientific, withBoundedScientific, withRealFloat
+  , withBoundedIntegral, withText, withArray, withKeyValues, withFlatMap, withFlatMapR
+  , withHashMap, withHashMapR, withEmbeddedJSON
+  , (.:), (.:?), (.:!), convertField, convertFieldMaybe, convertFieldMaybe'
+  -- * FromValue, ToValue & EncodeJSON
+  , defaultSettings, Settings(..)
+  , ToValue(..), GToValue(..)
+  , FromValue(..), GFromValue(..)
+  , EncodeJSON(..), GEncodeJSON(..)
+
+  -- * Helper classes for generics
+  , Field, GWriteFields(..), GMergeFields(..), GConstrToValue(..)
+  , LookupTable, GFromFields(..), GBuildLookup(..), GConstrFromValue(..)
+  , GAddPunctuation(..), GConstrEncodeJSON(..)
+  -- JSON Builder helpers
+  , commaList', commaVector'
+  ) where
 
 import           Control.Applicative
 import           Control.DeepSeq
@@ -51,11 +74,12 @@ import qualified Data.HashMap.Strict          as HM
 import qualified Data.HashSet                 as HS
 import           Data.Int
 import           Data.List.NonEmpty           (NonEmpty (..))
+import qualified Data.List.NonEmpty           as NonEmpty
 import qualified Data.Monoid                  as Monoid
 import           Data.Primitive.Types         (Prim)
 import qualified Data.Primitive.SmallArray    as A
 import           Data.Proxy                   (Proxy (..))
-import           Data.Ratio                   (Ratio, (%))
+import           Data.Ratio                   (Ratio, (%), numerator, denominator)
 import           Data.Scientific              (Scientific, base10Exponent, toBoundedInteger)
 import qualified Data.Scientific              as Scientific
 import qualified Data.Semigroup               as Semigroup
@@ -73,6 +97,8 @@ import           Std.Data.Generics.Utils
 import           Std.Data.JSON.Value          (Value(..))
 import qualified Std.Data.JSON.Value          as JV
 import qualified Std.Data.JSON.Value.Builder  as JB
+import           Std.Data.JSON.Value.Builder  (curly, square, quotes
+                                              , (>:<), (>!<), (>+<), commaVector, commaList)
 import qualified Std.Data.Parser              as P
 import qualified Std.Data.Parser.Numeric      as P
 import qualified Std.Data.Text                as T
@@ -85,14 +111,7 @@ import qualified Std.Data.Vector.FlatMap      as FM
 import qualified Std.Data.Vector.FlatSet      as FS
 import           Text.ParserCombinators.ReadP (readP_to_S)
 
-#define BACKSLASH 92
-#define CLOSE_CURLY 125
-#define CLOSE_SQUARE 93
-#define COMMA 44
 #define COLON 58
-#define DOUBLE_QUOTE 34
-#define OPEN_CURLY 123
-#define OPEN_SQUARE 91
 
 --------------------------------------------------------------------------------
 
@@ -104,41 +123,59 @@ type DecodeError = Either P.ParseError ConvertError
 
 -- | Decode a JSON doc, only trailing JSON whitespace are allowed.
 --
-decode' :: FromJSON a => V.Bytes -> Either DecodeError a
+decode' :: FromValue a => V.Bytes -> Either DecodeError a
 {-# INLINE decode' #-}
 decode' bs = case P.parse_ (JV.value <* JV.skipSpaces <* P.endOfInput) bs of
     Left pErr -> Left (Left pErr)
-    Right v -> case convert fromJSON v of
+    Right v -> case convert fromValue v of
         Left cErr -> Left (Right cErr)
         Right r -> Right r
 
 -- | Decode a JSON bytes, return any trailing bytes.
-decode :: FromJSON a => V.Bytes -> (V.Bytes, Either DecodeError a)
+decode :: FromValue a => V.Bytes -> (V.Bytes, Either DecodeError a)
 {-# INLINE decode #-}
 decode bs = case P.parse JV.value bs of
     (bs', Left pErr) -> (bs', Left (Left pErr))
-    (bs', Right v) -> case convert fromJSON v of
+    (bs', Right v) -> case convert fromValue v of
         Left cErr -> (bs', Left (Right cErr))
         Right r -> (bs', Right r)
 
-encodeBytes :: EncodeJSON a => a -> V.Bytes
-{-# INLINE encodeBytes #-}
-encodeBytes = B.buildBytes . encodeJSON
-
-encodeText :: EncodeJSON a => a -> T.Text
-{-# INLINE encodeText #-}
-encodeText = TB.buildText . TB.unsafeFromBuilder . encodeJSON
-
--- | Decode a JSON doc chunks, return trailing bytes.
-decodeChunks :: (FromJSON a, Monad m) => m V.Bytes -> V.Bytes -> m (V.Bytes, Either DecodeError a)
+-- | Decode JSON doc chunks, return trailing bytes.
+decodeChunks :: (FromValue a, Monad m) => m V.Bytes -> V.Bytes -> m (V.Bytes, Either DecodeError a)
 {-# INLINE decodeChunks #-}
 decodeChunks mb bs = do
     mr <- (P.parseChunks JV.value mb bs)
     case mr of
         (bs', Left pErr) -> pure (bs', Left (Left pErr))
-        (bs', Right v) -> case convert fromJSON v of
+        (bs', Right v) -> case convert fromValue v of
             Left cErr -> pure (bs', Left (Right cErr))
             Right r -> pure (bs', Right r)
+
+-- | Decode JSON doc chunks, consuming trailing JSON whitespaces (other trailing bytes are not allowed).
+decodeChunks' :: (FromValue a, Monad m) => m V.Bytes -> V.Bytes -> m (Either DecodeError a)
+{-# INLINE decodeChunks' #-}
+decodeChunks' mb bs = do
+    mr <- (P.parseChunks (JV.value <* JV.skipSpaces <* P.endOfInput) mb bs)
+    case mr of
+        (_, Left pErr) -> pure (Left (Left pErr))
+        (_, Right v) -> case convert fromValue v of
+            Left cErr -> pure (Left (Right cErr))
+            Right r -> pure (Right r)
+
+-- | @B.buildBytes . encodeJSON@.
+encodeBytes :: EncodeJSON a => a -> V.Bytes
+{-# INLINE encodeBytes #-}
+encodeBytes = B.buildBytes . encodeJSON
+
+-- | Text version 'encodeBytes'.
+encodeText :: EncodeJSON a => a -> T.Text
+{-# INLINE encodeText #-}
+encodeText = TB.buildText . encodeTextBuilder
+
+-- | JSON Docs are guaranteed to be valid UTF-8 texts, so we provide this.
+encodeTextBuilder :: EncodeJSON a => a -> TB.TextBuilder ()
+{-# INLINE encodeTextBuilder #-}
+encodeTextBuilder = TB.unsafeFromBuilder . encodeJSON
 
 -- | Run a 'Converter' with input value.
 convert :: (a -> Converter r) -> a -> Either ConvertError r
@@ -146,22 +183,22 @@ convert :: (a -> Converter r) -> a -> Either ConvertError r
 convert m v = runConverter (m v) (\ paths msg -> (Left (ConvertError paths msg))) Right
 
 -- | Run a 'Converter' with input value.
-convert' :: (FromJSON a) => Value -> Either ConvertError a
+convert' :: (FromValue a) => Value -> Either ConvertError a
 {-# INLINE convert' #-}
-convert' = convert fromJSON
+convert' = convert fromValue
 
 --------------------------------------------------------------------------------
 
--- | Elements of a JSON path used to describe the location of an error.
+-- | Elements of a (JSON) Value path used to describe the location of an error.
 data PathElement
     = Key {-# UNPACK #-} !T.Text
-        -- ^ JSON path element of a key into an object,
+        -- ^ Path element of a key into an object,
         -- \"object.key\".
     | Index {-# UNPACK #-} !Int
-        -- ^ JSON path element of an index into an
+        -- ^ Path element of an index into an
         -- array, \"array[index]\".
     | Embedded
-        -- ^ JSON path of a embedded JSON String
+        -- ^ path of a embedded (JSON) String
   deriving (Eq, Show, Typeable, Ord, Generic, NFData)
 
 data ConvertError = ConvertError { errPath :: [PathElement], errMsg :: T.Text } deriving (Eq, Ord, Generic, NFData)
@@ -175,7 +212,7 @@ instance Show ConvertError where
         TB.text msg
       where
         renderPath (Index ix) = TB.char7 '[' >> TB.int ix >> TB.char7 ']'
-        renderPath (Key k) = TB.char7 '.' >> TB.text k
+        renderPath (Key k) = TB.char7 '.' >> (TB.unsafeFromBuilder $ JB.string k)
         renderPath Embedded = "<Embedded>"
 
 -- | 'Converter' for convert result from JSON 'Value'.
@@ -226,6 +263,7 @@ fail' msg = Converter (\ kf _ -> kf [] msg)
 
 --------------------------------------------------------------------------------
 
+-- | Produce an error message like @converting XXX failed, expected XXX, encountered XXX@.
 typeMismatch :: T.Text     -- ^ The name of the type you are trying to convert.
              -> T.Text     -- ^ The JSON value type you expecting to meet.
              -> Value      -- ^ The actual value encountered.
@@ -271,6 +309,7 @@ prependContext name (Converter p) = Converter (\ kf k ->
     p (\ paths msg -> kf paths (T.concat ["converting ", name, " failed, ", msg])) k)
 
 fromNull :: T.Text -> a -> Value -> Converter a
+{-# INLINE fromNull #-}
 fromNull _ a Null = pure a
 fromNull c _ v    = typeMismatch c "Null" v
 
@@ -396,9 +435,9 @@ withEmbeddedJSON name _ v = typeMismatch name "String" v
 -- This accessor is appropriate if the key and value /must/ be present
 -- in an object for it to be valid.  If the key and value are
 -- optional, use '.:?' instead.
-(.:) :: (FromJSON a) => FM.FlatMap T.Text Value -> T.Text -> Converter a
+(.:) :: (FromValue a) => FM.FlatMap T.Text Value -> T.Text -> Converter a
 {-# INLINE (.:) #-}
-(.:) = convertField fromJSON
+(.:) = convertField fromValue
 
 -- | Retrieve the value associated with the given key of an 'Object'. The
 -- result is 'Nothing' if the key is not present or if its value is 'Null',
@@ -407,9 +446,9 @@ withEmbeddedJSON name _ v = typeMismatch name "String" v
 -- This accessor is most useful if the key and value can be absent
 -- from an object without affecting its validity.  If the key and
 -- value are mandatory, use '.:' instead.
-(.:?) :: (FromJSON a) => FM.FlatMap T.Text Value -> T.Text -> Converter (Maybe a)
+(.:?) :: (FromValue a) => FM.FlatMap T.Text Value -> T.Text -> Converter (Maybe a)
 {-# INLINE (.:?) #-}
-(.:?) = convertFieldMaybe fromJSON
+(.:?) = convertFieldMaybe fromValue
 
 -- | Retrieve the value associated with the given key of an 'Object'.
 -- The result is 'Nothing' if the key is not present or 'empty' if the
@@ -417,9 +456,9 @@ withEmbeddedJSON name _ v = typeMismatch name "String" v
 --
 -- This differs from '.:?' by attempting to convert 'Null' the same as any
 -- other JSON value, instead of interpreting it as 'Nothing'.
-(.:!) :: (FromJSON a) => FM.FlatMap T.Text Value -> T.Text -> Converter (Maybe a)
+(.:!) :: (FromValue a) => FM.FlatMap T.Text Value -> T.Text -> Converter (Maybe a)
 {-# INLINE (.:!) #-}
-(.:!) = convertFieldMaybe' fromJSON
+(.:!) = convertFieldMaybe' fromValue
 
 convertField :: (Value -> Converter a)  -- ^ the field converter (value part of a key value pair)
            -> FM.FlatMap T.Text Value -> T.Text -> Converter a
@@ -445,32 +484,43 @@ convertFieldMaybe' p obj key = case FM.lookup key obj of
 
 --------------------------------------------------------------------------------
 
+-- | Use @,@ as separator to connect list of builders.
+commaList' :: EncodeJSON a => [a] -> B.Builder ()
+{-# INLINE commaList' #-}
+commaList' = commaList encodeJSON
+
+-- | Use @,@ as separator to connect a vector of builders.
+commaVector' :: (EncodeJSON a, V.Vec v a) => v a ->  B.Builder ()
+{-# INLINE commaVector' #-}
+commaVector' = commaVector encodeJSON
+
+--------------------------------------------------------------------------------
+
 -- | Generic encode/decode Settings
 --
 -- There should be no control charactors in formatted texts since we don't escaping those
--- field names or constructor names ('defaultSetting' relys on Haskell's lexical property).
+-- field names or constructor names ('defaultSettings' relys on Haskell's lexical property).
 -- Otherwise 'encodeJSON' will output illegal JSON string.
 data Settings = Settings
     { fieldFmt :: String -> T.Text  -- ^ format field labels
     , constrFmt :: String -> T.Text -- ^ format constructor names.
     }
 
-defaultSetting :: Settings
-defaultSetting = Settings T.pack T.pack
+defaultSettings :: Settings
+defaultSettings = Settings T.pack T.pack
 
 --------------------------------------------------------------------------------
--- ToJSON
+-- ToValue
 --------------------------------------------------------------------------------
 
 -- | Typeclass for converting to JSON 'Value'.
-class ToJSON a where
-    toJSON :: a -> Value
-    default toJSON :: (Generic a, GToJSON (Rep a)) => a -> Value
-    toJSON = gToJSON defaultSetting . from
+class ToValue a where
+    toValue :: a -> Value
+    default toValue :: (Generic a, GToValue (Rep a)) => a -> Value
+    toValue = gToValue defaultSettings . from
 
-class GToJSON f where
-    gToJSON :: Settings -> f a -> Value
-
+class GToValue f where
+    gToValue :: Settings -> f a -> Value
 
 --------------------------------------------------------------------------------
 -- Selectors
@@ -489,28 +539,28 @@ instance (ProductSize a, GWriteFields a, GWriteFields b, Field a ~ Field b) => G
         gWriteFields s marr idx a
         gWriteFields s marr (idx + productSize (proxy# :: Proxy# a)) b
 
-instance (GToJSON f) => GWriteFields (S1 (MetaSel Nothing u ss ds) f) where
+instance (GToValue f) => GWriteFields (S1 (MetaSel Nothing u ss ds) f) where
     {-# INLINE gWriteFields #-}
-    gWriteFields s marr idx (M1 x) = A.writeSmallArray marr idx (gToJSON s x)
+    gWriteFields s marr idx (M1 x) = A.writeSmallArray marr idx (gToValue s x)
 
-instance (GToJSON f, Selector (MetaSel (Just l) u ss ds)) => GWriteFields (S1 (MetaSel (Just l) u ss ds) f) where
+instance (GToValue f, Selector (MetaSel (Just l) u ss ds)) => GWriteFields (S1 (MetaSel (Just l) u ss ds) f) where
     {-# INLINE gWriteFields #-}
-    gWriteFields s marr idx m1@(M1 x) = A.writeSmallArray marr idx ((fieldFmt s) (selName m1), gToJSON s x)
+    gWriteFields s marr idx m1@(M1 x) = A.writeSmallArray marr idx ((fieldFmt s) (selName m1), gToValue s x)
 
-instance (GToJSON f, Selector (MetaSel (Just l) u ss ds)) => GToJSON (S1 (MetaSel (Just l) u ss ds) f) where
-    {-# INLINE gToJSON #-}
-    gToJSON s m1@(M1 x) =
+instance (GToValue f, Selector (MetaSel (Just l) u ss ds)) => GToValue (S1 (MetaSel (Just l) u ss ds) f) where
+    {-# INLINE gToValue #-}
+    gToValue s m1@(M1 x) =
         let k = fieldFmt s $ selName m1
-            v = gToJSON s x
+            v = gToValue s x
         in Object (V.singleton (k, v))
 
-instance GToJSON f => GToJSON (S1 (MetaSel Nothing u ss ds) f) where
-    {-# INLINE gToJSON #-}
-    gToJSON s (M1 x) = gToJSON s x
+instance GToValue f => GToValue (S1 (MetaSel Nothing u ss ds) f) where
+    {-# INLINE gToValue #-}
+    gToValue s (M1 x) = gToValue s x
 
-instance ToJSON a => GToJSON (K1 i a) where
-    {-# INLINE gToJSON #-}
-    gToJSON s (K1 x) = toJSON x
+instance ToValue a => GToValue (K1 i a) where
+    {-# INLINE gToValue #-}
+    gToValue s (K1 x) = toValue x
 
 class GMergeFields f where
     gMergeFields :: Proxy# f -> A.SmallMutableArray s (Field f) -> ST s Value
@@ -536,41 +586,41 @@ instance GMergeFields (S1 (MetaSel (Just l) u ss ds) f) where
 --------------------------------------------------------------------------------
 -- Constructors
 
-class GConstrToJSON f where
-    gConstrToJSON :: Bool -> Settings -> f a -> Value
+class GConstrToValue f where
+    gConstrToValue :: Bool -> Settings -> f a -> Value
 
-instance GConstrToJSON V1 where
-    {-# INLINE gConstrToJSON #-}
-    gConstrToJSON _ _ _ = error "Std.Data.JSON.Base: empty data type"
+instance GConstrToValue V1 where
+    {-# INLINE gConstrToValue #-}
+    gConstrToValue _ _ _ = error "Std.Data.JSON.Base: empty data type"
 
-instance (GConstrToJSON f, GConstrToJSON g) => GConstrToJSON (f :+: g) where
-    {-# INLINE gConstrToJSON #-}
-    gConstrToJSON _ s (L1 x) = gConstrToJSON True s x
-    gConstrToJSON _ s (R1 x) = gConstrToJSON True s x
+instance (GConstrToValue f, GConstrToValue g) => GConstrToValue (f :+: g) where
+    {-# INLINE gConstrToValue #-}
+    gConstrToValue _ s (L1 x) = gConstrToValue True s x
+    gConstrToValue _ s (R1 x) = gConstrToValue True s x
 
 -- | Constructor without payload, convert to String
-instance (Constructor c) => GConstrToJSON (C1 c U1) where
-    {-# INLINE gConstrToJSON #-}
-    gConstrToJSON _ s (M1 _) = String . constrFmt s $ conName (undefined :: t c U1 a)
+instance (Constructor c) => GConstrToValue (C1 c U1) where
+    {-# INLINE gConstrToValue #-}
+    gConstrToValue _ s (M1 _) = String . constrFmt s $ conName (undefined :: t c U1 a)
 
 -- | Constructor with a single payload
-instance (Constructor c, GToJSON (S1 sc f)) => GConstrToJSON (C1 c (S1 sc f)) where
-    {-# INLINE gConstrToJSON #-}
-    gConstrToJSON False s (M1 x) = gToJSON s x
-    gConstrToJSON True s (M1 x) =
+instance (Constructor c, GToValue (S1 sc f)) => GConstrToValue (C1 c (S1 sc f)) where
+    {-# INLINE gConstrToValue #-}
+    gConstrToValue False s (M1 x) = gToValue s x
+    gConstrToValue True s (M1 x) =
         let k = constrFmt s $ conName (undefined :: t c f a)
-            v = gToJSON s x
+            v = gToValue s x
         in Object (V.singleton (k, v))
 
 -- | Constructor with multiple payloads
 instance (ProductSize (a :*: b), GWriteFields (a :*: b), GMergeFields (a :*: b), Constructor c)
-    => GConstrToJSON (C1 c (a :*: b)) where
-    {-# INLINE gConstrToJSON #-}
-    gConstrToJSON False s (M1 x) = runST (do
+    => GConstrToValue (C1 c (a :*: b)) where
+    {-# INLINE gConstrToValue #-}
+    gConstrToValue False s (M1 x) = runST (do
         marr <- A.newSmallArray (productSize (proxy# :: Proxy# (a :*: b))) undefined
         gWriteFields s marr 0 x
         gMergeFields (proxy# :: Proxy# (a :*: b)) marr)
-    gConstrToJSON True s (M1 x) =
+    gConstrToValue True s (M1 x) =
         let k = constrFmt s $ conName (undefined :: t c f a)
             v = runST (do
                     marr <- A.newSmallArray (productSize (proxy# :: Proxy# (a :*: b))) undefined
@@ -580,10 +630,9 @@ instance (ProductSize (a :*: b), GWriteFields (a :*: b), GMergeFields (a :*: b),
 
 --------------------------------------------------------------------------------
 -- Data types
-instance GConstrToJSON f => GToJSON (D1 c f) where
-    {-# INLINE gToJSON #-}
-    gToJSON s (M1 x) = gConstrToJSON False s x
-
+instance GConstrToValue f => GToValue (D1 c f) where
+    {-# INLINE gToValue #-}
+    gToValue s (M1 x) = gConstrToValue False s x
 
 --------------------------------------------------------------------------------
 -- EncodeJSON
@@ -592,12 +641,11 @@ instance GConstrToJSON f => GToJSON (D1 c f) where
 class EncodeJSON a where
     encodeJSON :: a -> B.Builder ()
     default encodeJSON :: (Generic a, GEncodeJSON (Rep a)) => a -> B.Builder ()
-    encodeJSON = gEncodeJSON defaultSetting . from
+    encodeJSON = gEncodeJSON defaultSettings . from
 
 encodeJSONText :: EncodeJSON a => a -> TB.TextBuilder ()
 {-# INLINE encodeJSONText #-}
 encodeJSONText = TB.unsafeFromBuilder . encodeJSON
-
 
 class GEncodeJSON f where
     gEncodeJSON :: Settings -> f a -> B.Builder ()
@@ -607,12 +655,7 @@ class GEncodeJSON f where
 
 instance (GEncodeJSON f, Selector (MetaSel (Just l) u ss ds)) => GEncodeJSON (S1 (MetaSel (Just l) u ss ds) f) where
     {-# INLINE gEncodeJSON #-}
-    gEncodeJSON s m1@(M1 x) = do
-        B.encodePrim @Word8 DOUBLE_QUOTE
-        B.text . fieldFmt s $ selName m1
-        B.encodePrim @Word8 DOUBLE_QUOTE
-        B.encodePrim @Word8 COLON
-        gEncodeJSON s x
+    gEncodeJSON s m1@(M1 x) = fieldFmt s (selName m1) >:< gEncodeJSON s x
 
 instance GEncodeJSON f => GEncodeJSON (S1 (MetaSel Nothing u ss ds) f) where
     {-# INLINE gEncodeJSON #-}
@@ -620,10 +663,7 @@ instance GEncodeJSON f => GEncodeJSON (S1 (MetaSel Nothing u ss ds) f) where
 
 instance (GEncodeJSON a, GEncodeJSON b) => GEncodeJSON (a :*: b) where
     {-# INLINE gEncodeJSON #-}
-    gEncodeJSON s (a :*: b) = do
-        gEncodeJSON s a
-        B.encodePrim @Word8 COMMA
-        gEncodeJSON s b
+    gEncodeJSON s (a :*: b) = gEncodeJSON s a >+< gEncodeJSON s b
 
 instance EncodeJSON a => GEncodeJSON (K1 i a) where
     {-# INLINE gEncodeJSON #-}
@@ -638,11 +678,11 @@ instance GAddPunctuation a => GAddPunctuation (a :*: b) where
 
 instance GAddPunctuation (S1 (MetaSel Nothing u ss ds) f) where
     {-# INLINE gAddPunctuation #-}
-    gAddPunctuation _ b = B.encodePrim @Word8 OPEN_SQUARE >> b >> B.encodePrim @Word8 CLOSE_SQUARE
+    gAddPunctuation _ b = square b
 
 instance GAddPunctuation (S1 (MetaSel (Just l) u ss ds) f) where
     {-# INLINE gAddPunctuation #-}
-    gAddPunctuation _ b = B.encodePrim @Word8 OPEN_CURLY >> b >> B.encodePrim @Word8 CLOSE_CURLY
+    gAddPunctuation _ b = curly b
 
 --------------------------------------------------------------------------------
 -- Constructors
@@ -663,37 +703,24 @@ instance (GConstrEncodeJSON f, GConstrEncodeJSON g) => GConstrEncodeJSON (f :+: 
 instance (Constructor c) => GConstrEncodeJSON (C1 c U1) where
     {-# INLINE gConstrEncodeJSON #-}
     -- There should be no chars need escaping in constructor name
-    gConstrEncodeJSON _ s (M1 _) = do
-        B.encodePrim @Word8 DOUBLE_QUOTE
+    gConstrEncodeJSON _ s (M1 _) = quotes $
         B.text . constrFmt s $ conName (undefined :: t c U1 a)
-        B.encodePrim @Word8 DOUBLE_QUOTE
 
 -- | Constructor with a single payload
 instance (Constructor c, GEncodeJSON (S1 sc f)) => GConstrEncodeJSON (C1 c (S1 sc f)) where
     {-# INLINE gConstrEncodeJSON #-}
     gConstrEncodeJSON False s (M1 x) = gEncodeJSON s x
-    gConstrEncodeJSON True s (M1 x) = do
-        B.encodePrim @Word8 OPEN_CURLY
-        B.encodePrim @Word8 DOUBLE_QUOTE
-        B.text . constrFmt s $ conName (undefined :: t c f a)
-        B.encodePrim @Word8 DOUBLE_QUOTE
-        B.encodePrim @Word8 COLON
-        gEncodeJSON s x
-        B.encodePrim @Word8 CLOSE_CURLY
+    gConstrEncodeJSON True s (M1 x) = curly $ do
+        constrFmt s (conName (undefined :: t c f a)) >:< gEncodeJSON s x
 
 -- | Constructor with multiple payloads
 instance (GEncodeJSON (a :*: b), GAddPunctuation (a :*: b), Constructor c)
     => GConstrEncodeJSON (C1 c (a :*: b)) where
     {-# INLINE gConstrEncodeJSON #-}
     gConstrEncodeJSON False s (M1 x) = gAddPunctuation (proxy# :: Proxy# (a :*: b)) (gEncodeJSON s x)
-    gConstrEncodeJSON True s (M1 x) = do
-        B.encodePrim @Word8 OPEN_CURLY
-        B.encodePrim @Word8 DOUBLE_QUOTE
-        B.text . constrFmt s $ conName (undefined :: t c f a)
-        B.encodePrim @Word8 DOUBLE_QUOTE
-        B.encodePrim @Word8 COLON
-        gAddPunctuation (proxy# :: Proxy# (a :*: b)) (gEncodeJSON s x)
-        B.encodePrim @Word8 CLOSE_CURLY
+    gConstrEncodeJSON True s (M1 x) = curly $ do
+        constrFmt s (conName (undefined :: t c f a)) >:<
+            gAddPunctuation (proxy# :: Proxy# (a :*: b)) (gEncodeJSON s x)
 
 --------------------------------------------------------------------------------
 -- Data types
@@ -702,17 +729,16 @@ instance GConstrEncodeJSON f => GEncodeJSON (D1 c f) where
     gEncodeJSON s (M1 x) = gConstrEncodeJSON False s x
 
 --------------------------------------------------------------------------------
--- FromJSON
+-- FromValue
 --------------------------------------------------------------------------------
 
-class FromJSON a where
-    fromJSON :: Value -> Converter a
-    default fromJSON :: (Generic a, GFromJSON (Rep a)) => Value -> Converter a
-    fromJSON v = to <$> gFromJSON defaultSetting v
+class FromValue a where
+    fromValue :: Value -> Converter a
+    default fromValue :: (Generic a, GFromValue (Rep a)) => Value -> Converter a
+    fromValue v = to <$> gFromValue defaultSettings v
 
-class GFromJSON f where
-    gFromJSON :: Settings -> Value -> Converter (f a)
-
+class GFromValue f where
+    gFromValue :: Settings -> Value -> Converter (f a)
 
 --------------------------------------------------------------------------------
 -- Selectors
@@ -733,38 +759,38 @@ instance (ProductSize a, GFromFields a, GFromFields b, LookupTable a ~ LookupTab
         b <- gFromFields s v (idx + productSize (proxy# :: Proxy# a))
         pure (a :*: b)
 
-instance (GFromJSON f) => GFromFields (S1 (MetaSel Nothing u ss ds) f) where
+instance (GFromValue f) => GFromFields (S1 (MetaSel Nothing u ss ds) f) where
     {-# INLINE gFromFields #-}
     gFromFields s v idx = do
         v' <- V.unsafeIndexM v idx
-        M1 <$> gFromJSON s v' <?> Index idx
+        M1 <$> gFromValue s v' <?> Index idx
 
-instance (GFromJSON f, Selector (MetaSel (Just l) u ss ds)) => GFromFields (S1 (MetaSel (Just l) u ss ds) f) where
+instance (GFromValue f, Selector (MetaSel (Just l) u ss ds)) => GFromFields (S1 (MetaSel (Just l) u ss ds) f) where
     {-# INLINE gFromFields #-}
     gFromFields s v _ = do
         case FM.lookup fn v of
-            Just v' -> M1 <$> gFromJSON s v' <?> Key fn
+            Just v' -> M1 <$> gFromValue s v' <?> Key fn
             _       -> fail' ("Std.Data.JSON.Base: missing field " <>  fn)
       where
         fn = (fieldFmt s) (selName (undefined :: S1 (MetaSel (Just l) u ss ds) f a))
 
-instance GFromJSON f => GFromJSON (S1 (MetaSel Nothing u ss ds) f) where
-    {-# INLINE gFromJSON #-}
-    gFromJSON s x = M1 <$> gFromJSON s x
+instance GFromValue f => GFromValue (S1 (MetaSel Nothing u ss ds) f) where
+    {-# INLINE gFromValue #-}
+    gFromValue s x = M1 <$> gFromValue s x
 
-instance (GFromJSON f, Selector (MetaSel (Just l) u ss ds)) => GFromJSON (S1 (MetaSel (Just l) u ss ds) f) where
-    {-# INLINE gFromJSON #-}
-    gFromJSON s (Object v) = do
+instance (GFromValue f, Selector (MetaSel (Just l) u ss ds)) => GFromValue (S1 (MetaSel (Just l) u ss ds) f) where
+    {-# INLINE gFromValue #-}
+    gFromValue s (Object v) = do
         case FM.lookup fn (FM.packVectorR v) of
-            Just v' -> M1 <$> gFromJSON s v' <?> Key fn
+            Just v' -> M1 <$> gFromValue s v' <?> Key fn
             _       -> fail' ("Std.Data.JSON.Base: missing field " <>  fn)
       where fn = (fieldFmt s) (selName (undefined :: S1 (MetaSel (Just l) u ss ds) f a))
-    gFromJSON s v = typeMismatch ("field " <> fn) "Object" v <?> Key fn
+    gFromValue s v = typeMismatch ("field " <> fn) "Object" v <?> Key fn
       where fn = (fieldFmt s) (selName (undefined :: S1 (MetaSel (Just l) u ss ds) f a))
 
-instance FromJSON a => GFromJSON (K1 i a) where
-    {-# INLINE gFromJSON #-}
-    gFromJSON s x = K1 <$> fromJSON x
+instance FromValue a => GFromValue (K1 i a) where
+    {-# INLINE gFromValue #-}
+    gFromValue s x = K1 <$> fromValue x
 
 class GBuildLookup f where
     gBuildLookup :: Proxy# f -> Int -> T.Text -> Value -> Converter (LookupTable f)
@@ -805,35 +831,35 @@ instance GBuildLookup (S1 ((MetaSel (Just l) u ss ds)) f) where
 --------------------------------------------------------------------------------
 -- Constructors
 
-class GConstrFromJSON f where
-    gConstrFromJSON :: Bool -> Settings -> Value -> Converter (f a)
+class GConstrFromValue f where
+    gConstrFromValue :: Bool -> Settings -> Value -> Converter (f a)
 
-instance GConstrFromJSON V1 where
-    {-# INLINE gConstrFromJSON #-}
-    gConstrFromJSON _ _ _ = error "Std.Data.JSON.Base: empty data type"
+instance GConstrFromValue V1 where
+    {-# INLINE gConstrFromValue #-}
+    gConstrFromValue _ _ _ = error "Std.Data.JSON.Base: empty data type"
 
-instance (GConstrFromJSON f, GConstrFromJSON g) => GConstrFromJSON (f :+: g) where
-    {-# INLINE gConstrFromJSON #-}
-    gConstrFromJSON _ s x = (L1 <$> gConstrFromJSON True s x) <|> (R1 <$> gConstrFromJSON True s x)
+instance (GConstrFromValue f, GConstrFromValue g) => GConstrFromValue (f :+: g) where
+    {-# INLINE gConstrFromValue #-}
+    gConstrFromValue _ s x = (L1 <$> gConstrFromValue True s x) <|> (R1 <$> gConstrFromValue True s x)
 
 -- | Constructor without payload, convert to String
-instance (Constructor c) => GConstrFromJSON (C1 c U1) where
-    {-# INLINE gConstrFromJSON #-}
-    gConstrFromJSON _ s (String x)
+instance (Constructor c) => GConstrFromValue (C1 c U1) where
+    {-# INLINE gConstrFromValue #-}
+    gConstrFromValue _ s (String x)
         | cn == x   = pure (M1 U1)
         | otherwise = fail' . T.concat $ ["converting ", cn', "failed, unknown constructor name ", x]
       where cn = constrFmt s $ conName (undefined :: t c U1 a)
             cn' = T.pack $ conName (undefined :: t c U1 a)
-    gConstrFromJSON _ _ v = typeMismatch cn' "String" v
+    gConstrFromValue _ _ v = typeMismatch cn' "String" v
       where cn' = T.pack $ conName (undefined :: t c U1 a)
 
 -- | Constructor with a single payload
-instance (Constructor c, GFromJSON (S1 sc f)) => GConstrFromJSON (C1 c (S1 sc f)) where
-    {-# INLINE gConstrFromJSON #-}
-    gConstrFromJSON False s x = M1 <$> gFromJSON s x
-    gConstrFromJSON True s x = case x of
+instance (Constructor c, GFromValue (S1 sc f)) => GConstrFromValue (C1 c (S1 sc f)) where
+    {-# INLINE gConstrFromValue #-}
+    gConstrFromValue False s x = M1 <$> gFromValue s x
+    gConstrFromValue True s x = case x of
         Object v -> case V.indexM v 0 of
-            Just (k, v') | k == cn -> M1 <$> gFromJSON s v' <?> Key cn
+            Just (k, v') | k == cn -> M1 <$> gFromValue s v' <?> Key cn
             _                      -> fail' .T.concat $ ["converting ", cn', " failed, constructor not found"]
         _ ->  typeMismatch cn' "Object" x
       where cn = constrFmt s $ conName (undefined :: t c f a)
@@ -841,14 +867,14 @@ instance (Constructor c, GFromJSON (S1 sc f)) => GConstrFromJSON (C1 c (S1 sc f)
 
 -- | Constructor with multiple payloads
 instance (ProductSize (a :*: b), GFromFields (a :*: b), GBuildLookup (a :*: b), Constructor c)
-    => GConstrFromJSON (C1 c (a :*: b)) where
-    {-# INLINE gConstrFromJSON #-}
-    gConstrFromJSON False s x = do
+    => GConstrFromValue (C1 c (a :*: b)) where
+    {-# INLINE gConstrFromValue #-}
+    gConstrFromValue False s x = do
         t <- gBuildLookup p (productSize p) cn' x
         M1 <$> gFromFields s t 0
       where cn' = T.pack $ conName (undefined :: t c f a)
             p = proxy# :: Proxy# (a :*: b)
-    gConstrFromJSON True s x = case x of
+    gConstrFromValue True s x = case x of
         Object v -> case V.indexM v 0 of
             Just (k, v') | k == cn -> do t <- gBuildLookup p (productSize p) cn' v'
                                          M1 <$> gFromFields s t 0
@@ -860,212 +886,213 @@ instance (ProductSize (a :*: b), GFromFields (a :*: b), GBuildLookup (a :*: b), 
 
 --------------------------------------------------------------------------------
 -- Data types
-instance GConstrFromJSON f => GFromJSON (D1 c f) where
-    {-# INLINE gFromJSON #-}
-    gFromJSON s x = M1 <$> gConstrFromJSON False s x
+instance GConstrFromValue f => GFromValue (D1 c f) where
+    {-# INLINE gFromValue #-}
+    gFromValue s x = M1 <$> gConstrFromValue False s x
 
 --------------------------------------------------------------------------------
 -- Built-in Instances
 --------------------------------------------------------------------------------
 -- | Use 'Null' as @Proxy a@
-instance FromJSON (Proxy a)   where {{-# INLINE fromJSON #-}; fromJSON = fromNull "Proxy" Proxy;}
-instance ToJSON (Proxy a)     where {{-# INLINE toJSON #-}; toJSON _ = Null;}
+instance FromValue (Proxy a)   where {{-# INLINE fromValue #-}; fromValue = fromNull "Proxy" Proxy;}
+instance ToValue (Proxy a)     where {{-# INLINE toValue #-}; toValue _ = Null;}
 instance EncodeJSON (Proxy a) where {{-# INLINE encodeJSON #-}; encodeJSON _ = "null";}
 
-instance FromJSON Value   where {{-# INLINE fromJSON #-}; fromJSON = pure;}
-instance ToJSON Value     where { {-# INLINE toJSON #-}; toJSON = id; }
+instance FromValue Value   where {{-# INLINE fromValue #-}; fromValue = pure;}
+instance ToValue Value     where { {-# INLINE toValue #-}; toValue = id; }
 instance EncodeJSON Value where { {-# INLINE encodeJSON #-}; encodeJSON = JB.value; }
 
-instance FromJSON T.Text   where {{-# INLINE fromJSON #-}; fromJSON = withText "Text" pure;}
-instance ToJSON T.Text     where {{-# INLINE toJSON #-}; toJSON = String;}
+instance FromValue T.Text   where {{-# INLINE fromValue #-}; fromValue = withText "Text" pure;}
+instance ToValue T.Text     where {{-# INLINE toValue #-}; toValue = String;}
 instance EncodeJSON T.Text where {{-# INLINE encodeJSON #-}; encodeJSON = JB.string;}
 
-instance FromJSON Scientific where {{-# INLINE fromJSON #-}; fromJSON = withScientific "Scientific" pure;}
-instance ToJSON Scientific where {{-# INLINE toJSON #-}; toJSON = Number;}
+instance FromValue Scientific where {{-# INLINE fromValue #-}; fromValue = withScientific "Scientific" pure;}
+instance ToValue Scientific where {{-# INLINE toValue #-}; toValue = Number;}
 instance EncodeJSON Scientific where {{-# INLINE encodeJSON #-}; encodeJSON = B.scientific;}
 
 -- | default instance prefer later key
-instance FromJSON a => FromJSON (FM.FlatMap T.Text a) where
-    {-# INLINE fromJSON #-}
-    fromJSON = withFlatMapR "Std.Data.Vector.FlatMap.FlatMap"
-        (FM.traverseWithKey $ \ k v -> fromJSON v <?> Key k)
-instance ToJSON a => ToJSON (FM.FlatMap T.Text a) where
-    {-# INLINE toJSON #-}
-    toJSON = Object . FM.sortedKeyValues . FM.map' toJSON
+instance FromValue a => FromValue (FM.FlatMap T.Text a) where
+    {-# INLINE fromValue #-}
+    fromValue = withFlatMapR "Std.Data.Vector.FlatMap.FlatMap"
+        (FM.traverseWithKey $ \ k v -> fromValue v <?> Key k)
+instance ToValue a => ToValue (FM.FlatMap T.Text a) where
+    {-# INLINE toValue #-}
+    toValue = Object . FM.sortedKeyValues . FM.map' toValue
 instance EncodeJSON a => EncodeJSON (FM.FlatMap T.Text a) where
     {-# INLINE encodeJSON #-}
     encodeJSON = JB.object' encodeJSON . FM.sortedKeyValues
 
-instance (Ord a, FromJSON a) => FromJSON (FS.FlatSet a) where
-    {-# INLINE fromJSON #-}
-    fromJSON = withArray "Std.Data.Vector.FlatSet.FlatSet" $ \ v ->
+instance (Ord a, FromValue a) => FromValue (FS.FlatSet a) where
+    {-# INLINE fromValue #-}
+    fromValue = withArray "Std.Data.Vector.FlatSet.FlatSet" $ \ v ->
         FS.packRN (V.length v) <$>
-            (zipWithM (\ k v -> fromJSON v <?> Index k) [0..] (V.unpack v))
-instance ToJSON a => ToJSON (FS.FlatSet a) where
-    {-# INLINE toJSON #-}
-    toJSON = Array . V.map' toJSON . FS.sortedValues
+            (zipWithM (\ k v -> fromValue v <?> Index k) [0..] (V.unpack v))
+instance ToValue a => ToValue (FS.FlatSet a) where
+    {-# INLINE toValue #-}
+    toValue = Array . V.map' toValue . FS.sortedValues
 instance EncodeJSON a => EncodeJSON (FS.FlatSet a) where
     {-# INLINE encodeJSON #-}
     encodeJSON = JB.array' encodeJSON . FS.sortedValues
 
 -- | default instance prefer later key
-instance FromJSON a => FromJSON (HM.HashMap T.Text a) where
-    {-# INLINE fromJSON #-}
-    fromJSON = withHashMapR "Data.HashMap.HashMap"
-        (HM.traverseWithKey $ \ k v -> fromJSON v <?> Key k)
-instance ToJSON a => ToJSON (HM.HashMap T.Text a) where
-    {-# INLINE toJSON #-}
-    toJSON = Object . V.pack . HM.toList . HM.map toJSON
+instance FromValue a => FromValue (HM.HashMap T.Text a) where
+    {-# INLINE fromValue #-}
+    fromValue = withHashMapR "Data.HashMap.HashMap"
+        (HM.traverseWithKey $ \ k v -> fromValue v <?> Key k)
+instance ToValue a => ToValue (HM.HashMap T.Text a) where
+    {-# INLINE toValue #-}
+    toValue = Object . V.pack . HM.toList . HM.map toValue
 instance EncodeJSON a => EncodeJSON (HM.HashMap T.Text a) where
     {-# INLINE encodeJSON #-}
-    encodeJSON m
-        | HM.null m = "{}"
-        | otherwise = do
-            let (x:xs) = HM.toList m
-            B.encodePrim @Word8 OPEN_CURLY
-            JB.string (fst x) >> B.encodePrim @Word8 COLON >> encodeJSON (snd x)
-            forM xs $ \ x ->
-                B.encodePrim @Word8 COMMA >> JB.string (fst x) >> B.encodePrim @Word8 COLON >> encodeJSON (snd x)
-            B.encodePrim @Word8 CLOSE_CURLY
+    encodeJSON = curly . commaList (\ (k, v) -> k >!< encodeJSON v) . HM.toList
 
-instance FromJSON a => FromJSON (FIM.FlatIntMap a) where
-    {-# INLINE fromJSON #-}
-    fromJSON = withFlatMapR "Std.Data.Vector.FlatIntMap.FlatIntMap" $ \ m ->
+instance FromValue a => FromValue (FIM.FlatIntMap a) where
+    {-# INLINE fromValue #-}
+    fromValue = withFlatMapR "Std.Data.Vector.FlatIntMap.FlatIntMap" $ \ m ->
         let kvs = FM.sortedKeyValues m
         in FIM.packVectorR <$> (forM kvs $ \ (k, v) -> do
             case P.parse_ P.int (T.getUTF8Bytes k) of
                 Right k' -> do
-                    v' <- fromJSON v <?> Key k
+                    v' <- fromValue v <?> Key k
                     return (V.IPair k' v')
                 _ -> fail' ("converting Std.Data.Vector.FlatIntMap.FlatIntMap failed, unexpected key " <> k))
-instance ToJSON a => ToJSON (FIM.FlatIntMap a) where
-    {-# INLINE toJSON #-}
-    toJSON = Object . V.map' toKV . FIM.sortedKeyValues
+instance ToValue a => ToValue (FIM.FlatIntMap a) where
+    {-# INLINE toValue #-}
+    toValue = Object . V.map' toKV . FIM.sortedKeyValues
       where toKV (V.IPair i x) = let !k = TB.buildText (TB.int i)
-                                     !v = toJSON x
+                                     !v = toValue x
                                  in (k, v)
 instance EncodeJSON a => EncodeJSON (FIM.FlatIntMap a) where
     {-# INLINE encodeJSON #-}
-    encodeJSON m = do
-        let ips = FIM.sortedKeyValues m
-        B.encodePrim @Word8 OPEN_CURLY
-        forM_ (V.initMayEmpty ips) $ \ (V.IPair i x) -> do
-            B.encodePrim @Word8 DOUBLE_QUOTE
-            B.int i
-            B.encodePrim @Word8 DOUBLE_QUOTE
-            B.encodePrim @Word8 COLON
-            encodeJSON x
-            B.encodePrim @Word8 COMMA
-        forM_ (V.lastMaybe ips) $ \ (V.IPair i x) -> do
-            B.encodePrim @Word8 DOUBLE_QUOTE
-            B.int i
-            B.encodePrim @Word8 DOUBLE_QUOTE
-            B.encodePrim @Word8 COLON
-            encodeJSON x
-        B.encodePrim @Word8 CLOSE_CURLY
+    encodeJSON = curly . commaVector (\ (V.IPair i x) -> do
+        quotes (B.int i)
+        B.encodePrim @Word8 COLON
+        encodeJSON x) . FIM.sortedKeyValues
 
-instance FromJSON FIS.FlatIntSet where
-    {-# INLINE fromJSON #-}
-    fromJSON = withArray "Std.Data.Vector.FlatIntSet.FlatIntSet" $ \ v ->
-        FIS.packRN (V.length v) <$>
-            (zipWithM (\ k v -> fromJSON v <?> Index k) [0..] (V.unpack v))
+instance FromValue FIS.FlatIntSet where
+    {-# INLINE fromValue #-}
+    fromValue = withArray "Std.Data.Vector.FlatIntSet.FlatIntSet" $ \ v ->
+        FIS.packRN (V.length v) <$> zipWithM (\ k v -> fromValue v <?> Index k) [0..] (V.unpack v)
+instance ToValue FIS.FlatIntSet where
+    {-# INLINE toValue #-}
+    toValue = toValue . FIS.sortedValues
+instance EncodeJSON FIS.FlatIntSet where
+    {-# INLINE encodeJSON #-}
+    encodeJSON = encodeJSON . FIS.sortedValues
 
-instance FromJSON a => FromJSON (V.Vector a) where
-    {-# INLINE fromJSON #-}
-    fromJSON = withArray "Std.Data.Vector.Vector"
-        (V.traverseWithIndex $ \ k v -> fromJSON v <?> Index k)
+instance FromValue a => FromValue (V.Vector a) where
+    {-# INLINE fromValue #-}
+    fromValue = withArray "Std.Data.Vector.Vector"
+        (V.traverseWithIndex $ \ k v -> fromValue v <?> Index k)
+instance ToValue a => ToValue (V.Vector a) where
+    {-# INLINE toValue #-}
+    toValue = Array . V.map toValue
+instance EncodeJSON a => EncodeJSON (V.Vector a) where
+    {-# INLINE encodeJSON #-}
+    encodeJSON = square . commaVector'
 
-instance (Prim a, FromJSON a) => FromJSON (V.PrimVector a) where
-    {-# INLINE fromJSON #-}
-    fromJSON = withArray "Std.Data.Vector.PrimVector"
-        (V.traverseWithIndex $ \ k v -> fromJSON v <?> Index k)
+instance (Prim a, FromValue a) => FromValue (V.PrimVector a) where
+    {-# INLINE fromValue #-}
+    fromValue = withArray "Std.Data.Vector.PrimVector"
+        (V.traverseWithIndex $ \ k v -> fromValue v <?> Index k)
+instance (Prim a, ToValue a) => ToValue (V.PrimVector a) where
+    {-# INLINE toValue #-}
+    toValue = Array . V.map toValue
+instance (Prim a, EncodeJSON a) => EncodeJSON (V.PrimVector a) where
+    {-# INLINE encodeJSON #-}
+    encodeJSON = square . commaVector'
 
-instance (Eq a, Hashable a, FromJSON a) => FromJSON (HS.HashSet a) where
-    {-# INLINE fromJSON #-}
-    fromJSON = withArray "Std.Data.Vector.FlatSet.FlatSet" $ \ v ->
+instance (Eq a, Hashable a, FromValue a) => FromValue (HS.HashSet a) where
+    {-# INLINE fromValue #-}
+    fromValue = withArray "Std.Data.Vector.FlatSet.FlatSet" $ \ v ->
         HS.fromList <$>
-            (zipWithM (\ k v -> fromJSON v <?> Index k) [0..] (V.unpack v))
+            (zipWithM (\ k v -> fromValue v <?> Index k) [0..] (V.unpack v))
+instance (ToValue a) => ToValue (HS.HashSet a) where
+    {-# INLINE toValue #-}
+    toValue = toValue . HS.toList
+instance (EncodeJSON a) => EncodeJSON (HS.HashSet a) where
+    {-# INLINE encodeJSON #-}
+    encodeJSON = encodeJSON . HS.toList
 
-instance {-# OVERLAPPABLE #-} FromJSON a => FromJSON [a] where
-    {-# INLINE fromJSON #-}
-    fromJSON = withArray "[a]" $ \ v ->
-        zipWithM (\ k v -> fromJSON v <?> Index k) [0..] (V.unpack v)
-instance {-# OVERLAPPABLE #-} ToJSON a => ToJSON [a] where
-    {-# INLINE toJSON #-}
-    toJSON = Array . V.pack . map toJSON
+instance {-# OVERLAPPABLE #-} FromValue a => FromValue [a] where
+    {-# INLINE fromValue #-}
+    fromValue = withArray "[a]" $ \ v ->
+        zipWithM (\ k v -> fromValue v <?> Index k) [0..] (V.unpack v)
+instance {-# OVERLAPPABLE #-} ToValue a => ToValue [a] where
+    {-# INLINE toValue #-}
+    toValue = Array . V.pack . map toValue
 instance {-# OVERLAPPABLE #-} EncodeJSON a => EncodeJSON [a] where
     {-# INLINE encodeJSON #-}
-    encodeJSON xs = do
-        B.encodePrim @Word8 OPEN_SQUARE
-        go xs
-        B.encodePrim @Word8 CLOSE_SQUARE
-      where
-        go [] = pure ()
-        go [x] = encodeJSON x
-        go (x:xs) = encodeJSON x >> B.encodePrim @Word8 COMMA >> go xs
+    encodeJSON = square . commaList'
 
-instance {-# OVERLAPPING #-} FromJSON String where
-    {-# INLINE fromJSON #-}
-    fromJSON = withText "String" (pure . T.unpack)
-instance {-# OVERLAPPING #-} ToJSON String where
-    {-# INLINE toJSON #-}
-    toJSON = String . T.pack
+instance {-# OVERLAPPING #-} FromValue String where
+    {-# INLINE fromValue #-}
+    fromValue = withText "String" (pure . T.unpack)
+instance {-# OVERLAPPING #-} ToValue String where
+    {-# INLINE toValue #-}
+    toValue = String . T.pack
 instance {-# OVERLAPPING #-} EncodeJSON String where
     {-# INLINE encodeJSON #-}
     encodeJSON = JB.string . T.pack
 
-instance FromJSON a => FromJSON (NonEmpty a) where
-    {-# INLINE fromJSON #-}
-    fromJSON = withArray "NonEmpty" $ \ v -> do
-        l <- zipWithM (\ k v -> fromJSON v <?> Index k) [0..] (V.unpack v)
+instance FromValue a => FromValue (NonEmpty a) where
+    {-# INLINE fromValue #-}
+    fromValue = withArray "NonEmpty" $ \ v -> do
+        l <- zipWithM (\ k v -> fromValue v <?> Index k) [0..] (V.unpack v)
         case l of (x:xs) -> pure (x :| xs)
                   _      -> fail' "unexpected empty array"
+instance (ToValue a) => ToValue (NonEmpty a) where
+    {-# INLINE toValue #-}
+    toValue = toValue . NonEmpty.toList
+instance (EncodeJSON a) => EncodeJSON (NonEmpty a) where
+    {-# INLINE encodeJSON #-}
+    encodeJSON = encodeJSON . NonEmpty.toList
 
-instance FromJSON Bool where {{-# INLINE fromJSON #-}; fromJSON = withBool "Bool" pure;}
-instance ToJSON Bool where {{-# INLINE toJSON #-}; toJSON = Bool; }
+instance FromValue Bool where {{-# INLINE fromValue #-}; fromValue = withBool "Bool" pure;}
+instance ToValue Bool where {{-# INLINE toValue #-}; toValue = Bool; }
 instance EncodeJSON Bool where {{-# INLINE encodeJSON #-}; encodeJSON True = "true"; encodeJSON _ = "false";}
 
-instance FromJSON Char where
-    {-# INLINE fromJSON #-}
-    fromJSON = withText "Char" $ \ t ->
+instance FromValue Char where
+    {-# INLINE fromValue #-}
+    fromValue = withText "Char" $ \ t ->
         case T.headMaybe t of
             Just c -> pure c
             _      -> fail' (T.concat ["converting Char failed, expected a string of length 1"])
-instance ToJSON Char where
-    {-# INLINE toJSON #-}
-    toJSON = String . T.singleton
+instance ToValue Char where
+    {-# INLINE toValue #-}
+    toValue = String . T.singleton
 instance EncodeJSON Char where
     {-# INLINE encodeJSON #-}
     encodeJSON = JB.string . T.singleton
 
 
-instance FromJSON Double where {{-# INLINE fromJSON #-}; fromJSON = withRealFloat "Double" pure;}
-instance FromJSON Float  where {{-# INLINE fromJSON #-}; fromJSON = withRealFloat "Double" pure;}
-instance ToJSON Float  where {{-# INLINE toJSON #-}; toJSON = Number . P.floatToScientific;}
-instance ToJSON Double where {{-# INLINE toJSON #-}; toJSON = Number . P.doubleToScientific;}
+instance FromValue Double where {{-# INLINE fromValue #-}; fromValue = withRealFloat "Double" pure;}
+instance FromValue Float  where {{-# INLINE fromValue #-}; fromValue = withRealFloat "Double" pure;}
+instance ToValue Float  where {{-# INLINE toValue #-}; toValue = Number . P.floatToScientific;}
+instance ToValue Double where {{-# INLINE toValue #-}; toValue = Number . P.doubleToScientific;}
 instance EncodeJSON Float  where {{-# INLINE encodeJSON #-}; encodeJSON = B.float;}
 instance EncodeJSON Double where {{-# INLINE encodeJSON #-}; encodeJSON = B.double;}
 
-instance FromJSON Int    where {{-# INLINE fromJSON #-}; fromJSON = withBoundedIntegral "Int" pure;}
-instance FromJSON Int8   where {{-# INLINE fromJSON #-}; fromJSON = withBoundedIntegral "Int8" pure;}
-instance FromJSON Int16  where {{-# INLINE fromJSON #-}; fromJSON = withBoundedIntegral "Int16" pure;}
-instance FromJSON Int32  where {{-# INLINE fromJSON #-}; fromJSON = withBoundedIntegral "Int32" pure;}
-instance FromJSON Int64  where {{-# INLINE fromJSON #-}; fromJSON = withBoundedIntegral "Int64" pure;}
-instance FromJSON Word   where {{-# INLINE fromJSON #-}; fromJSON = withBoundedIntegral "Word" pure;}
-instance FromJSON Word8  where {{-# INLINE fromJSON #-}; fromJSON = withBoundedIntegral "Word8" pure;}
-instance FromJSON Word16 where {{-# INLINE fromJSON #-}; fromJSON = withBoundedIntegral "Word16" pure;}
-instance FromJSON Word32 where {{-# INLINE fromJSON #-}; fromJSON = withBoundedIntegral "Word32" pure;}
-instance FromJSON Word64 where {{-# INLINE fromJSON #-}; fromJSON = withBoundedIntegral "Word64" pure;}
-instance ToJSON Int    where {{-# INLINE toJSON #-}; toJSON = Number . fromIntegral;}
-instance ToJSON Int8   where {{-# INLINE toJSON #-}; toJSON = Number . fromIntegral;}
-instance ToJSON Int16  where {{-# INLINE toJSON #-}; toJSON = Number . fromIntegral;}
-instance ToJSON Int32  where {{-# INLINE toJSON #-}; toJSON = Number . fromIntegral;}
-instance ToJSON Int64  where {{-# INLINE toJSON #-}; toJSON = Number . fromIntegral;}
-instance ToJSON Word   where {{-# INLINE toJSON #-}; toJSON = Number . fromIntegral;}
-instance ToJSON Word8  where {{-# INLINE toJSON #-}; toJSON = Number . fromIntegral;}
-instance ToJSON Word16 where {{-# INLINE toJSON #-}; toJSON = Number . fromIntegral;}
-instance ToJSON Word32 where {{-# INLINE toJSON #-}; toJSON = Number . fromIntegral;}
-instance ToJSON Word64 where {{-# INLINE toJSON #-}; toJSON = Number . fromIntegral;}
+instance FromValue Int    where {{-# INLINE fromValue #-}; fromValue = withBoundedIntegral "Int" pure;}
+instance FromValue Int8   where {{-# INLINE fromValue #-}; fromValue = withBoundedIntegral "Int8" pure;}
+instance FromValue Int16  where {{-# INLINE fromValue #-}; fromValue = withBoundedIntegral "Int16" pure;}
+instance FromValue Int32  where {{-# INLINE fromValue #-}; fromValue = withBoundedIntegral "Int32" pure;}
+instance FromValue Int64  where {{-# INLINE fromValue #-}; fromValue = withBoundedIntegral "Int64" pure;}
+instance FromValue Word   where {{-# INLINE fromValue #-}; fromValue = withBoundedIntegral "Word" pure;}
+instance FromValue Word8  where {{-# INLINE fromValue #-}; fromValue = withBoundedIntegral "Word8" pure;}
+instance FromValue Word16 where {{-# INLINE fromValue #-}; fromValue = withBoundedIntegral "Word16" pure;}
+instance FromValue Word32 where {{-# INLINE fromValue #-}; fromValue = withBoundedIntegral "Word32" pure;}
+instance FromValue Word64 where {{-# INLINE fromValue #-}; fromValue = withBoundedIntegral "Word64" pure;}
+instance ToValue Int    where {{-# INLINE toValue #-}; toValue = Number . fromIntegral;}
+instance ToValue Int8   where {{-# INLINE toValue #-}; toValue = Number . fromIntegral;}
+instance ToValue Int16  where {{-# INLINE toValue #-}; toValue = Number . fromIntegral;}
+instance ToValue Int32  where {{-# INLINE toValue #-}; toValue = Number . fromIntegral;}
+instance ToValue Int64  where {{-# INLINE toValue #-}; toValue = Number . fromIntegral;}
+instance ToValue Word   where {{-# INLINE toValue #-}; toValue = Number . fromIntegral;}
+instance ToValue Word8  where {{-# INLINE toValue #-}; toValue = Number . fromIntegral;}
+instance ToValue Word16 where {{-# INLINE toValue #-}; toValue = Number . fromIntegral;}
+instance ToValue Word32 where {{-# INLINE toValue #-}; toValue = Number . fromIntegral;}
+instance ToValue Word64 where {{-# INLINE toValue #-}; toValue = Number . fromIntegral;}
 instance EncodeJSON Int   where {{-# INLINE encodeJSON #-}; encodeJSON = B.int;}
 instance EncodeJSON Int8  where {{-# INLINE encodeJSON #-}; encodeJSON = B.int;}
 instance EncodeJSON Int16 where {{-# INLINE encodeJSON #-}; encodeJSON = B.int;}
@@ -1078,18 +1105,24 @@ instance EncodeJSON Word32 where {{-# INLINE encodeJSON #-}; encodeJSON = B.int;
 instance EncodeJSON Word64 where {{-# INLINE encodeJSON #-}; encodeJSON = B.int;}
 
 -- | This instance includes a bounds check to prevent maliciously large inputs to fill up the memory of the target system. You can newtype Scientific and provide your own instance using 'withScientific' if you want to allow larger inputs.
-instance FromJSON Integer where
-    {-# INLINE fromJSON #-}
-    fromJSON = withBoundedScientific "Integer" $ \ n ->
+instance FromValue Integer where
+    {-# INLINE fromValue #-}
+    fromValue = withBoundedScientific "Integer" $ \ n ->
         case Scientific.floatingOrInteger n :: Either Double Integer of
             Right x -> pure x
             Left _  -> fail' . TB.buildText $ do
                 "converting Integer failed, unexpected floating number "
                 TB.scientific n
+instance ToValue Integer where
+    {-# INLINE toValue #-}
+    toValue = Number . fromIntegral
+instance EncodeJSON Integer where
+    {-# INLINE encodeJSON #-}
+    encodeJSON = B.integer
 
-instance FromJSON Natural where
-    {-# INLINE fromJSON #-}
-    fromJSON = withBoundedScientific "Natural" $ \ n ->
+instance FromValue Natural where
+    {-# INLINE fromValue #-}
+    fromValue = withBoundedScientific "Natural" $ \ n ->
         if n < 0
         then fail' . TB.buildText $ do
                 "converting Natural failed, unexpected negative number "
@@ -1099,76 +1132,168 @@ instance FromJSON Natural where
             Left _  -> fail' . TB.buildText $ do
                 "converting Natural failed, unexpected floating number "
                 TB.scientific n
+instance ToValue Natural where
+    {-# INLINE toValue #-}
+    toValue = Number . fromIntegral
+instance EncodeJSON Natural where
+    {-# INLINE encodeJSON #-}
+    encodeJSON = B.integer . fromIntegral
 
-instance FromJSON Ordering where
-    fromJSON = withText "Ordering" $ \ s ->
+instance FromValue Ordering where
+    fromValue = withText "Ordering" $ \ s ->
         case s of
             "LT" -> pure LT
             "EQ" -> pure EQ
             "GT" -> pure GT
             _ -> fail' . T.concat $ ["converting Ordering failed, unexpected ",
                                         s, " expected \"LT\", \"EQ\", or \"GT\""]
+instance ToValue Ordering where
+    {-# INLINE toValue #-}
+    toValue LT = String "LT"
+    toValue EQ = String "EQ"
+    toValue GT = String "GT"
+instance EncodeJSON Ordering where
+    {-# INLINE encodeJSON #-}
+    encodeJSON LT = "LT"
+    encodeJSON EQ = "EQ"
+    encodeJSON GT = "GT"
 
-instance FromJSON () where
-    {-# INLINE fromJSON #-}
-    fromJSON = withArray "()" $ \ v ->
+instance FromValue () where
+    {-# INLINE fromValue #-}
+    fromValue = withArray "()" $ \ v ->
         if V.null v
         then pure ()
         else fail' "converting () failed, expected an empty array"
-instance ToJSON () where
-    {-# INLINE toJSON #-}
-    toJSON () = Array V.empty
+instance ToValue () where
+    {-# INLINE toValue #-}
+    toValue () = Array V.empty
 instance EncodeJSON () where
     {-# INLINE encodeJSON #-}
     encodeJSON () = "[]"
 
-instance FromJSON Version where
-    {-# INLINE fromJSON #-}
-    fromJSON = withText "Version" (go . readP_to_S parseVersion . T.unpack)
+instance FromValue Version where
+    {-# INLINE fromValue #-}
+    fromValue = withText "Version" (go . readP_to_S parseVersion . T.unpack)
       where
         go [(v,[])] = pure v
         go (_ : xs) = go xs
         go _        = fail "converting Version failed"
+instance ToValue Version where
+    {-# INLINE toValue #-}
+    toValue = String . T.pack . show
+instance EncodeJSON Version where
+    {-# INLINE encodeJSON #-}
+    encodeJSON = B.string7 . show
 
-instance FromJSON a => FromJSON (Maybe a) where
-    {-# INLINE fromJSON #-}
-    fromJSON Null = pure Nothing
-    fromJSON v = Just <$> fromJSON v
+instance FromValue a => FromValue (Maybe a) where
+    {-# INLINE fromValue #-}
+    fromValue Null = pure Nothing
+    fromValue v = Just <$> fromValue v
+instance ToValue a => ToValue (Maybe a) where
+    {-# INLINE toValue #-}
+    toValue Nothing = Null
+    toValue (Just x) = toValue x
+instance EncodeJSON a => EncodeJSON (Maybe a) where
+    {-# INLINE encodeJSON #-}
+    encodeJSON Nothing = "null"
+    encodeJSON (Just x) = encodeJSON x
 
 -- | This instance includes a bounds check to prevent maliciously large inputs to fill up the memory of the target system. You can newtype Ratio and provide your own instance using 'withScientific' if you want to allow larger inputs.
-instance (FromJSON a, Integral a) => FromJSON (Ratio a) where
-    {-# INLINE fromJSON #-}
-    fromJSON = withFlatMapR "Rational" $ \obj -> do
+instance (FromValue a, Integral a) => FromValue (Ratio a) where
+    {-# INLINE fromValue #-}
+    fromValue = withFlatMapR "Rational" $ \obj -> do
         numerator <- obj .: "numerator"
         denominator <- obj .: "denominator"
         if denominator == 0
         then fail' "Ratio denominator was 0"
         else pure (numerator % denominator)
+instance (ToValue a, Integral a) => ToValue (Ratio a) where
+    {-# INLINE toValue #-}
+    toValue x = Object (V.pack [("numerator", n), ("denominator", d)])
+      where !n = toValue (numerator x)
+            !d = toValue (denominator x)
+instance (EncodeJSON a, Integral a) => EncodeJSON (Ratio a) where
+    {-# INLINE encodeJSON #-}
+    encodeJSON x =
+        curly $  ("numerator"   >:< encodeJSON (numerator x))
+             >+< ("denominator" >:< encodeJSON (denominator x))
 
 -- | This instance includes a bounds check to prevent maliciously large inputs to fill up the memory of the target system. You can newtype Fixed and provide your own instance using 'withScientific' if you want to allow larger inputs.
-instance HasResolution a => FromJSON (Fixed a) where
-    {-# INLINE fromJSON #-}
-    fromJSON = withBoundedScientific "Fixed" (pure . realToFrac)
+instance HasResolution a => FromValue (Fixed a) where
+    {-# INLINE fromValue #-}
+    fromValue = withBoundedScientific "Fixed" (pure . realToFrac)
+instance HasResolution a => ToValue (Fixed a) where
+    {-# INLINE toValue #-}
+    toValue = Number . realToFrac
+instance HasResolution a => EncodeJSON (Fixed a) where
+    {-# INLINE encodeJSON #-}
+    encodeJSON = B.scientific . realToFrac
 
-deriving newtype instance FromJSON (f (g a)) => FromJSON (Compose f g a)
-deriving newtype instance FromJSON a => FromJSON (Semigroup.Min a)
-deriving newtype instance FromJSON a => FromJSON (Semigroup.Max a)
-deriving newtype instance FromJSON a => FromJSON (Semigroup.First a)
-deriving newtype instance FromJSON a => FromJSON (Semigroup.Last a)
-deriving newtype instance FromJSON a => FromJSON (Semigroup.WrappedMonoid a)
-deriving newtype instance FromJSON a => FromJSON (Semigroup.Dual a)
-deriving newtype instance FromJSON a => FromJSON (Monoid.First a)
-deriving newtype instance FromJSON a => FromJSON (Monoid.Last a)
-deriving newtype instance FromJSON a => FromJSON (Identity a)
-deriving newtype instance FromJSON a => FromJSON (Const a b)
-deriving newtype instance FromJSON b => FromJSON (Tagged a b)
+deriving newtype instance FromValue (f (g a)) => FromValue (Compose f g a)
+deriving newtype instance FromValue a => FromValue (Semigroup.Min a)
+deriving newtype instance FromValue a => FromValue (Semigroup.Max a)
+deriving newtype instance FromValue a => FromValue (Semigroup.First a)
+deriving newtype instance FromValue a => FromValue (Semigroup.Last a)
+deriving newtype instance FromValue a => FromValue (Semigroup.WrappedMonoid a)
+deriving newtype instance FromValue a => FromValue (Semigroup.Dual a)
+deriving newtype instance FromValue a => FromValue (Monoid.First a)
+deriving newtype instance FromValue a => FromValue (Monoid.Last a)
+deriving newtype instance FromValue a => FromValue (Identity a)
+deriving newtype instance FromValue a => FromValue (Const a b)
+deriving newtype instance FromValue b => FromValue (Tagged a b)
 
-deriving anyclass instance (FromJSON (f a), FromJSON (g a), FromJSON a) => FromJSON (Sum f g a)
-deriving anyclass instance (FromJSON a, FromJSON b) => FromJSON (Either a b)
-deriving anyclass instance (FromJSON (f a), FromJSON (g a)) => FromJSON (Product f g a)
-deriving anyclass instance (FromJSON a, FromJSON b) => FromJSON (a, b)
-deriving anyclass instance (FromJSON a, FromJSON b, FromJSON c) => FromJSON (a, b, c)
-deriving anyclass instance (FromJSON a, FromJSON b, FromJSON c, FromJSON d) => FromJSON (a, b, c, d)
-deriving anyclass instance (FromJSON a, FromJSON b, FromJSON c, FromJSON d, FromJSON e) => FromJSON (a, b, c, d, e)
-deriving anyclass instance (FromJSON a, FromJSON b, FromJSON c, FromJSON d, FromJSON e, FromJSON f) => FromJSON (a, b, c, d, e, f)
-deriving anyclass instance (FromJSON a, FromJSON b, FromJSON c, FromJSON d, FromJSON e, FromJSON f, FromJSON g) => FromJSON (a, b, c, d, e, f, g)
+deriving newtype instance ToValue (f (g a)) => ToValue (Compose f g a)
+deriving newtype instance ToValue a => ToValue (Semigroup.Min a)
+deriving newtype instance ToValue a => ToValue (Semigroup.Max a)
+deriving newtype instance ToValue a => ToValue (Semigroup.First a)
+deriving newtype instance ToValue a => ToValue (Semigroup.Last a)
+deriving newtype instance ToValue a => ToValue (Semigroup.WrappedMonoid a)
+deriving newtype instance ToValue a => ToValue (Semigroup.Dual a)
+deriving newtype instance ToValue a => ToValue (Monoid.First a)
+deriving newtype instance ToValue a => ToValue (Monoid.Last a)
+deriving newtype instance ToValue a => ToValue (Identity a)
+deriving newtype instance ToValue a => ToValue (Const a b)
+deriving newtype instance ToValue b => ToValue (Tagged a b)
+
+deriving newtype instance EncodeJSON (f (g a)) => EncodeJSON (Compose f g a)
+deriving newtype instance EncodeJSON a => EncodeJSON (Semigroup.Min a)
+deriving newtype instance EncodeJSON a => EncodeJSON (Semigroup.Max a)
+deriving newtype instance EncodeJSON a => EncodeJSON (Semigroup.First a)
+deriving newtype instance EncodeJSON a => EncodeJSON (Semigroup.Last a)
+deriving newtype instance EncodeJSON a => EncodeJSON (Semigroup.WrappedMonoid a)
+deriving newtype instance EncodeJSON a => EncodeJSON (Semigroup.Dual a)
+deriving newtype instance EncodeJSON a => EncodeJSON (Monoid.First a)
+deriving newtype instance EncodeJSON a => EncodeJSON (Monoid.Last a)
+deriving newtype instance EncodeJSON a => EncodeJSON (Identity a)
+deriving newtype instance EncodeJSON a => EncodeJSON (Const a b)
+deriving newtype instance EncodeJSON b => EncodeJSON (Tagged a b)
+
+deriving anyclass instance (FromValue (f a), FromValue (g a), FromValue a) => FromValue (Sum f g a)
+deriving anyclass instance (FromValue a, FromValue b) => FromValue (Either a b)
+deriving anyclass instance (FromValue (f a), FromValue (g a)) => FromValue (Product f g a)
+deriving anyclass instance (FromValue a, FromValue b) => FromValue (a, b)
+deriving anyclass instance (FromValue a, FromValue b, FromValue c) => FromValue (a, b, c)
+deriving anyclass instance (FromValue a, FromValue b, FromValue c, FromValue d) => FromValue (a, b, c, d)
+deriving anyclass instance (FromValue a, FromValue b, FromValue c, FromValue d, FromValue e) => FromValue (a, b, c, d, e)
+deriving anyclass instance (FromValue a, FromValue b, FromValue c, FromValue d, FromValue e, FromValue f) => FromValue (a, b, c, d, e, f)
+deriving anyclass instance (FromValue a, FromValue b, FromValue c, FromValue d, FromValue e, FromValue f, FromValue g) => FromValue (a, b, c, d, e, f, g)
+
+deriving anyclass instance (ToValue (f a), ToValue (g a), ToValue a) => ToValue (Sum f g a)
+deriving anyclass instance (ToValue a, ToValue b) => ToValue (Either a b)
+deriving anyclass instance (ToValue (f a), ToValue (g a)) => ToValue (Product f g a)
+deriving anyclass instance (ToValue a, ToValue b) => ToValue (a, b)
+deriving anyclass instance (ToValue a, ToValue b, ToValue c) => ToValue (a, b, c)
+deriving anyclass instance (ToValue a, ToValue b, ToValue c, ToValue d) => ToValue (a, b, c, d)
+deriving anyclass instance (ToValue a, ToValue b, ToValue c, ToValue d, ToValue e) => ToValue (a, b, c, d, e)
+deriving anyclass instance (ToValue a, ToValue b, ToValue c, ToValue d, ToValue e, ToValue f) => ToValue (a, b, c, d, e, f)
+deriving anyclass instance (ToValue a, ToValue b, ToValue c, ToValue d, ToValue e, ToValue f, ToValue g) => ToValue (a, b, c, d, e, f, g)
+
+deriving anyclass instance (EncodeJSON (f a), EncodeJSON (g a), EncodeJSON a) => EncodeJSON (Sum f g a)
+deriving anyclass instance (EncodeJSON a, EncodeJSON b) => EncodeJSON (Either a b)
+deriving anyclass instance (EncodeJSON (f a), EncodeJSON (g a)) => EncodeJSON (Product f g a)
+deriving anyclass instance (EncodeJSON a, EncodeJSON b) => EncodeJSON (a, b)
+deriving anyclass instance (EncodeJSON a, EncodeJSON b, EncodeJSON c) => EncodeJSON (a, b, c)
+deriving anyclass instance (EncodeJSON a, EncodeJSON b, EncodeJSON c, EncodeJSON d) => EncodeJSON (a, b, c, d)
+deriving anyclass instance (EncodeJSON a, EncodeJSON b, EncodeJSON c, EncodeJSON d, EncodeJSON e) => EncodeJSON (a, b, c, d, e)
+deriving anyclass instance (EncodeJSON a, EncodeJSON b, EncodeJSON c, EncodeJSON d, EncodeJSON e, EncodeJSON f) => EncodeJSON (a, b, c, d, e, f)
+deriving anyclass instance (EncodeJSON a, EncodeJSON b, EncodeJSON c, EncodeJSON d, EncodeJSON e, EncodeJSON f, EncodeJSON g) => EncodeJSON (a, b, c, d, e, f, g)

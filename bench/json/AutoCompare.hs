@@ -39,13 +39,13 @@ group n th gen = bgroup n [ bench "th"      th
 compareBench
   :: forall a b
   .  (ToJSON a, FromJSON a, NFData a, ToJSON b, FromJSON b, NFData b
-     , JSON.ToJSON b, JSON.FromJSON b , JSON.EncodeJSON b)
+     , JSON.ToValue b, JSON.FromValue b , JSON.EncodeJSON b)
 
   => String -> a -> b -> Benchmark
 compareBench name a b = v `deepseq` bgroup name
   [ group "toJSON"   (nf toJSON a)
                      (nf toJSON b)
-  , bench "stdio-toJSON" (nf JSON.toJSON b)
+  , bench "stdio-toJSON" (nf JSON.toValue b)
   , group "encode"   (nf encode a)
                      (nf encode b)
   , bench "stdio-encode"   (nf encode' b)
@@ -54,7 +54,7 @@ compareBench name a b = v `deepseq` bgroup name
   , bench "stdio-fromJSON" (nf (JSON.convert' :: JSON.Value -> Either JSON.ConvertError b) v')
   ] where
     v = toJSON a  -- == toJSON b
-    v' = JSON.toJSON b
+    v' = JSON.toValue b
     encode' = B.buildBytes . JSON.encodeJSON
 
 sanityCheck :: IO ()
@@ -83,11 +83,11 @@ check x = do
       Just v -> fromJSON v
       Nothing -> fail ""
 
-check' :: (Show a, Eq a, JSON.FromJSON a, JSON.ToJSON a, JSON.EncodeJSON a)
+check' :: (Show a, Eq a, JSON.FromValue a, JSON.ToValue a, JSON.EncodeJSON a)
       => a -> IO ()
 check' x = do
-    unless (Right x == (JSON.convert' . JSON.toJSON) x) $ fail $ "toJSON: " ++ show x
-    unless (Right x == (JSON.parse' . encode') x) $ fail $ "encode: " ++ show x
+    unless (Right x == (JSON.convert' . JSON.toValue) x) $ fail $ "toValue: " ++ show x
+    unless (Right x == (JSON.decode' . encode') x) $ fail $ "encode: " ++ show x
   where
     encode' = B.buildBytes . JSON.encodeJSON
 

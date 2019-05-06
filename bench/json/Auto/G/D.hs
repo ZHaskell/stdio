@@ -16,7 +16,7 @@ data D a = Nullary
                   , testTwo   :: Bool
                   , testThree :: D a
                   }
-            deriving (Show, Eq, Generic, JSON.FromJSON, JSON.ToJSON, JSON.EncodeJSON)
+            deriving (Show, Eq, Generic, JSON.FromValue, JSON.ToValue, JSON.EncodeJSON)
 
 instance NFData a => NFData (D a) where
     rnf Nullary         = ()

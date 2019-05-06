@@ -15,7 +15,7 @@ data BigRecord = BigRecord
     , field11 :: !Int, field12 :: !Int, field13 :: !Int, field14 :: !Int, field15 :: !Int
     , field16 :: !Int, field17 :: !Int, field18 :: !Int, field19 :: !Int, field20 :: !Int
     , field21 :: !Int, field22 :: !Int, field23 :: !Int, field24 :: !Int, field25 :: !Int
-    } deriving (Show, Eq, Generic, JSON.FromJSON, JSON.ToJSON, JSON.EncodeJSON)
+    } deriving (Show, Eq, Generic, JSON.FromValue, JSON.ToValue, JSON.EncodeJSON)
 
 instance NFData BigRecord where
   rnf a = a `seq` ()

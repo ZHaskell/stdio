@@ -56,7 +56,7 @@ module Std.Data.Vector.Base (
   , null
   , length
   , append
-  , map, map', imap', traverseVector, traverseWithIndex
+  , map, map', imap', traverseVector, traverseWithIndex, traverseVector_, traverseWithIndex_
   , foldl', ifoldl', foldl1', foldl1Maybe'
   , foldr', ifoldr', foldr1', foldr1Maybe'
     -- ** Special folds
@@ -349,6 +349,19 @@ traverseWithIndexIO f (Vec arr s l)
             x <- indexArrM arr (i+s)
             writeArr marr i =<< f i x
             go marr (i+1)
+
+traverseVector_ :: (Vec v a, Applicative f) => (a -> f b) -> v a -> f ()
+{-# INLINE traverseVector_ #-}
+traverseVector_ f = traverseWithIndex_ (\ _ x -> f x)
+
+traverseWithIndex_ :: (Vec v a, Applicative f) => (Int -> a -> f b) -> v a -> f ()
+{-# INLINE traverseWithIndex_ #-}
+traverseWithIndex_ f (Vec arr s l) = go s
+  where
+    end = s + l
+    go !i
+        | i >= l = pure ()
+        | otherwise = f (i-s) (indexArr arr i) *> go (i+1)
 
 --------------------------------------------------------------------------------
 -- | Primitive vector

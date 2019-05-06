@@ -269,18 +269,18 @@ insertChunk !chunkSiz !wantSiz k buffer@(Buffer buf offset) = do
     !siz <- A.sizeofMutableArr buf
     case () of
         _
-            | offset /= 0 -> do     -- this is certainly hold, but we still guard it
+            | offset /= 0 -> do
                 when (offset < siz)
                     (A.shrinkMutableArr buf offset)            -- shrink old buffer if not full
                 arr <- A.unsafeFreezeArr buf                   -- popup old buffer
                 buf' <- A.newArr (max wantSiz chunkSiz)        -- make a new buffer
-                xs <- unsafeInterleaveST (k (Buffer buf' 0))  -- delay the rest building process
+                xs <- unsafeInterleaveST (k (Buffer buf' 0))   -- delay the rest building process
                 let v = V.fromArr arr 0 offset
                 v `seq` pure (v : xs)
-            | wantSiz <= siz -> k (Buffer buf 0)
+            | wantSiz <= siz -> k (Buffer buf 0) -- this should certainly not hold, but we still guard it
             | otherwise -> do
-                buf' <- A.newArr wantSiz        -- make a new buffer
-                k (Buffer buf' 0 )
+                buf' <- A.newArr (max wantSiz chunkSiz)        -- make a new buffer
+                k (Buffer buf' 0)
 
 oneShotAction :: (V.Bytes -> ST s ()) -> Int -> BuildStep s -> BuildStep s
 {-# INLINE oneShotAction #-}

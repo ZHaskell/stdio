@@ -15,7 +15,7 @@ data BigProduct = BigProduct
     !Int !Int !Int !Int !Int
     !Int !Int !Int !Int !Int
     !Int !Int !Int !Int !Int
-    deriving (Show, Eq, Generic, JSON.FromJSON, JSON.ToJSON, JSON.EncodeJSON)
+    deriving (Show, Eq, Generic, JSON.FromValue, JSON.ToValue, JSON.EncodeJSON)
 
 instance NFData BigProduct where
   rnf a = a `seq` ()

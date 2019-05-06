@@ -14,7 +14,7 @@ data BigSum = F01 | F02 | F03 | F04 | F05
             | F11 | F12 | F13 | F14 | F15
             | F16 | F17 | F18 | F19 | F20
             | F21 | F22 | F23 | F24 | F25
-    deriving (Show, Eq, Generic, JSON.FromJSON, JSON.ToJSON, JSON.EncodeJSON)
+    deriving (Show, Eq, Generic, JSON.FromValue, JSON.ToValue, JSON.EncodeJSON)
 
 instance NFData BigSum where
   rnf a = a `seq` ()

@@ -5,6 +5,7 @@
 {-# LANGUAGE MagicHash          #-}
 {-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE UnliftedFFITypes   #-}
+{-# LANGUAGE TypeApplications   #-}
 
 {-|
 Module      : Std.Data.JSON.Value.Builder
@@ -15,19 +16,22 @@ Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 
-This module provides builders for JSON 'Value's, a Haskell JSON representation. The builders are designed to comply with <https://tools.ietf.org/html/rfc8258 rfc8258>. Only control characters are escaped, other unicode codepoint are directly written instead of escaped.
+This module provides builders for JSON 'Value's, a Haskell JSON representation. These builders are designed to comply with <https://tools.ietf.org/html/rfc8258 rfc8258>. Only control characters are escaped, other unicode codepoints are directly written instead of being escaped.
 
 -}
 module Std.Data.JSON.Value.Builder
-  ( -- * Value type
-    Value(..)
-    -- * Value Builders
-  , value
+  ( -- * Value Builders
+    value
   , object
   , object'
   , array
   , array'
   , string
+    -- * Builder helpers
+  , curly, square, quotes, (>:<), (>!<), (>+<)
+  , commaVector, commaList
+    -- * Re-export 'Value' type
+  , Value(..)
   ) where
 
 import           Control.Monad
@@ -57,6 +61,60 @@ import           Std.Data.JSON.Value      (Value(..))
 #define OPEN_CURLY 123
 #define OPEN_SQUARE 91
 
+-- | add @{...}@ to original builder.
+curly :: B.Builder () -> B.Builder ()
+{-# INLINE curly #-}
+curly b = B.encodePrim @Word8 OPEN_CURLY >> b >> B.encodePrim @Word8 CLOSE_CURLY
+
+-- | add @[...]@ to original builder.
+square :: B.Builder () -> B.Builder ()
+{-# INLINE square #-}
+square b = B.encodePrim @Word8 OPEN_SQUARE >> b >> B.encodePrim @Word8 CLOSE_SQUARE
+
+-- | add @"..."@ to original builder.
+quotes :: B.Builder () -> B.Builder ()
+{-# INLINE quotes #-}
+quotes b = B.encodePrim @Word8 DOUBLE_QUOTE >> b >> B.encodePrim @Word8 DOUBLE_QUOTE
+
+-- | use @:@ to connect a field name(will not be escaped) and a field.
+(>:<) :: T.Text -> B.Builder () -> B.Builder ()
+{-# INLINE (>:<) #-}
+l >:< b = do
+    B.encodePrim @Word8 DOUBLE_QUOTE
+    B.text l
+    B.encodePrim @Word8 DOUBLE_QUOTE
+    B.encodePrim @Word8 COLON
+    b
+infix 9 >:<
+
+-- | use @:@ to connect a field name(possiblely contain chars need to be escaped) and a field.
+(>!<) :: T.Text -> B.Builder () -> B.Builder ()
+{-# INLINE (>!<) #-}
+l >!< b = string l >> B.encodePrim @Word8 COLON >> b
+infix 9 >!<
+
+-- | use @,@ to connect seperated values or key-values.
+(>+<) :: B.Builder () -> B.Builder () -> B.Builder ()
+{-# INLINE (>+<) #-}
+a >+< b = a >> B.encodePrim @Word8 COMMA >> b
+infix 8 >+<
+
+-- | Use @,@ as separator to connect list of builders.
+commaList :: (a -> B.Builder ()) -> [a] -> B.Builder ()
+{-# INLINE commaList #-}
+commaList f xs = go xs
+  where
+    go [] = pure ()
+    go [x] = f x
+    go (x:xs) = f x >> B.encodePrim @Word8 COMMA >> go xs
+
+-- | Use @,@ as separator to connect a vector of builders.
+commaVector :: (V.Vec v a) => (a -> B.Builder ()) -> v a ->  B.Builder ()
+{-# INLINE commaVector #-}
+commaVector f v = do
+    V.traverseVector_ (\ x -> f x >> B.encodePrim @Word8 COMMA) (V.initMayEmpty v)
+    forM_ (V.lastMaybe v) f
+
 value :: Value -> B.Builder ()
 {-# INLINABLE value #-}
 value (Object kvs) = object kvs
@@ -69,49 +127,19 @@ value Null = "null"
 
 array :: V.Vector Value -> B.Builder ()
 {-# INLINE array #-}
-array vs = do
-    B.char8 '['
-    forM_ (V.initMayEmpty vs) $ \ v-> value v >> B.char8 ','
-    forM_ (V.lastMaybe vs) $ \ v-> value v
-    B.char8 ']'
+array = square . commaVector value
 
 array' :: (a -> B.Builder ()) -> V.Vector a -> B.Builder ()
 {-# INLINE array' #-}
-array' b vs = do
-    B.char8 '['
-    forM_ (V.initMayEmpty vs) $ \ v-> b v >> B.char8 ','
-    forM_ (V.lastMaybe vs) $ \ v-> b v
-    B.char8 ']'
+array' f = square . commaVector f
 
 object :: V.Vector (T.Text, Value) -> B.Builder ()
 {-# INLINE object #-}
-object kvs = do
-    B.char8 '{'
-    forM_ (V.initMayEmpty kvs) $ \ (k, v) -> do
-        string k
-        B.char8 ':'
-        value v
-        B.char8 ','
-    forM_ (V.lastMaybe kvs) $ \ (k, v) -> do
-        string k
-        B.char8 ':'
-        value v
-    B.char8 '}'
+object = curly . commaVector (\ (k, v) -> k >!< value v)
 
 object' :: (a -> B.Builder ()) -> V.Vector (T.Text, a) -> B.Builder ()
 {-# INLINE object' #-}
-object' b kvs = do
-    B.char8 '{'
-    forM_ (V.initMayEmpty kvs) $ \ (k, v) -> do
-        string k
-        B.char8 ':'
-        b v
-        B.char8 ','
-    forM_ (V.lastMaybe kvs) $ \ (k, v) -> do
-        string k
-        B.char8 ':'
-        b v
-    B.char8 '}'
+object' f = curly . commaVector (\ (k, v) -> k >!< f v)
 
 string :: T.Text -> B.Builder ()
 {-# INLINE string #-}

@@ -173,6 +173,7 @@ library
                             Std.Data.PrimSTRef.Base
 
                             Std.Data.LEON
+                            Std.Data.JSON
                             Std.Data.JSON.Base
                             Std.Data.JSON.Value
                             Std.Data.JSON.Value.Builder
@@ -354,6 +355,8 @@ test-suite test
         Std.Data.Vector.ExtraSpec
         Std.Data.Vector.SearchSpec
         Std.Data.Vector.SortSpec
+        Std.Data.Vector.FlatMapSpec 
+        Std.Data.Vector.FlatSetSpec
         Std.Data.CBytesSpec
         Std.Data.LEONSpec
         Std.IO.FileSystemSpec
