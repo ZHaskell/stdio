@@ -56,7 +56,7 @@ module Std.Data.Vector.Base (
   , null
   , length
   , append
-  , map, map', imap', traverseVector, traverseWithIndex, traverseVector_, traverseWithIndex_
+  , map, map', imap', traverseVec, traverseWithIndex, traverseVec_, traverseWithIndex_
   , foldl', ifoldl', foldl1', foldl1Maybe'
   , foldr', ifoldr', foldr1', foldr1Maybe'
     -- ** Special folds
@@ -280,7 +280,7 @@ instance F.Foldable Vector where
 
 instance T.Traversable Vector where
     {-# INLINE traverse #-}
-    traverse = traverseVector
+    traverse = traverseVec
 
 instance Arbitrary a => Arbitrary (Vector a) where
     arbitrary = pack <$> arbitrary
@@ -302,11 +302,11 @@ instance Hashable1 Vector where
             | i >= end  = salt
             | otherwise = go (h salt (indexArr arr i)) (i+1)
 
-traverseVector :: (Vec v a, Vec u b, Applicative f) => (a -> f b) -> v a -> f (u b)
-{-# INLINE [1] traverseVector #-}
-{-# RULES "traverseVector/ST" forall f. traverseVector f = traverseWithIndexST (const f) #-}
-{-# RULES "traverseVector/IO" forall f. traverseVector f = traverseWithIndexIO (const f) #-}
-traverseVector f v = packN (length v) <$> T.traverse f (unpack v)
+traverseVec :: (Vec v a, Vec u b, Applicative f) => (a -> f b) -> v a -> f (u b)
+{-# INLINE [1] traverseVec #-}
+{-# RULES "traverseVec/ST" forall f. traverseVec f = traverseWithIndexST (const f) #-}
+{-# RULES "traverseVec/IO" forall f. traverseVec f = traverseWithIndexIO (const f) #-}
+traverseVec f v = packN (length v) <$> T.traverse f (unpack v)
 
 traverseWithIndex :: (Vec v a, Vec u b, Applicative f) => (Int -> a -> f b) -> v a -> f (u b)
 {-# INLINE [1] traverseWithIndex #-}
@@ -350,9 +350,9 @@ traverseWithIndexIO f (Vec arr s l)
             writeArr marr i =<< f i x
             go marr (i+1)
 
-traverseVector_ :: (Vec v a, Applicative f) => (a -> f b) -> v a -> f ()
-{-# INLINE traverseVector_ #-}
-traverseVector_ f = traverseWithIndex_ (\ _ x -> f x)
+traverseVec_ :: (Vec v a, Applicative f) => (a -> f b) -> v a -> f ()
+{-# INLINE traverseVec_ #-}
+traverseVec_ f = traverseWithIndex_ (\ _ x -> f x)
 
 traverseWithIndex_ :: (Vec v a, Applicative f) => (Int -> a -> f b) -> v a -> f ()
 {-# INLINE traverseWithIndex_ #-}
@@ -396,16 +396,16 @@ eqPrimVector (PrimVector (PrimArray baA#) (I# sA#) lA@(I# lA#))
     siz@(I# siz#) = sizeOf (undefined :: a)
     (I# n#) = min (lA*siz) (lB*siz)
 
-instance {-# OVERLAPPABLE #-} (Prim a, Ord a) => Ord (PrimVector a) where
+instance (Prim a, Ord a) => Ord (PrimVector a) where
     {-# INLINE compare #-}
     compare = comparePrimVector
 
-instance {-# OVERLAPPING #-} Ord (PrimVector Word8) where
-    {-# INLINE compare #-}
-    compare = compareBytes
 
 comparePrimVector :: (Prim a, Ord a) => PrimVector a -> PrimVector a -> Ordering
-{-# INLINE comparePrimVector #-}
+{-# INLINE [1] comparePrimVector #-}
+{-# RULES
+    "comparePrimVector/Bytes" comparePrimVector = compareBytes
+  #-}
 comparePrimVector (PrimVector baA sA lA) (PrimVector baB sB lB)
     | baA `sameArr` baB = if sA == sB then lA `compare` lB else go sA sB
     | otherwise = go sA sB
@@ -457,20 +457,27 @@ instance (Prim a, Arbitrary a) => Arbitrary (PrimVector a) where
 instance (Prim a, CoArbitrary a) => CoArbitrary (PrimVector a) where
     coarbitrary = coarbitrary . unpack
 
-instance  {-# OVERLAPPABLE #-}  (Hashable a, Prim a) => Hashable (PrimVector a) where
+instance (Hashable a, Prim a) => Hashable (PrimVector a) where
     {-# INLINE hashWithSalt #-}
-    -- we don't do a final hash with length to keep consistent with Bytes's instance
-    hashWithSalt salt (PrimVector arr s l) = go salt s
-      where
-        !end = s + l
-        go !salt !i
-            | i >= end  = salt
-            | otherwise = go (hashWithSalt salt (indexPrimArray arr i)) (i+1)
+    hashWithSalt = hashWithSaltPrimVector
 
-instance {-# OVERLAPPING #-} Hashable (PrimVector Word8) where
-    {-# INLINE hashWithSalt #-}
-    hashWithSalt salt (PrimVector (PrimArray ba#) s l) =
-        unsafeDupablePerformIO (c_fnv_hash_ba ba# s l salt)
+hashWithSaltPrimVector :: (Hashable a, Prim a) => Int -> PrimVector a -> Int
+{-# INLINE [1] hashWithSaltPrimVector #-}
+{-# RULES
+    "hashWithSaltPrimVector/Bytes" hashWithSaltPrimVector = hashWithSaltBytes
+  #-}
+hashWithSaltPrimVector salt (PrimVector arr s l) = go salt s
+  where
+    -- we don't do a final hash with length to keep consistent with Bytes's instance
+    !end = s + l
+    go !salt !i
+        | i >= end  = salt
+        | otherwise = go (hashWithSalt salt (indexPrimArray arr i)) (i+1)
+
+hashWithSaltBytes :: Int -> Bytes -> Int
+{-# INLINE hashWithSaltBytes #-}
+hashWithSaltBytes salt (PrimVector (PrimArray ba#) s l) =
+    unsafeDupablePerformIO (c_fnv_hash_ba ba# s l salt)
 
 --------------------------------------------------------------------------------
 

@@ -47,6 +47,7 @@ module Std.IO.StdStream
 
 import Std.Data.Builder as B
 import Std.Data.Vector as V
+import Std.Data.TextBuilder (ToText, toBuilder)
 import Std.IO.UV.FFI
 import Std.IO.UV.Manager
 import Control.Monad
@@ -167,10 +168,10 @@ setStdinTTYMode mode = case stdin of
 
 --------------------------------------------------------------------------------
 
--- | print a 'Show' to stdout
-printStd :: Show a => a -> IO ()
+-- | print a 'ToText' to stdout
+printStd :: ToText a => a -> IO ()
 printStd s = do
-    writeBuilder stdoutBuf (B.stringUTF8 . show $ s)
+    writeBuilder stdoutBuf (toBuilder  $ s)
     flushBuffer stdoutBuf
 
 -- | print a 'Builder' and flush to stdout.

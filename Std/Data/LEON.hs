@@ -171,32 +171,40 @@ BE_INST(Char)
 
 instance LEON a => LEON (V.Vector a) where
     {-# INLINE encode #-}
-    encode xs = do
-        encode (V.length xs)
-        mapM_ encode xs
+    encode = encodeVec
     {-# INLINE decode #-}
-    decode = do
-        len <- decode @Int
-        V.packN len <$> replicateM len decode
+    decode = decodeVec
 
-instance {-# OVERLAPPABLE #-} (Prim a, LEON a) => LEON (V.PrimVector a) where
+instance (Prim a, LEON a) => LEON (V.PrimVector a) where
     {-# INLINE encode #-}
-    encode xs = do
-        encode (V.length xs)
-        mapM_ encode (V.unpack xs)
+    encode = encodeVec
     {-# INLINE decode #-}
-    decode = do
-        len <- decode @Int
-        V.packN len <$> replicateM len decode
+    decode = decodeVec
 
-instance {-# OVERLAPPING #-} LEON V.Bytes where
-    {-# INLINE encode #-}
-    encode bs = do
-        let l = V.length bs
-        encode l
-        B.bytes bs
-    {-# INLINE decode #-}
-    decode = decode @Int >>= P.take
+encodeVec :: (V.Vec v a, LEON a) => v a -> Builder ()
+{-# INLINE [1] encodeVec #-}
+{-# RULES "encodeVec/Bytes" encodeVec = encodeBytes #-}
+encodeVec xs = do
+    encode (V.length xs)
+    V.traverseVec_ encode xs
+
+decodeVec :: (V.Vec v a, LEON a) => Parser (v a)
+{-# INLINE [1] decodeVec #-}
+{-# RULES "decodeVec/Bytes" decodeVec = decodeBytes #-}
+decodeVec = do
+    len <- decode @Int
+    V.packN len <$> replicateM len decode
+
+encodeBytes :: V.Bytes -> Builder ()
+{-# INLINE encodeBytes #-}
+encodeBytes bs = do
+    let l = V.length bs
+    encode l
+    B.bytes bs
+
+decodeBytes :: Parser V.Bytes
+{-# INLINE decodeBytes #-}
+decodeBytes = decode @Int >>= P.take
 
 instance LEON T.Text where
     {-# INLINE encode #-}

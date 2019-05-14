@@ -15,8 +15,7 @@ import           Test.QuickCheck.Property
 import           Test.Hspec
 import           Test.Hspec.QuickCheck
 import qualified Std.Data.JSON.Value as JSON
-import qualified Std.Data.JSON.Value.Builder as JSONB
-import Debug.Trace
+import qualified Std.Data.JSON.Builder as JSONB
 
 
 spec :: Spec

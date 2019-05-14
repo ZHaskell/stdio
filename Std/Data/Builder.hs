@@ -60,6 +60,8 @@ module Std.Data.Builder
   , floatWith
   , scientific
   , scientificWith
+    -- * Builder helpers
+  , paren, curly, square, angle, quotes, squotes, colon, comma, intercalateVec, intercalateList
   ) where
 
 import           Std.Data.Builder.Base

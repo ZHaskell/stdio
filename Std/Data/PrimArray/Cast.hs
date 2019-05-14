@@ -37,7 +37,7 @@ import           Data.Coerce
 class Cast source destination where
     cast :: source -> destination
 
-instance {-# OVERLAPPABLE #-} Coercible a b => Cast a b where
+instance {-# INCOHERENT #-} Coercible a b => Cast a b where
     cast = coerce
 
 instance Cast Int8  Word8 where

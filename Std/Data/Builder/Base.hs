@@ -6,6 +6,7 @@
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies        #-}
+{-# LANGUAGE TypeApplications      #-}
 {-# LANGUAGE UnboxedTuples       #-}
 
 {-|
@@ -66,6 +67,8 @@ module Std.Data.Builder.Base
   , encodePrimBE
   -- * More builders
   , stringModifiedUTF8, charModifiedUTF8, stringUTF8, charUTF8, string7, char7, string8, char8, text
+  -- * Builder helpers
+  , paren, curly, square, angle, quotes, squotes, colon, comma, intercalateVec, intercalateList
   ) where
 
 import           Control.Monad
@@ -89,6 +92,7 @@ import           Std.Data.PrimArray.UnalignedAccess
 import qualified Std.Data.Text.Base                 as T
 import qualified Std.Data.Text.UTF8Codec            as T
 import qualified Std.Data.Vector.Base               as V
+import qualified Std.Data.Vector                    as V
 import           System.IO.Unsafe
 import           Test.QuickCheck.Arbitrary (Arbitrary(..), CoArbitrary(..))
 
@@ -532,3 +536,82 @@ char8 chr = do
 text :: T.Text -> Builder ()
 {-# INLINE text #-}
 text (T.Text bs) = bytes bs
+
+--------------------------------------------------------------------------------
+
+#define BACKSLASH 92
+#define CLOSE_ANGLE 62
+#define CLOSE_CURLY 125
+#define CLOSE_PAREN 41
+#define CLOSE_SQUARE 93
+#define COMMA 44
+#define COLON 58
+#define DOUBLE_QUOTE 34
+#define OPEN_ANGLE 60
+#define OPEN_CURLY 123
+#define OPEN_PAREN 40
+#define OPEN_SQUARE 91
+#define SINGLE_QUOTE 39
+
+-- | add @{...}@ to original builder.
+paren :: Builder () -> Builder ()
+{-# INLINE paren #-}
+paren b = encodePrim @Word8 OPEN_PAREN >> b >> encodePrim @Word8 CLOSE_PAREN
+
+-- | add @{...}@ to original builder.
+curly :: Builder () -> Builder ()
+{-# INLINE curly #-}
+curly b = encodePrim @Word8 OPEN_CURLY >> b >> encodePrim @Word8 CLOSE_CURLY
+
+-- | add @[...]@ to original builder.
+square :: Builder () -> Builder ()
+{-# INLINE square #-}
+square b = encodePrim @Word8 OPEN_SQUARE >> b >> encodePrim @Word8 CLOSE_SQUARE
+
+-- | add @<...>@ to original builder.
+angle :: Builder () -> Builder ()
+{-# INLINE angle #-}
+angle b = encodePrim @Word8 OPEN_ANGLE >> b >> encodePrim @Word8 CLOSE_ANGLE
+
+-- | add @"..."@ to original builder.
+quotes :: Builder () -> Builder ()
+{-# INLINE quotes #-}
+quotes b = encodePrim @Word8 DOUBLE_QUOTE >> b >> encodePrim @Word8 DOUBLE_QUOTE
+
+-- | add @'...'@ to original builder.
+squotes :: Builder () -> Builder ()
+{-# INLINE squotes #-}
+squotes b = encodePrim @Word8 SINGLE_QUOTE >> b >> encodePrim @Word8 SINGLE_QUOTE
+
+-- | write an ASCII @:@
+colon :: Builder ()
+{-# INLINE colon #-}
+colon = encodePrim @Word8 COLON
+
+-- | write an ASCII @,@
+comma :: Builder ()
+{-# INLINE comma #-}
+comma = encodePrim @Word8 COMMA
+
+-- | Use separator to connect a vector of builders.
+intercalateVec :: (V.Vec v a)
+            => Builder ()           -- ^ the seperator
+            -> (a -> Builder ())    -- ^ value formatter
+            -> v a                  -- ^ value vector
+            ->  Builder ()
+{-# INLINE intercalateVec #-}
+intercalateVec s f v = do
+    V.traverseVec_ (\ x -> f x >> s) (V.initMayEmpty v)
+    forM_ (V.lastMaybe v) f
+
+-- | Use separator to connect list of builders.
+intercalateList :: Builder ()           -- ^ the seperator
+                -> (a -> Builder ())    -- ^ value formatter
+                -> [a]                  -- ^ value list
+                -> Builder ()
+{-# INLINE intercalateList #-}
+intercalateList s f xs = go xs
+  where
+    go [] = pure ()
+    go [x] = f x
+    go (x:xs) = f x >> s >> go xs

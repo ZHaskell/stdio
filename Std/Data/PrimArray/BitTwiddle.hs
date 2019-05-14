@@ -120,7 +120,7 @@ memchr# ba# c# s# siz# = beforeAlignedLoop# ba# c# s# (s# +# siz#)
 
 -- | Search a word8 array in reverse order.
 --
--- This function is used in @elemIndexEnd@, since there's no c equivalent.
+-- This function is used in @elemIndexEnd@, since there's no c equivalent (memrchr) on OSX.
 --
 memchrReverse :: PrimArray Word8  -- array
               -> Word8            -- target

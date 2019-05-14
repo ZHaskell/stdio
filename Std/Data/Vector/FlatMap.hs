@@ -4,6 +4,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -50,7 +51,8 @@ import qualified Data.Semigroup            as Semigroup
 import qualified Data.Monoid               as Monoid
 import qualified Std.Data.Vector.Base as V
 import qualified Std.Data.Vector.Sort as V
-import qualified Std.Data.Text as T
+import qualified Std.Data.Text             as T
+import qualified Std.Data.TextBuilder      as T
 import           Data.Function              (on)
 import           Data.Bits                   (shiftR)
 import           Data.Data
@@ -62,6 +64,14 @@ import           Test.QuickCheck.Arbitrary (Arbitrary(..), CoArbitrary(..))
 
 newtype FlatMap k v = FlatMap { sortedKeyValues :: V.Vector (k, v) }
     deriving (Show, Eq, Ord, Typeable)
+
+instance (T.ToText k, T.ToText v) => T.ToText (FlatMap k v) where
+    {-# INLINE toTextBuilder #-}
+    toTextBuilder p (FlatMap vec) = T.parenWhen (p > 10) $ do
+        T.unsafeFromBuilder "FlatMap {"
+        T.intercalateVec T.comma (\ (k, v) ->
+            T.toTextBuilder 0 k >> ":" >> T.toTextBuilder 0 v) vec
+        T.char7 '}'
 
 instance (Ord k, Arbitrary k, Arbitrary v) => Arbitrary (FlatMap k v) where
     arbitrary = pack <$> arbitrary

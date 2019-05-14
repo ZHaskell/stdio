@@ -175,8 +175,8 @@ library
                             Std.Data.LEON
                             Std.Data.JSON
                             Std.Data.JSON.Base
+                            Std.Data.JSON.Builder
                             Std.Data.JSON.Value
-                            Std.Data.JSON.Value.Builder
 
                             Std.Foreign.PrimArray
 
@@ -344,6 +344,7 @@ test-suite test
 
     other-modules:
         Std.Data.Builder.NumericSpec
+        Std.Data.JSON.BaseSpec
         Std.Data.JSON.ValueSpec
         Std.Data.Parser.BaseSpec
         Std.Data.Parser.NumericSpec
@@ -359,12 +360,15 @@ test-suite test
         Std.Data.Vector.FlatSetSpec
         Std.Data.CBytesSpec
         Std.Data.LEONSpec
+        Std.Data.TextBuilderSpec
         Std.IO.FileSystemSpec
         Std.IO.FileSystemTSpec
         Std.IO.LowResTimerSpec
         Std.IO.ResourceSpec
         Std.IO.UDPSpec
 
+    ghc-options:         -threaded
+    default-language:    Haskell2010 
 
   if flag(integer-simple)
     cpp-options: -DINTEGER_SIMPLE
@@ -373,5 +377,3 @@ test-suite test
     cpp-options: -DINTEGER_GMP
     build-depends: integer-gmp >= 0.2 && < 1.1
 
-    ghc-options:         -threaded
-    default-language:    Haskell2010 

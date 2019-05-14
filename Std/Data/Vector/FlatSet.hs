@@ -6,6 +6,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 {-|
@@ -49,6 +50,7 @@ import qualified Std.Data.Vector.Base as V
 import qualified Std.Data.Vector.Sort as V
 import qualified Std.Data.Vector.Search as V
 import qualified Std.Data.Text as T
+import qualified Std.Data.TextBuilder      as T
 import           Data.Function              (on)
 import           Data.Bits                   (shiftR)
 import           Data.Data
@@ -60,6 +62,13 @@ import           Test.QuickCheck.Arbitrary (Arbitrary(..), CoArbitrary(..))
 
 newtype FlatSet v = FlatSet { sortedValues :: V.Vector v }
     deriving (Show, Eq, Ord, Typeable, Foldable, NFData)
+
+instance T.ToText v => T.ToText (FlatSet v) where
+    {-# INLINE toTextBuilder #-}
+    toTextBuilder p (FlatSet vec) = T.parenWhen (p > 10) $ do
+        T.unsafeFromBuilder "FlatSet {"
+        T.intercalateVec T.comma (T.toTextBuilder 0) vec
+        T.char7 '}'
 
 instance Ord v => Semigroup.Semigroup (FlatSet v) where
     {-# INLINE (<>) #-}

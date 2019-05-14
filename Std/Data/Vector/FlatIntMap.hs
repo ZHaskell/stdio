@@ -5,6 +5,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 {-|
 Module      : Std.Data.Vector.FlatIntMap
@@ -47,9 +48,10 @@ import qualified Data.Traversable          as Traversable
 import qualified Data.Semigroup            as Semigroup
 import qualified Data.Monoid               as Monoid
 import qualified Data.Primitive.SmallArray as A
-import qualified Std.Data.Vector.Base as V
-import qualified Std.Data.Vector.Sort as V
-import qualified Std.Data.Text as T
+import qualified Std.Data.Vector.Base      as V
+import qualified Std.Data.Vector.Sort      as V
+import qualified Std.Data.Text             as T
+import qualified Std.Data.TextBuilder      as T
 import           Data.Function              (on)
 import           Data.Bits                   (shiftR)
 import           Data.Data
@@ -61,6 +63,14 @@ import           Test.QuickCheck.Arbitrary (Arbitrary(..), CoArbitrary(..))
 
 newtype FlatIntMap v = FlatIntMap { sortedKeyValues :: V.Vector (V.IPair v) }
     deriving (Show, Eq, Ord, Typeable)
+
+instance T.ToText v => T.ToText (FlatIntMap v) where
+    {-# INLINE toTextBuilder #-}
+    toTextBuilder p (FlatIntMap vec) = T.parenWhen (p > 10) $ do
+        T.unsafeFromBuilder "FlatIntMap {"
+        T.intercalateVec T.comma (\ (V.IPair i v) ->
+            T.toTextBuilder 0 i >> ":" >> T.toTextBuilder 0 v) vec
+        T.char7 '}'
 
 instance (Arbitrary v) => Arbitrary (FlatIntMap v) where
     arbitrary = pack <$> arbitrary

@@ -30,12 +30,18 @@ Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 
+-- This module provides 'Converter' to convert 'Value' to haskell data types, and various tools to help
+-- user define 'FromValue', 'ToValue' and 'EncodeJSON' instance.
 -}
 
 module Std.Data.JSON.Base
   ( -- * Encode & Decode
     DecodeError
-  , decode', decode, decodeChunks, decodeChunks', encodeBytes, encodeText, encodeTextBuilder
+  , decode, decode', decodeChunks, decodeChunks', encodeBytes, encodeText, encodeTextBuilder
+  -- * Re-export 'Value' type
+  , Value(..)
+    -- * parse into JSON Value
+  , JV.parseValue, JV.parseValue', JV.parseValueChunks, JV.parseValueChunks'
   -- * Convert 'Value' to Haskell data
   , convert, convert', Converter(..), fail', (<?>), prependContext
   , PathElement(..), ConvertError
@@ -48,13 +54,10 @@ module Std.Data.JSON.Base
   , ToValue(..), GToValue(..)
   , FromValue(..), GFromValue(..)
   , EncodeJSON(..), GEncodeJSON(..)
-
   -- * Helper classes for generics
   , Field, GWriteFields(..), GMergeFields(..), GConstrToValue(..)
   , LookupTable, GFromFields(..), GBuildLookup(..), GConstrFromValue(..)
   , GAddPunctuation(..), GConstrEncodeJSON(..)
-  -- JSON Builder helpers
-  , commaList', commaVector'
   ) where
 
 import           Control.Applicative
@@ -96,9 +99,7 @@ import qualified Std.Data.Builder             as B
 import           Std.Data.Generics.Utils
 import           Std.Data.JSON.Value          (Value(..))
 import qualified Std.Data.JSON.Value          as JV
-import qualified Std.Data.JSON.Value.Builder  as JB
-import           Std.Data.JSON.Value.Builder  (curly, square, quotes
-                                              , (>:<), (>!<), (>+<), commaVector, commaList)
+import qualified Std.Data.JSON.Builder        as JB
 import qualified Std.Data.Parser              as P
 import qualified Std.Data.Parser.Numeric      as P
 import qualified Std.Data.Text                as T
@@ -110,8 +111,6 @@ import qualified Std.Data.Vector.FlatIntSet   as FIS
 import qualified Std.Data.Vector.FlatMap      as FM
 import qualified Std.Data.Vector.FlatSet      as FS
 import           Text.ParserCombinators.ReadP (readP_to_S)
-
-#define COLON 58
 
 --------------------------------------------------------------------------------
 
@@ -162,7 +161,7 @@ decodeChunks' mb bs = do
             Left cErr -> pure (Left (Right cErr))
             Right r -> pure (Right r)
 
--- | @B.buildBytes . encodeJSON@.
+-- | Directly encode data to JSON bytes.
 encodeBytes :: EncodeJSON a => a -> V.Bytes
 {-# INLINE encodeBytes #-}
 encodeBytes = B.buildBytes . encodeJSON
@@ -487,12 +486,12 @@ convertFieldMaybe' p obj key = case FM.lookup key obj of
 -- | Use @,@ as separator to connect list of builders.
 commaList' :: EncodeJSON a => [a] -> B.Builder ()
 {-# INLINE commaList' #-}
-commaList' = commaList encodeJSON
+commaList' = B.intercalateList B.comma encodeJSON
 
 -- | Use @,@ as separator to connect a vector of builders.
-commaVector' :: (EncodeJSON a, V.Vec v a) => v a ->  B.Builder ()
-{-# INLINE commaVector' #-}
-commaVector' = commaVector encodeJSON
+commaVec' :: (EncodeJSON a, V.Vec v a) => v a ->  B.Builder ()
+{-# INLINE commaVec' #-}
+commaVec' = B.intercalateVec B.comma encodeJSON
 
 --------------------------------------------------------------------------------
 
@@ -655,7 +654,7 @@ class GEncodeJSON f where
 
 instance (GEncodeJSON f, Selector (MetaSel (Just l) u ss ds)) => GEncodeJSON (S1 (MetaSel (Just l) u ss ds) f) where
     {-# INLINE gEncodeJSON #-}
-    gEncodeJSON s m1@(M1 x) = fieldFmt s (selName m1) >:< gEncodeJSON s x
+    gEncodeJSON s m1@(M1 x) = (fieldFmt s $ selName m1) `JB.kv` gEncodeJSON s x
 
 instance GEncodeJSON f => GEncodeJSON (S1 (MetaSel Nothing u ss ds) f) where
     {-# INLINE gEncodeJSON #-}
@@ -663,7 +662,7 @@ instance GEncodeJSON f => GEncodeJSON (S1 (MetaSel Nothing u ss ds) f) where
 
 instance (GEncodeJSON a, GEncodeJSON b) => GEncodeJSON (a :*: b) where
     {-# INLINE gEncodeJSON #-}
-    gEncodeJSON s (a :*: b) = gEncodeJSON s a >+< gEncodeJSON s b
+    gEncodeJSON s (a :*: b) = gEncodeJSON s a >> B.comma >> gEncodeJSON s b
 
 instance EncodeJSON a => GEncodeJSON (K1 i a) where
     {-# INLINE gEncodeJSON #-}
@@ -678,11 +677,11 @@ instance GAddPunctuation a => GAddPunctuation (a :*: b) where
 
 instance GAddPunctuation (S1 (MetaSel Nothing u ss ds) f) where
     {-# INLINE gAddPunctuation #-}
-    gAddPunctuation _ b = square b
+    gAddPunctuation _ b = B.square b
 
 instance GAddPunctuation (S1 (MetaSel (Just l) u ss ds) f) where
     {-# INLINE gAddPunctuation #-}
-    gAddPunctuation _ b = curly b
+    gAddPunctuation _ b = B.curly b
 
 --------------------------------------------------------------------------------
 -- Constructors
@@ -703,23 +702,23 @@ instance (GConstrEncodeJSON f, GConstrEncodeJSON g) => GConstrEncodeJSON (f :+: 
 instance (Constructor c) => GConstrEncodeJSON (C1 c U1) where
     {-# INLINE gConstrEncodeJSON #-}
     -- There should be no chars need escaping in constructor name
-    gConstrEncodeJSON _ s (M1 _) = quotes $
+    gConstrEncodeJSON _ s (M1 _) = B.quotes $
         B.text . constrFmt s $ conName (undefined :: t c U1 a)
 
 -- | Constructor with a single payload
 instance (Constructor c, GEncodeJSON (S1 sc f)) => GConstrEncodeJSON (C1 c (S1 sc f)) where
     {-# INLINE gConstrEncodeJSON #-}
     gConstrEncodeJSON False s (M1 x) = gEncodeJSON s x
-    gConstrEncodeJSON True s (M1 x) = curly $ do
-        constrFmt s (conName (undefined :: t c f a)) >:< gEncodeJSON s x
+    gConstrEncodeJSON True s (M1 x) = B.curly $ do
+        (constrFmt s $ conName (undefined :: t c f a)) `JB.kv` gEncodeJSON s x
 
 -- | Constructor with multiple payloads
 instance (GEncodeJSON (a :*: b), GAddPunctuation (a :*: b), Constructor c)
     => GConstrEncodeJSON (C1 c (a :*: b)) where
     {-# INLINE gConstrEncodeJSON #-}
     gConstrEncodeJSON False s (M1 x) = gAddPunctuation (proxy# :: Proxy# (a :*: b)) (gEncodeJSON s x)
-    gConstrEncodeJSON True s (M1 x) = curly $ do
-        constrFmt s (conName (undefined :: t c f a)) >:<
+    gConstrEncodeJSON True s (M1 x) = B.curly $ do
+        (constrFmt s $ conName (undefined :: t c f a)) `JB.kv`
             gAddPunctuation (proxy# :: Proxy# (a :*: b)) (gEncodeJSON s x)
 
 --------------------------------------------------------------------------------
@@ -906,6 +905,16 @@ instance FromValue T.Text   where {{-# INLINE fromValue #-}; fromValue = withTex
 instance ToValue T.Text     where {{-# INLINE toValue #-}; toValue = String;}
 instance EncodeJSON T.Text where {{-# INLINE encodeJSON #-}; encodeJSON = JB.string;}
 
+instance FromValue TB.Str where
+    {-# INLINE fromValue #-}
+    fromValue = withText "Str" (pure . TB.Str . T.unpack)
+instance ToValue TB.Str where
+    {-# INLINE toValue #-}
+    toValue = String . T.pack . TB.chrs
+instance EncodeJSON TB.Str where
+    {-# INLINE encodeJSON #-}
+    encodeJSON = JB.string . T.pack . TB.chrs
+
 instance FromValue Scientific where {{-# INLINE fromValue #-}; fromValue = withScientific "Scientific" pure;}
 instance ToValue Scientific where {{-# INLINE toValue #-}; toValue = Number;}
 instance EncodeJSON Scientific where {{-# INLINE encodeJSON #-}; encodeJSON = B.scientific;}
@@ -944,7 +953,7 @@ instance ToValue a => ToValue (HM.HashMap T.Text a) where
     toValue = Object . V.pack . HM.toList . HM.map toValue
 instance EncodeJSON a => EncodeJSON (HM.HashMap T.Text a) where
     {-# INLINE encodeJSON #-}
-    encodeJSON = curly . commaList (\ (k, v) -> k >!< encodeJSON v) . HM.toList
+    encodeJSON = B.curly . B.intercalateList B.comma (\ (k, v) -> k `JB.kv'` encodeJSON v) . HM.toList
 
 instance FromValue a => FromValue (FIM.FlatIntMap a) where
     {-# INLINE fromValue #-}
@@ -964,9 +973,9 @@ instance ToValue a => ToValue (FIM.FlatIntMap a) where
                                  in (k, v)
 instance EncodeJSON a => EncodeJSON (FIM.FlatIntMap a) where
     {-# INLINE encodeJSON #-}
-    encodeJSON = curly . commaVector (\ (V.IPair i x) -> do
-        quotes (B.int i)
-        B.encodePrim @Word8 COLON
+    encodeJSON = B.curly . B.intercalateVec B.comma (\ (V.IPair i x) -> do
+        B.quotes (B.int i)
+        B.colon
         encodeJSON x) . FIM.sortedKeyValues
 
 instance FromValue FIS.FlatIntSet where
@@ -989,7 +998,7 @@ instance ToValue a => ToValue (V.Vector a) where
     toValue = Array . V.map toValue
 instance EncodeJSON a => EncodeJSON (V.Vector a) where
     {-# INLINE encodeJSON #-}
-    encodeJSON = square . commaVector'
+    encodeJSON = B.square . commaVec'
 
 instance (Prim a, FromValue a) => FromValue (V.PrimVector a) where
     {-# INLINE fromValue #-}
@@ -1000,7 +1009,7 @@ instance (Prim a, ToValue a) => ToValue (V.PrimVector a) where
     toValue = Array . V.map toValue
 instance (Prim a, EncodeJSON a) => EncodeJSON (V.PrimVector a) where
     {-# INLINE encodeJSON #-}
-    encodeJSON = square . commaVector'
+    encodeJSON = B.square . commaVec'
 
 instance (Eq a, Hashable a, FromValue a) => FromValue (HS.HashSet a) where
     {-# INLINE fromValue #-}
@@ -1014,26 +1023,16 @@ instance (EncodeJSON a) => EncodeJSON (HS.HashSet a) where
     {-# INLINE encodeJSON #-}
     encodeJSON = encodeJSON . HS.toList
 
-instance {-# OVERLAPPABLE #-} FromValue a => FromValue [a] where
+instance FromValue a => FromValue [a] where
     {-# INLINE fromValue #-}
     fromValue = withArray "[a]" $ \ v ->
         zipWithM (\ k v -> fromValue v <?> Index k) [0..] (V.unpack v)
-instance {-# OVERLAPPABLE #-} ToValue a => ToValue [a] where
+instance ToValue a => ToValue [a] where
     {-# INLINE toValue #-}
     toValue = Array . V.pack . map toValue
-instance {-# OVERLAPPABLE #-} EncodeJSON a => EncodeJSON [a] where
+instance EncodeJSON a => EncodeJSON [a] where
     {-# INLINE encodeJSON #-}
-    encodeJSON = square . commaList'
-
-instance {-# OVERLAPPING #-} FromValue String where
-    {-# INLINE fromValue #-}
-    fromValue = withText "String" (pure . T.unpack)
-instance {-# OVERLAPPING #-} ToValue String where
-    {-# INLINE toValue #-}
-    toValue = String . T.pack
-instance {-# OVERLAPPING #-} EncodeJSON String where
-    {-# INLINE encodeJSON #-}
-    encodeJSON = JB.string . T.pack
+    encodeJSON = B.square . commaList'
 
 instance FromValue a => FromValue (NonEmpty a) where
     {-# INLINE fromValue #-}
@@ -1215,8 +1214,8 @@ instance (ToValue a, Integral a) => ToValue (Ratio a) where
 instance (EncodeJSON a, Integral a) => EncodeJSON (Ratio a) where
     {-# INLINE encodeJSON #-}
     encodeJSON x =
-        curly $  ("numerator"   >:< encodeJSON (numerator x))
-             >+< ("denominator" >:< encodeJSON (denominator x))
+        B.curly $ ("\"numerator\""   >> B.colon >> encodeJSON (numerator x))
+            >> B.comma >> ("\"denominator\"" >> B.colon >> encodeJSON (denominator x))
 
 -- | This instance includes a bounds check to prevent maliciously large inputs to fill up the memory of the target system. You can newtype Fixed and provide your own instance using 'withScientific' if you want to allow larger inputs.
 instance HasResolution a => FromValue (Fixed a) where
@@ -1228,6 +1227,8 @@ instance HasResolution a => ToValue (Fixed a) where
 instance HasResolution a => EncodeJSON (Fixed a) where
     {-# INLINE encodeJSON #-}
     encodeJSON = B.scientific . realToFrac
+
+--------------------------------------------------------------------------------
 
 deriving newtype instance FromValue (f (g a)) => FromValue (Compose f g a)
 deriving newtype instance FromValue a => FromValue (Semigroup.Min a)
@@ -1267,6 +1268,8 @@ deriving newtype instance EncodeJSON a => EncodeJSON (Monoid.Last a)
 deriving newtype instance EncodeJSON a => EncodeJSON (Identity a)
 deriving newtype instance EncodeJSON a => EncodeJSON (Const a b)
 deriving newtype instance EncodeJSON b => EncodeJSON (Tagged a b)
+
+--------------------------------------------------------------------------------
 
 deriving anyclass instance (FromValue (f a), FromValue (g a), FromValue a) => FromValue (Sum f g a)
 deriving anyclass instance (FromValue a, FromValue b) => FromValue (Either a b)

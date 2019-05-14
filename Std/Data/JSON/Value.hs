@@ -2,6 +2,7 @@
 {-# LANGUAGE CPP                #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric      #-}
+{-# LANGUAGE DeriveAnyClass     #-}
 {-# LANGUAGE MagicHash          #-}
 {-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE UnliftedFFITypes   #-}
@@ -57,6 +58,7 @@ import           GHC.Generics
 import qualified Std.Data.Parser          as P
 import           Std.Data.Parser          ((<?>))
 import qualified Std.Data.Text            as T
+import           Std.Data.TextBuilder     (ToText)
 import qualified Std.Data.Text.Base       as T
 import           Std.Data.Vector.Base     as V
 import           Std.Data.Vector.Extra    as V
@@ -101,7 +103,7 @@ data Value = Object {-# UNPACK #-} !(V.Vector (T.Text, Value))
            | Number {-# UNPACK #-} !Scientific
            | Bool   !Bool
            | Null
-         deriving (Eq, Show, Typeable, Generic)
+         deriving (Eq, Show, Typeable, Generic, ToText)
 
 instance NFData Value where
     {-# INLINE rnf #-}
