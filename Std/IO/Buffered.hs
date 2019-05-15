@@ -22,7 +22,6 @@ module Std.IO.Buffered
     Input(..), Output(..)
     -- * Buffered Input
   , BufferedInput
-  , ReadResult(..)
   , newBufferedInput
   , readBuffer
   , unReadBuffer
@@ -176,6 +175,7 @@ readExactly n h = V.concat `fmap` (go h n)
                     chunks <- go h (n - l)
                     return (chunk : chunks)
 
+-- | Read all chunks from a 'BufferedInput'.
 readAll :: (HasCallStack, Input i) => BufferedInput i -> IO [V.Bytes]
 readAll i = loop []
   where
@@ -185,8 +185,10 @@ readAll i = loop []
         then return $! reverse (chunk:acc)
         else loop (chunk:acc)
 
+-- | Read all chunks from a 'BufferedInput', and concat chunks together.
 readAll' :: (HasCallStack, Input i) => BufferedInput i -> IO V.Bytes
 readAll' i = V.concat <$> readAll i
+
 
 data ShortReadException = ShortReadException IOEInfo deriving (Show, Typeable)
 
@@ -194,33 +196,18 @@ instance Exception ShortReadException where
     toException = ioExceptionToException
     fromException = ioExceptionFromException
 
-
 -- | Push bytes back into buffer
 --
 unReadBuffer :: (HasCallStack, Input i) => V.Bytes -> BufferedInput i -> IO ()
 unReadBuffer pb' BufferedInput{..} = do
     modifyIORef' bufPushBack $ \ pb -> pb' `V.append` pb
 
--- | Result returned by 'readParser'.
-data ReadResult a
-    = ReadSuccess  a        -- ^ read and parse successfully
-    | ReadFailure P.ParseError    -- ^ parse failed
-    | ReadEOF               -- ^ EOF reached
-  deriving Show
-
 -- | Read buffer and parse with 'Parser'.
 --
-readParser :: (HasCallStack, Input i) => P.Parser a -> BufferedInput i -> IO (ReadResult a)
+readParser :: (HasCallStack, Input i) => P.Parser a -> BufferedInput i -> IO (V.Bytes, Either P.ParseError a)
 readParser p i = do
     bs <- readBuffer i
-    if V.null bs
-    then return ReadEOF
-    else do
-        (rest, r) <- P.parseChunks p (readBuffer i) bs
-        unless (V.null rest) $ unReadBuffer rest i
-        case r of
-            Left err -> return (ReadFailure err)
-            Right a  -> return (ReadSuccess a)
+    P.parseChunks p (readBuffer i) bs
 
 -- | Read until reach a magic bytes
 --

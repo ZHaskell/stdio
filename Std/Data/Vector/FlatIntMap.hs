@@ -17,7 +17,7 @@ Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 
-This module provides a simple key value map based on sorted vector and binary search. It's particularly
+This module provides a simple int key value map based on sorted vector and binary search. It's particularly
 suitable for small sized key value collections such as deserializing intermediate representation.
 But can also used in various place where insertion and deletion is rare but require fast lookup.
 

@@ -348,10 +348,9 @@ instance ToText Str where
 
 --------------------------------------------------------------------------------
 -- Data types
+--
 -- | A class similar to 'Show', serving the purpose that quickly convert a data type
 -- to a 'Text' value.
---
--- To simpilify things, all data using infix constructors should be put into parentheses.
 class ToText a where
     toTextBuilder :: Int -> a  -> TextBuilder ()
     default toTextBuilder :: (Generic a, GToText (Rep a)) => Int -> a -> TextBuilder ()
