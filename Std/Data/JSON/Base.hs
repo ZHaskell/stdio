@@ -66,6 +66,7 @@ import           Control.DeepSeq
 import           Control.Monad
 import qualified Control.Monad.Fail           as Fail
 import           Control.Monad.ST
+import           Data.Char                    (ord)
 import           Data.Data
 import           Data.Fixed
 import           Data.Functor.Compose
@@ -268,6 +269,7 @@ typeMismatch :: T.Text     -- ^ The name of the type you are trying to convert.
              -> T.Text     -- ^ The JSON value type you expecting to meet.
              -> Value      -- ^ The actual value encountered.
              -> Converter a
+{-# INLINE typeMismatch #-}
 typeMismatch name expected v =
     fail' $ T.concat ["converting ", name, " failed, expected ", expected, ", encountered ", actual]
   where
@@ -277,7 +279,7 @@ typeMismatch name expected v =
         String _ -> "String"
         Number _ -> "Number"
         Bool _   -> "Boolean"
-        Null     -> "Null"
+        _        -> "Null"
 
 -- | Add JSON Path context to a converter
 --
@@ -1062,8 +1064,28 @@ instance ToValue Char where
     {-# INLINE toValue #-}
     toValue = String . T.singleton
 instance EncodeJSON Char where
+-- @
+--    \'\\b\':  \"\\b\"
+--    \'\\f\':  \"\\f\"
+--    \'\\n\':  \"\\n\"
+--    \'\\r\':  \"\\r\"
+--    \'\\t\':  \"\\t\"
+--    \'\"\':  \"\\\"\"
+--    \'\\\':  \"\\\\\"
+--    \'\/\':  \"\\/\"
+--    other chars <= 0x1F: "\\u00XX"
+-- @
     {-# INLINE encodeJSON #-}
-    encodeJSON = JB.string . T.singleton
+    encodeJSON '\b' = "\"\\b\""
+    encodeJSON '\f' = "\"\\f\""
+    encodeJSON '\n' = "\"\\n\""
+    encodeJSON '\r' = "\"\\r\""
+    encodeJSON '\t' = "\"\\t\""
+    encodeJSON '\"' = "\"\\\"\""
+    encodeJSON '\\' = "\"\\\\\""
+    encodeJSON '/'  = "\"\\/\""
+    encodeJSON c | c <= '\US' = "\"\\u00" >> B.hex (fromIntegral (ord c) :: Word8) >> B.char8 '\"'
+                 | otherwise  = B.quotes (B.charUTF8 c)
 
 
 instance FromValue Double where {{-# INLINE fromValue #-}; fromValue = withRealFloat "Double" pure;}
