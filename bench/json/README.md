@@ -3,7 +3,7 @@ JSON benchmarks
 
 Here is a benchmark comparing parsing step, i.e. parsing JSON doc into Haskell JSON value type. `stdio` does not provide lazy parsing, while `aeson` provides lazy variation which skip `HashMap` and `Vector` constructing. Since `stdio` use key-value vector to represent JSON object, it's useful to compare with both strict and lazy variations.
 
-Overall `stdio` is 2X~3X than aeson in parsing.
+Overall `stdio` is 2~3x than aeson in parsing.
 
 ```
 » python ./bench-aeson.py                                                                                                           donghan@bogon
