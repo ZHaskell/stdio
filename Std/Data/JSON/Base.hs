@@ -30,8 +30,9 @@ Maintainer  : winterland1989@gmail.com
 Stability   : experimental
 Portability : non-portable
 
--- This module provides 'Converter' to convert 'Value' to haskell data types, and various tools to help
--- user define 'FromValue', 'ToValue' and 'EncodeJSON' instance.
+This module provides 'Converter' to convert 'Value' to haskell data types, and various tools to help
+user define 'FromValue', 'ToValue' and 'EncodeJSON' instance.
+
 -}
 
 module Std.Data.JSON.Base

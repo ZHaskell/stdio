@@ -63,6 +63,7 @@ kv' :: T.Text -> B.Builder () -> B.Builder ()
 {-# INLINE kv' #-}
 l `kv'` b = string l >> B.colon >> b
 
+-- | Encode a 'Value', you can use this function with 'toValue' to get 'encodeJSON' with a small overhead.
 value :: Value -> B.Builder ()
 {-# INLINABLE value #-}
 value (Object kvs) = object kvs
@@ -89,6 +90,20 @@ object' :: (a -> B.Builder ()) -> V.Vector (T.Text, a) -> B.Builder ()
 {-# INLINE object' #-}
 object' f = B.curly . B.intercalateVec B.comma (\ (k, v) -> k `kv'` f v)
 
+-- | Escape text into JSON string and add double quotes, escaping rules:
+--
+-- @
+--    \'\\b\':  \"\\b\"
+--    \'\\f\':  \"\\f\"
+--    \'\\n\':  \"\\n\"
+--    \'\\r\':  \"\\r\"
+--    \'\\t\':  \"\\t\"
+--    \'\"\':  \"\\\"\"
+--    \'\\\':  \"\\\\\"
+--    \'\/\':  \"\\/\"
+--    other chars <= 0x1F: "\\u00XX"
+-- @
+--
 string :: T.Text -> B.Builder ()
 {-# INLINE string #-}
 string (T.Text (V.PrimVector ba@(PrimArray ba#) s l)) = do

@@ -31,7 +31,7 @@ The easiest way to use the library is to define target data type, deriving 'GHC.
 The 'Generic' instances convert(encode) Haskell data with following rules:
 
   * Constructors without payloads are encoded as JSON String, @data T = A | B@ are encoded as @\"A\"@ or @\"B\"@.
-  * Single constructor are ingored if there're payloads, @data T = T ...@,  @A@ is ingored:
+  * Single constructor are ingored if there're payloads, @data T = T ...@,  @T@ is ingored:
 
     * Records are encoded as JSON object. @data T = T{k1 :: .., k2 :: ..}@ are encoded as @{\"k1\":...,\"k2\":...}@.
     * Plain product are encoded as JSON array. @data T = T t1 t2@ are encoded as "[x1,x2]".
@@ -45,8 +45,8 @@ The 'Generic' instances convert(encode) Haskell data with following rules:
 
 These rules apply to user defined ADTs, but some built-in instances have different behaviour, namely:
 
-  * 'Maybe a' are encoded as JSON @null@ in 'Nothing' case, or directly encoded to its payload in 'Just' case.
-  * '[a]' are encoded to JSON array, including 'String', to get JSON string, use 'T.Text' or 'Str'.
+  * @Maybe a@ are encoded as JSON @null@ in 'Nothing' case, or directly encoded to its payload in 'Just' case.
+  * @[a]@ are encoded to JSON array, including @[Char]@, i.e. there's no special treatment to 'String'. To get JSON string, use 'T.Text' or 'Std.Data.TextBuilder.Str'.
   * 'NonEmpty', 'Vector', 'PrimVector', 'HashSet', 'FlatSet', 'FlatIntSet' are also encoded to JSON array.
   * 'HashMap', 'FlatMap', 'FlatIntMap' are encoded to JSON object.
 
@@ -55,11 +55,11 @@ name, but please don't produce control characters during your modification, sinc
 name won't contain them, thus we can save an extra escaping pass. To use constom 'Settings' just write:
 
 @
-    data T = T {foo :: Int, bar :: [Int]} deriving (Generic)
+    data T = T {fooBar :: Int, fooQux :: [Int]} deriving (Generic)
     instance ToValue T where toValue = JSON.gToValue JSON.defaultSettings{ JSON.fieldFmt = JSON.snakeCase } . from
 
     > JSON.toValue (T 0 [1,2,3])
-    Object [("foo",Number 0.0),("bar",Array [Number 1.0,Number 2.0,Number 3.0])]
+    Object [(\"foo_bar\",Number 0.0),(\"bar_qux\",Array [Number 1.0,Number 2.0,Number 3.0])]
 @
 
 = Write instances manually.
@@ -75,33 +75,36 @@ similar to aeson's.
     data Person = Person { name :: T.Text , age  :: Int } deriving Show
 
     instance FromValue Person where
-        fromValue = JSON.withFlatMapR "Person" $ \\ v -> Person
-                        \<$\> v .: "name"
-                        \<*\> v .: "age"
+        fromValue = JSON.withFlatMapR \"Person\" $ \\ v -> Person
+                        \<$\> v .: \"name\"
+                        \<*\> v .: \"age\"
 
     instance ToValue Person where
-        toValue (Person n a) = JSON.Object $ V.pack [("name", toValue n),("age", toValue a)]
+        toValue (Person n a) = JSON.Object $ V.pack [(\"name\", toValue n),(\"age\", toValue a)]
 
     instance EncodeJSON Person where
         encodeJSON (Person n a) = B.curly $ do
-            B.quotes "name" >> B.colon >> encodeJSON n
+            B.quotes \"name\" >> B.colon >> encodeJSON n
             B.comma
-            B.quotes "age" >> B.colon >> encodeJSON a
+            B.quotes \"age\" >> B.colon >> encodeJSON a
 
-    > toValue (Person "Joe" 12)
-    Object [("name",String "Joe"),("age",Number 12.0)]
-    > JSON.convert' @Person . JSON.Object $ V.pack [("name",JSON.String "Joe"),("age",JSON.Number 12.0)]
-    Right (Person {name = "Joe", age = 12})
-    > JSON.encodeText (Person "Joe" 12)
+    > toValue (Person \"Joe\" 12)
+    Object [(\"name\",String \"Joe\"),(\"age\",Number 12.0)]
+    > JSON.convert' @Person . JSON.Object $ V.pack [(\"name\",JSON.String \"Joe\"),(\"age\",JSON.Number 12.0)]
+    Right (Person {name = \"Joe\", age = 12})
+    > JSON.encodeText (Person \"Joe\" 12)
     "{\"name\":\"Joe\",\"age\":12}"
 @
 
 The 'Value' type is different from aeson's one in that we use @Vector (Text, Value)@ to represent JSON objects, thus
 we can choose different strategies on key duplication, the lookup map type, etc. so instead of a single 'withObject',
-we provide 'withHashMap', 'withHashMapR', 'withObject' and 'withObjectR' which use different lookup map type, and different
+we provide 'withHashMap', 'withHashMapR', 'withHashMap' and 'withHashMapR' which use different lookup map type, and different
 key order piority. Most of time 'FlatMap' is faster than 'HashMap' since we only use the lookup map once, the cost of
 constructing a 'HashMap' is higher. If you want to directly working on key-values, 'withKeyValues' provide key-values
 vector access.
+
+There're some useful tools to help write encoding code in "Std.Data.JSON.Builder" module, such as JSON string escaping tool, etc.
+If you don't particularly care for fast encoding, you can also use 'toValue' together with value builder, the overhead is usually very small.
 
 -}
 
