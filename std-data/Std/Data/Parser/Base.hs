@@ -68,9 +68,6 @@ import           Std.Data.PrimArray.UnalignedAccess
 import qualified Std.Data.Text.Base                 as T
 import qualified Std.Data.Vector.Base               as V
 import qualified Std.Data.Vector.Extra              as V
-import           Std.IO.Exception
-import           GHC.Stack
-
 
 -- | Simple parsing result, that represent respectively:
 --

@@ -73,7 +73,7 @@ import           System.IO.Unsafe
 import           GHC.Integer.GMP.Internals
 #endif
 import           GHC.Float                           (roundTo)
-import           Test.QuickCheck.Arbitrary (Arbitrary(..), CoArbitrary(..))
+import           Test.QuickCheck.Arbitrary           (Arbitrary(..), CoArbitrary(..))
 
 --------------------------------------------------------------------------------
 

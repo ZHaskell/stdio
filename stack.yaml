@@ -1,8 +1,7 @@
-resolver: lts-13.4
+resolver: lts-13.20
 
 extra-deps: []
 
 packages:
-- .
-- bench/tcp
-- bench/timers
+- std-data
+- std-io
