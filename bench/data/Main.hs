@@ -5,20 +5,21 @@
 
 module Main (main) where
 
-import Criterion.Main
+import           Control.DeepSeq
+import           Criterion.Main
 import qualified Data.ByteString as B
-import qualified Std.Data.Vector as V
 import qualified Data.List as List
 import qualified Data.Vector.Unboxed as VU
-import Data.Word
-import Control.DeepSeq
+import           Data.Word
+import           System.IO (readFile)
+import qualified Data.Text as T
+import qualified Std.Data.Text as S
+import qualified Std.Data.Vector as V
+
 import Builder
 import Bytes
 import Text
 import BitTwiddle
-import System.IO (readFile)
-import qualified Data.Text as T
-import qualified Std.Data.Text as S
 
 main :: IO ()
 main = do

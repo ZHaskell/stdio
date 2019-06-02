@@ -1,7 +1,7 @@
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE BangPatterns      #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE TypeApplications  #-}
+{-# LANGUAGE CPP               #-}
 
 {-|
 Module      : Std.Data.Parser.Numeric
@@ -54,7 +54,6 @@ import           Std.Data.Parser.Base     (Parser, (<?>))
 import qualified Std.Data.Parser.Base     as P
 import qualified Std.Data.Vector.Base     as V
 import qualified Std.Data.Vector.Extra    as V
-import           Std.IO.Exception
 
 #define WORD64_MAX_DIGITS_LEN 18
 

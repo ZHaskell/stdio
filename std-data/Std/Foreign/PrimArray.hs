@@ -1,5 +1,5 @@
-{-# LANGUAGE MagicHash #-}
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE MagicHash           #-}
+{-# LANGUAGE BangPatterns        #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 {-|
@@ -96,8 +96,6 @@ import           GHC.Prim
 import           GHC.Ptr
 import           Std.Data.Array
 import           Std.Data.Vector.Base
-import           Std.IO.Exception
-import           Std.IO.Resource
 
 -- | Type alias for 'ByteArray#'.
 --
