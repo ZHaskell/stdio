@@ -113,6 +113,12 @@ extra-source-files:  ChangeLog.md
                      third_party/fastvalidate-utf-8/include/simdasciicheck.h
                      third_party/fastvalidate-utf-8/include/simdutf8check.h
 
+                     -- zlib C source
+                     third_party/zlib/crc32.h
+                     third_party/zlib/crc32.c
+                     third_party/zlib/deflate.h
+                     third_party/zlib/deflate.c
+
 source-repository head
   type:     git
   location: git://github.com/haskell-stdio/stdio.git
@@ -179,6 +185,8 @@ library
                             Std.Data.JSON.Value
 
                             Std.Foreign.PrimArray
+
+                            Std.BIO.Base
 
                             Std.IO.Resource
                             Std.IO.LowResTimer

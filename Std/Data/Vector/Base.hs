@@ -165,7 +165,7 @@ pattern Vec arr s l <- (toArr -> (arr,s,l)) where
 --
 -- Return 'Nothing' if index is out of bounds.
 --
-indexMaybe :: (Vec v a, HasCallStack) => v a -> Int -> Maybe a
+indexMaybe :: Vec v a => v a -> Int -> Maybe a
 {-# INLINE indexMaybe #-}
 indexMaybe (Vec arr s l) i | i < 0 || i >= l = Nothing
                            | otherwise       = arr `indexArrM` (s + i)

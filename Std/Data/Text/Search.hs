@@ -50,7 +50,7 @@ findIndices f (Text (V.PrimVector arr s l)) = go 0 s
 -- from left to right, if there isn't one, return the index point to the end of the byte slice.
 find :: (Char -> Bool)
      -> Text
-     -> (Int, Int, Maybe Char)  -- ^ (char index, byte index, matching char)
+     -> (Int, Int, Maybe Char)  -- ^ (char index, byte index in slice, matching char)
 {-# INLINE find #-}
 find f (Text (V.PrimVector arr s l)) = go 0 s
   where
@@ -63,9 +63,11 @@ find f (Text (V.PrimVector arr s l)) = go 0 s
                     else go (i+1) (j+off)
 
 -- | /O(n)/ find the first char matching the predicate in a text
--- from right to left, if there isn't one, return the index point to the end of the byte slice.
+-- from right to left, if there isn't one, return the index point to the start of the byte slice.
 --
-findR :: (Char -> Bool) -> Text -> (Int, Int, Maybe Char)
+findR :: (Char -> Bool)
+      -> Text
+      -> (Int, Int, Maybe Char)  -- ^ (char index(counting backwards), byte index in slice, matching char)
 {-# INLINE findR #-}
 findR f (Text (V.PrimVector arr s l)) = go 0 (s+l-1)
   where

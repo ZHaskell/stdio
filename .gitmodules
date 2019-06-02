@@ -7,3 +7,6 @@
 [submodule "third_party/fastvalidate-utf-8"]
 	path = third_party/fastvalidate-utf-8
 	url = https://github.com/lemire/fastvalidate-utf-8.git
+[submodule "third_party/zlib"]
+	path = third_party/zlib
+	url = git@github.com:haskell-stdio/zlib.git
