@@ -1,3 +1,6 @@
+[submodule "third_party/libuv"]
+	path = std-io/third_party/libuv
+    url = https://github.com/haskell-stdio/libuv.git
 [submodule "third_party/utf8rewind"]
 	path = std-data/third_party/utf8rewind
 	url = https://github.com/haskell-stdio/utf8rewind.git
