@@ -6,7 +6,7 @@
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies        #-}
-{-# LANGUAGE TypeApplications      #-}
+{-# LANGUAGE TypeApplications    #-}
 {-# LANGUAGE UnboxedTuples       #-}
 
 {-|

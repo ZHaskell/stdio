@@ -50,6 +50,7 @@ module Std.Data.CBytes
   ) where
 
 import           Control.DeepSeq
+import           Control.Exception (throwIO)
 import           Control.Monad
 import           Control.Monad.Primitive
 import           Control.Monad.ST
@@ -67,6 +68,7 @@ import           Foreign.C
 import           Foreign.Storable        (peekElemOff)
 import           GHC.CString
 import           GHC.Ptr
+import           GHC.Stack
 import           Prelude                 hiding (all, any, appendFile, break,
                                           concat, concatMap, drop, dropWhile,
                                           elem, filter, foldl, foldl1, foldr,
@@ -82,7 +84,6 @@ import           Std.Data.Array
 import qualified Std.Data.Text           as T
 import           Std.Data.Text.UTF8Codec (encodeCharModifiedUTF8)
 import qualified Std.Data.Vector.Base    as V
-import           Std.IO.Exception
 import           System.IO.Unsafe        (unsafeDupablePerformIO)
 
 -- | A efficient wrapper for immutable null-terminated string which can be
@@ -333,11 +334,12 @@ fromCString :: HasCallStack
             => CString
             -> IO CBytes
 {-# INLINABLE fromCString #-}
-fromCString cstring =
-    if cstring == nullPtr
-    then throwIO (InvalidArgument
-        (IOEInfo "" "unexpected null pointer" callStack))
-    else do
+fromCString cstring = do
+    -- FIXME
+    -- if cstring == nullPtr
+    -- then throwIO (InvalidArgument
+    --     (IOEInfo "" "unexpected null pointer" callStack))
+    -- else do
         len <- fromIntegral <$> c_strlen cstring
         mpa <- newPinnedPrimArray (len+1)
         copyPtrToMutablePrimArray mpa 0 (castPtr cstring) len
@@ -352,11 +354,12 @@ fromCStringN :: HasCallStack
             -> Int
             -> IO CBytes
 {-# INLINABLE fromCStringN #-}
-fromCStringN cstring len =
-    if cstring == nullPtr
-    then throwIO (InvalidArgument
-        (IOEInfo "" "unexpected null pointer" callStack))
-    else do
+fromCStringN cstring len = do
+    -- FIXME
+    -- if cstring == nullPtr
+    -- then throwIO (InvalidArgument
+    --     (IOEInfo "" "unexpected null pointer" callStack))
+    -- else do
         mpa <- newPinnedPrimArray (len+1)
         copyPtrToMutablePrimArray mpa 0 (castPtr cstring) len
         writePrimArray mpa len 0     -- the \NUL terminator
