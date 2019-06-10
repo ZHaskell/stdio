@@ -47,7 +47,6 @@ module Std.Data.JSON.Value
   ) where
 
 import           Control.DeepSeq
-import           Control.Monad
 import           Data.Bits                ((.&.))
 import           Data.Functor
 import           Data.Primitive.PrimArray
@@ -118,6 +117,7 @@ instance Arbitrary Value where
     -- limit maximum depth of JSON document, otherwise it's too slow to run any tests
     arbitrary = arbitraryValue 0 4
       where
+        arbitraryValue :: Int -> Int -> Gen Value
         arbitraryValue d s = do
             i <- arbitrary :: Gen Word
             case (i `mod` 6) of

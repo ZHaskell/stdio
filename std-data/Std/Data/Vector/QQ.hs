@@ -25,7 +25,6 @@ module Std.Data.Vector.QQ (
 import qualified Language.Haskell.TH.Quote     as QQ
 import           Std.Data.PrimArray.QQ         as QQ
 import           Std.Data.Vector.Base
-import           GHC.Types (Int(..))
 
 --------------------------------------------------------------------------------
 -- Quoters

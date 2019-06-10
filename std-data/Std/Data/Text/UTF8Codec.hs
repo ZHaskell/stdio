@@ -143,7 +143,7 @@ decodeChar (PrimArray ba#) (I# idx#) =
 decodeChar_ :: PrimArray Word8 -> Int -> Char
 {-# INLINE decodeChar_ #-}
 decodeChar_ (PrimArray ba#) (I# idx#) =
-    let !(# c#, i# #) = decodeChar# ba# idx# in C# c#
+    let !(# c#, _ #) = decodeChar# ba# idx# in C# c#
 
 -- | The unboxed version of 'decodeChar'
 --
@@ -203,7 +203,7 @@ decodeCharReverse (PrimArray ba#) (I# idx#) =
 decodeCharReverse_ :: PrimArray Word8 -> Int -> Char
 {-# INLINE decodeCharReverse_ #-}
 decodeCharReverse_ (PrimArray ba#) (I# idx#) =
-    let !(# c#, i# #) = decodeCharReverse# ba# idx# in C# c#
+    let !(# c#, _ #) = decodeCharReverse# ba# idx# in C# c#
 
 -- | The unboxed version of 'decodeCharReverse'
 --

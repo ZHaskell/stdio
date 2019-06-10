@@ -3,6 +3,7 @@
 {-# LANGUAGE MagicHash           #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE RankNTypes          #-}
+{-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE UnboxedTuples       #-}
@@ -63,10 +64,8 @@ import           Data.Word
 import           GHC.Exts
 import           GHC.Float
 import           GHC.Integer
-import           GHC.Types
 import           Std.Data.Builder.Base
 import           Std.Data.Builder.Numeric.DigitTable
-import           Std.Data.Text.Base
 import           Std.Foreign.PrimArray
 import           System.IO.Unsafe
 #ifdef INTEGER_GMP
@@ -84,11 +83,15 @@ foreign import ccall unsafe "dtoa.h" c_int_dec :: Word64 -> Int -> Int -> Word8 
 data IFormat = IFormat
     { width       :: Int            -- ^ total width, only effective with padding options
     , padding     :: Padding        -- ^ padding options
-    , postiveSign :: Bool           -- ^ show @+@ when the number is positive
+    , posSign     :: Bool           -- ^ show @+@ when the number is positive
     } deriving (Show, Eq, Ord)
 
 instance Arbitrary IFormat where
     arbitrary = IFormat <$> arbitrary <*> arbitrary <*> arbitrary
+
+instance CoArbitrary IFormat where
+    coarbitrary (IFormat w pad p) = coarbitrary (w, pad, p)
+
 
 -- | @defaultIFormat = IFormat 0 NoPadding False@
 defaultIFormat :: IFormat
@@ -98,6 +101,9 @@ data Padding = NoPadding | RightSpacePadding | LeftSpacePadding | ZeroPadding de
 
 instance Arbitrary Padding where
     arbitrary = toEnum . (`mod` 4) <$> arbitrary
+
+instance CoArbitrary Padding where
+    coarbitrary = coarbitrary . fromEnum
 
 -- | @int = intWith defaultIFormat@
 int :: (Integral a, Bounded a) => a -> Builder ()
@@ -124,16 +130,16 @@ intWith = hs_intWith
 -- We use rewrite rules to rewrite most of the integral types formatting to this function.
 c_intWith :: (Integral a, Bits a) => IFormat -> a -> Builder ()
 {-# INLINE c_intWith #-}
-c_intWith (IFormat width padding posSign) x
+c_intWith (IFormat{..}) x
     | x < 0 =
         let !x' = (fromIntegral (complement x) :: Word64) + 1
-        in atMost width' (\ mba@(MutablePrimArray mba#) i ->
+        in atMost width' (\ (MutablePrimArray mba#) i ->
             unsafeIOToST (c_int_dec x' (-1) width pad (unsafeCoerce# mba#) i))
     | posSign =
-        atMost width' (\ mba@(MutablePrimArray mba#) i ->
+        atMost width' (\ (MutablePrimArray mba#) i ->
             unsafeIOToST (c_int_dec (fromIntegral x) 1 width pad (unsafeCoerce# mba#) i))
     | otherwise =
-        atMost width' (\ mba@(MutablePrimArray mba#) i ->
+        atMost width' (\ (MutablePrimArray mba#) i ->
             unsafeIOToST (c_int_dec (fromIntegral x) 0 width pad (unsafeCoerce# mba#) i))
   where
     width' = max 21 width
@@ -148,7 +154,7 @@ c_intWith (IFormat width padding posSign) x
 -- the c version's formatting result.
 hs_intWith :: (Integral a, Bounded a) => IFormat -> a -> Builder ()
 {-# INLINABLE hs_intWith #-}
-hs_intWith format@(IFormat width padding _) i
+hs_intWith format@IFormat{..} i
     | i < 0 =
         if i == minBound            -- can't directly negate in this case
         then do
@@ -502,10 +508,10 @@ hex :: forall a. (FiniteBits a, Integral a) => a -> Builder ()
 {-# SPECIALIZE INLINE hex :: Word16 -> Builder () #-}
 {-# SPECIALIZE INLINE hex :: Word32 -> Builder () #-}
 {-# SPECIALIZE INLINE hex :: Word64 -> Builder () #-}
-hex w = writeN hexSize (go w (hexSize-2))
+hex w = writeN hexSiz (go w (hexSiz-2))
   where
-    bitSize = finiteBitSize (undefined :: a)
-    hexSize = (bitSize+3) `unsafeShiftR` 2
+    bitSiz = finiteBitSize (undefined :: a)
+    hexSiz = (bitSiz+3) `unsafeShiftR` 2
     go !v !d marr off
         | d > 0 = do
             let !i = fromIntegral v .&. 0xFF; !j = i + i
@@ -533,10 +539,10 @@ heX :: forall a. (FiniteBits a, Integral a) => a -> Builder ()
 {-# SPECIALIZE INLINE heX :: Word16 -> Builder () #-}
 {-# SPECIALIZE INLINE heX :: Word32 -> Builder () #-}
 {-# SPECIALIZE INLINE heX :: Word64 -> Builder () #-}
-heX w = writeN hexSize (go w (hexSize-2))
+heX w = writeN hexSiz (go w (hexSiz-2))
   where
-    bitSize = finiteBitSize (undefined :: a)
-    hexSize = (bitSize+3) `unsafeShiftR` 2
+    bitSiz = finiteBitSize (undefined :: a)
+    hexSiz = (bitSiz+3) `unsafeShiftR` 2
     go !v !d marr off
         | d > 0 = do
             let !i = fromIntegral v .&. 0xFF; !j = i + i
@@ -648,7 +654,7 @@ doFmt format decs (is, e) =
                         [0] -> do
                                 char8 '0'
                                 char8 '.'
-                                replicateM dec' $ char8 '0'
+                                replicateM_ dec' $ char8 '0'
                                 char8 'e'
                                 char8 '0'
                         _ -> do
@@ -666,7 +672,7 @@ doFmt format decs (is, e) =
                     | e <= 0    -> do
                                 char8 '0'
                                 char8 '.'
-                                replicateM (-e) $ char8 '0'
+                                replicateM_ (-e) $ char8 '0'
                                 string8 ds
                     | otherwise ->
                         let f 0 s    rs  = mk0 (reverse s) >> char8 '.' >> mk0 rs

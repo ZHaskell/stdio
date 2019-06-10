@@ -16,7 +16,6 @@ module Std.Data.Generics.Utils
   , productSize
   ) where
 
-import Data.Proxy
 import GHC.Generics
 import GHC.TypeNats
 import GHC.Exts (Proxy#, proxy#)

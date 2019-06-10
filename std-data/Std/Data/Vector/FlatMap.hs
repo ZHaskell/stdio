@@ -51,12 +51,10 @@ import qualified Data.Semigroup            as Semigroup
 import qualified Data.Monoid               as Monoid
 import qualified Std.Data.Vector.Base as V
 import qualified Std.Data.Vector.Sort as V
-import qualified Std.Data.Text             as T
 import qualified Std.Data.TextBuilder      as T
 import           Data.Function              (on)
 import           Data.Bits                   (shiftR)
 import           Data.Data
-import           Data.Typeable
 import           Prelude hiding (lookup, null)
 import           Test.QuickCheck.Arbitrary (Arbitrary(..), CoArbitrary(..))
 
@@ -104,9 +102,9 @@ instance Foldable.Foldable (FlatMap k) where
     {-# INLINE foldr #-}
     foldr f = foldrWithKey (const f)
     {-# INLINE foldl' #-}
-    foldl' f = foldlWithKey' (\ a k v -> f a v)
+    foldl' f = foldlWithKey' (\ a _ v -> f a v)
     {-# INLINE foldl #-}
-    foldl f = foldlWithKey (\ a k v -> f a v)
+    foldl f = foldlWithKey (\ a _ v -> f a v)
     {-# INLINE toList #-}
     toList = fmap snd . unpack
     {-# INLINE null #-}
@@ -188,19 +186,19 @@ packVectorR kvs = FlatMap (V.mergeDupAdjacentRight ((==) `on` fst) (V.mergeSortB
 -- | /O(logN)/ Binary search on flat map.
 lookup :: Ord k => k -> FlatMap k v -> Maybe v
 {-# INLINABLE lookup #-}
-lookup _  (FlatMap (V.Vector arr s 0)) = Nothing
+lookup _  (FlatMap (V.Vector _ _ 0)) = Nothing
 lookup k' (FlatMap (V.Vector arr s l)) = go s (s+l-1)
   where
-    go !s !e
-        | s == e =
-            case arr `A.indexSmallArray` s of (k, v)  | k == k'  -> Just v
-                                                        | otherwise -> Nothing
-        | s >  e = Nothing
+    go !i !j
+        | i == j =
+            case arr `A.indexSmallArray` i of (k, v)  | k == k'  -> Just v
+                                                      | otherwise -> Nothing
+        | i >  j = Nothing
         | otherwise =
-            let mid = (s+e) `shiftR` 1
+            let mid = (i+j) `shiftR` 1
                 (k, v)  = arr `A.indexSmallArray` mid
-            in case k' `compare` k of LT -> go s (mid-1)
-                                      GT -> go (mid+1) e
+            in case k' `compare` k of LT -> go i (mid-1)
+                                      GT -> go (mid+1) j
                                       _  -> Just v
 
 -- | /O(N)/ Insert new key value into map, replace old one if key exists.
@@ -223,7 +221,7 @@ delete :: Ord k => k -> FlatMap k v -> FlatMap k v
 {-# INLINE delete #-}
 delete k m@(FlatMap vec@(V.Vector arr s l)) =
     case binarySearch vec k of
-        Left i -> m
+        Left _ -> m
         Right i -> FlatMap $ V.create (l-1) (\ marr -> do
             when (i>s) $ A.copySmallArray marr 0 arr s (i-s)
             let !end = s+l
@@ -237,7 +235,7 @@ adjust' :: Ord k => (v -> v) -> k -> FlatMap k v -> FlatMap k v
 {-# INLINE adjust' #-}
 adjust' f k m@(FlatMap vec@(V.Vector arr s l)) =
     case binarySearch vec k of
-        Left i -> m
+        Left _ -> m
         Right i -> FlatMap $ V.create l (\ marr -> do
             A.copySmallArray marr 0 arr s l
             let !v' = f (snd (A.indexSmallArray arr i))
@@ -262,8 +260,8 @@ merge fmL@(FlatMap (V.Vector arrL sL lL)) fmR@(FlatMap (V.Vector arrR sR lR))
             A.copySmallArray marr k arrL i (lL-i)
             return $! k+lL-i
         | otherwise = do
-            kvL@(kL, vL) <- arrL `A.indexSmallArrayM` i
-            kvR@(kR, vR) <- arrR `A.indexSmallArrayM` j
+            kvL@(kL, _) <- arrL `A.indexSmallArrayM` i
+            kvR@(kR, _) <- arrR `A.indexSmallArrayM` j
             case kL `compare` kR of LT -> do A.writeSmallArray marr k kvL
                                              go (i+1) j (k+1) marr
                                     EQ -> do A.writeSmallArray marr k kvR
@@ -353,21 +351,21 @@ traverseWithKey f (FlatMap vs) = FlatMap <$> traverse (\ (k,v) -> (k,) <$> f k v
 -- This function only works on ascending sorted vectors.
 binarySearch :: Ord k => V.Vector (k, v) -> k -> Either Int Int
 {-# INLINABLE binarySearch #-}
-binarySearch (V.Vector arr s 0) _   = Left 0
+binarySearch (V.Vector _ _ 0) _   = Left 0
 binarySearch (V.Vector arr s l) !k' = go s (s+l-1)
   where
-    go !s !e
-        | s == e =
-            let (k, v)  = arr `A.indexSmallArray` s
-            in case k' `compare` k of LT -> Left s
-                                      GT -> let !s' = s+1 in Left s'
-                                      _  -> Right s
-        | s >  e = Left s
+    go !i !j
+        | i == j =
+            let (k, _)  = arr `A.indexSmallArray` i
+            in case k' `compare` k of LT -> Left i
+                                      GT -> let !i' = i+1 in Left i'
+                                      _  -> Right i
+        | i >  j = Left i
         | otherwise =
-            let !mid = (s+e) `shiftR` 1
-                (k, v)  = arr `A.indexSmallArray` mid
-            in case k' `compare` k of LT -> go s (mid-1)
-                                      GT -> go (mid+1) e
+            let !mid = (i+j) `shiftR` 1
+                (k, _)  = arr `A.indexSmallArray` mid
+            in case k' `compare` k of LT -> go i (mid-1)
+                                      GT -> go (mid+1) j
                                       _  -> Right mid
 
 --------------------------------------------------------------------------------

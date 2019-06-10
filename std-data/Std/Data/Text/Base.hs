@@ -128,7 +128,6 @@ import           Data.Hashable            (Hashable(..))
 import qualified Data.List                as List
 import           Data.Monoid                   (Monoid (..))
 import           Data.Primitive.PrimArray
-import           Data.Semigroup                (Semigroup ((<>)))
 import           Data.Typeable
 import           Data.String              (IsString(..))
 import           Data.Word
@@ -143,7 +142,6 @@ import           Std.Data.Text.UTF8Codec
 import           Std.Data.Text.UTF8Rewind
 import           Std.Data.Vector.Base     (Bytes, PrimVector(..), c_strlen)
 import qualified Std.Data.Vector.Base     as V
-import qualified Std.Data.Vector.Extra    as V
 import qualified Std.Data.Vector.Search   as V
 import           Std.Foreign.PrimArray
 import           System.IO.Unsafe (unsafeDupablePerformIO)
@@ -160,7 +158,7 @@ import           Test.QuickCheck.Arbitrary (Arbitrary(..), CoArbitrary(..))
 --
 newtype Text = Text
     { getUTF8Bytes :: Bytes -- ^ Extract UTF-8 encoded 'Bytes' from 'Text'
-    } deriving (Semigroup, Monoid)
+    } deriving (Semigroup, Monoid, Typeable)
 
 instance Eq Text where
     Text b1 == Text b2 = b1 == b2
@@ -195,20 +193,20 @@ instance IsString Text where
     fromString = pack
 
 packASCIIAddr :: Addr# -> Text
-packASCIIAddr addr# = copy addr#
+packASCIIAddr addr0# = go addr0#
   where
-    len = fromIntegral . unsafeDupablePerformIO $ c_strlen addr#
-    copy addr# = runST $ do
+    len = fromIntegral . unsafeDupablePerformIO $ c_strlen addr0#
+    go addr# = runST $ do
         marr <- newPrimArray len
         copyPtrToMutablePrimArray marr 0 (Ptr addr#) len
         arr <- unsafeFreezePrimArray marr
         return $ Text (PrimVector arr 0 len)
 
 packUTF8Addr :: Addr# -> Text
-packUTF8Addr addr# = validateAndCopy addr#
+packUTF8Addr addr0# = validateAndCopy addr0#
   where
-    len = fromIntegral . unsafeDupablePerformIO $ c_strlen addr#
-    valid = unsafeDupablePerformIO $ c_utf8_validate_addr addr# len
+    len = fromIntegral . unsafeDupablePerformIO $ c_strlen addr0#
+    valid = unsafeDupablePerformIO $ c_utf8_validate_addr addr0# len
     validateAndCopy addr#
         | valid == 0 = packN len (unpackCStringUtf8# addr#) -- three bytes surrogate -> three bytes replacement
                                                         -- two bytes NUL -> \NUL
@@ -230,8 +228,7 @@ indexMaybe (Text (V.PrimVector ba s l)) n
     go !i !j
         | i >= end = Nothing
         | j >= n = let !c = decodeChar_ ba i in Just c
-        | otherwise =
-            let l = decodeCharLen ba i in go (i+l) (j+1)
+        | otherwise = let l' = decodeCharLen ba i in go (i+l') (j+1)
 
 -- | /O(n)/ Find the nth codepoint's byte index (pointing to the nth char's begining byte).
 --
@@ -247,8 +244,7 @@ charByteIndex (Text (V.PrimVector ba s l)) n
     go !i !j
         | i >= end = i
         | j >= n = i
-        | otherwise =
-            let l = decodeCharLen ba i in go (i+l) (j+1)
+        | otherwise = let l' = decodeCharLen ba i in go (i+l') (j+1)
 
 -- | /O(n)/ Get the nth codepoint from 'Text' counting from the end.
 indexMaybeR :: Text -> Int -> Maybe Char
@@ -260,8 +256,7 @@ indexMaybeR (Text (V.PrimVector ba s l)) n
     go !i !j
         | i < s = Nothing
         | j >= n = let !c = decodeCharReverse_ ba i in Just c
-        | otherwise =
-            let l = decodeCharLenReverse ba i in go (i-l) (j+1)
+        | otherwise = let l' = decodeCharLenReverse ba i in go (i-l') (j+1)
 
 -- | /O(n)/ Find the nth codepoint's byte index from the end
 -- (pointing to the previous char's ending byte).
@@ -277,8 +272,7 @@ charByteIndexR (Text (V.PrimVector ba s l)) n
     go !i !j
         | i < s = i
         | j >= n = i
-        | otherwise =
-            let l = decodeCharLenReverse ba i in go (i-l) (j+1)
+        | otherwise = let l' = decodeCharLenReverse ba i in go (i-l') (j+1)
 
 --------------------------------------------------------------------------------
 
@@ -367,13 +361,13 @@ packRN n0 = \ ws0 -> runST (do let n = max 4 n0
         n <- sizeofMutableArr marr
         let l = encodeCharLength c
         if i >= l
-        then do encodeChar marr (i-l) c
+        then do _ <- encodeChar marr (i-l) c
                 return (V.IPair (i-l) marr)
         else do let !n' = n `shiftL` 1  -- double the buffer
                 !marr' <- newArr n'
                 copyMutableArr marr' (n+i) marr i (n-i)
                 let i' = n+i-l
-                encodeChar marr' i' c
+                _ <- encodeChar marr' i' c
                 return (V.IPair i' marr')
 
 -- | /O(n)/ Convert text to a char list.
@@ -654,7 +648,7 @@ fromVector (V.PrimVector arr s l) = Text (V.createN l (go s 0))
   where
     end = s+l
     go !i !j !marr
-        | i >= l = return j
+        | i >= end = return j
         | otherwise = do
             let c = indexPrimArray arr i
             j' <- encodeChar marr j c
@@ -667,7 +661,7 @@ toVector (Text (V.PrimVector arr s l)) = V.createN (l*4) (go s 0)
   where
     end = s+l
     go !i !j !marr
-        | i >= l = return j
+        | i >= end = return j
         | otherwise = do
             let (# c, n #) = decodeChar arr i
             writePrimArray marr j c
@@ -738,9 +732,9 @@ normalizeTo nmode (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
     | l == 0 = empty
     | otherwise = unsafeDupablePerformIO $ do
         let nflag = normalizeModeToFlag nmode
-            l'@(I# l'#) = utf8_normalize_length arr# s# l# nflag
+            !l'@(I# l'#) = utf8_normalize_length arr# s# l# nflag
         when (l' < 0) (error "impossible happened!")
-        pa@(MutablePrimArray marr#) <- newArr l'
+        !pa@(MutablePrimArray marr#) <- newArr l'
         utf8_normalize arr# s# l# marr# l'# nflag
         arr' <- unsafeFreezeArr pa
         let !v = V.fromArr arr' 0 l'
@@ -797,9 +791,9 @@ caseFoldWith :: Locale -> Text -> Text
 caseFoldWith locale (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
     | l == 0 = empty
     | otherwise = unsafeDupablePerformIO $ do
-        let l'@(I# l'#) = utf8_casefold_length arr# s# l# locale
+        let !l'@(I# l'#) = utf8_casefold_length arr# s# l# locale
         when (l' < 0) (error "impossible happened!")
-        pa@(MutablePrimArray marr#) <- newArr l'
+        !pa@(MutablePrimArray marr#) <- newArr l'
         utf8_casefold arr# s# l# marr# l'# locale
         arr' <- unsafeFreezeArr pa
         let !v = V.fromArr arr' 0 l'
@@ -837,9 +831,9 @@ toLowerWith :: Locale -> Text -> Text
 toLowerWith locale (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
     | l == 0 = empty
     | otherwise = unsafeDupablePerformIO $ do
-        let l'@(I# l'#) = utf8_tolower_length arr# s# l# locale
+        let !l'@(I# l'#) = utf8_tolower_length arr# s# l# locale
         when (l' < 0) (error "impossible happened!")
-        pa@(MutablePrimArray marr#) <- newArr l'
+        !pa@(MutablePrimArray marr#) <- newArr l'
         utf8_tolower arr# s# l# marr# l'# locale
         arr' <- unsafeFreezeArr pa
         let !v = V.fromArr arr' 0 l'
@@ -875,9 +869,9 @@ toUpperWith :: Locale -> Text -> Text
 toUpperWith locale (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
     | l == 0 = empty
     | otherwise = unsafeDupablePerformIO $ do
-        let l'@(I# l'#) = utf8_toupper_length arr# s# l# locale
+        let !l'@(I# l'#) = utf8_toupper_length arr# s# l# locale
         when (l' < 0) (error "impossible happened!")
-        pa@(MutablePrimArray marr#) <- newArr l'
+        !pa@(MutablePrimArray marr#) <- newArr l'
         utf8_toupper arr# s# l# marr# l'# locale
         arr' <- unsafeFreezeArr pa
         let !v = V.fromArr arr' 0 l'
@@ -926,9 +920,9 @@ toTitleWith :: Locale -> Text -> Text
 toTitleWith locale (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
     | l == 0 = empty
     | otherwise = unsafeDupablePerformIO $ do
-        let l'@(I# l'#) = utf8_totitle_length arr# s# l# locale
+        let !l'@(I# l'#) = utf8_totitle_length arr# s# l# locale
         when (l' < 0) (error "impossible happened!")
-        pa@(MutablePrimArray marr#) <- newArr l'
+        !pa@(MutablePrimArray marr#) <- newArr l'
         utf8_totitle arr# s# l# marr# l'# locale
         arr' <- unsafeFreezeArr pa
         let !v = V.fromArr arr' 0 l'
@@ -990,7 +984,7 @@ behavior.
 -}
 
 isCategory :: Category -> Text -> Bool
-isCategory c (Text (V.PrimVector arr@(PrimArray arr#) s@(I# s#) l@(I# l#)))
+isCategory c (Text (V.PrimVector (PrimArray arr#) (I# s#) l@(I# l#)))
     | l == 0 = True
     | otherwise = utf8_iscategory arr# s# l# c == l
 

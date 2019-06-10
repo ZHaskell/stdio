@@ -56,7 +56,6 @@ import           Data.Char                 (ord)
 import           Data.Primitive.PrimArray
 import           GHC.Prim
 import           GHC.Ptr
-import           GHC.Types
 import           Data.Word
 import           Data.Int
 import           Language.Haskell.TH
@@ -166,10 +165,10 @@ vectorLiteral f k str = do
     k (return . LitE  . IntegerL .fromIntegral $ len) $ (return . LitE . StringPrimL) ws
   where
     parse :: String -> Q (Int, [Word8])
-    parse str = do
-        case (readList :: ReadS [Integer]) ("[" ++ str ++ "]") of
+    parse str' = do
+        case (readList :: ReadS [Integer]) ("[" ++ str' ++ "]") of
             [(is, "")] -> (length is, ) `fmap` f is
-            _ -> do _ <- fail $ "can't parse vector literal:" ++ str
+            _ -> do _ <- fail $ "can't parse vector literal:" ++ str'
                     return (0, [])
 
 --------------------------------------------------------------------------------

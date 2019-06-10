@@ -57,7 +57,6 @@ import Std.Data.Text.Base
 import Std.Data.Text.UTF8Codec
 import Std.Data.Text.Search
 import           Control.Monad.ST
-import           GHC.Stack
 import           Data.Char
 import           Data.Word
 import           Prelude                       hiding (concat, concatMap,
@@ -120,7 +119,7 @@ headMaybe t = case uncons t of { Just (c, _) -> Just c; _ -> Nothing }
 -- NOTE: 'tailMayEmpty' return empty text in the case of an empty text.
 tailMayEmpty :: Text -> Text
 {-# INLINABLE tailMayEmpty #-}
-tailMayEmpty t = case uncons t of { Nothing -> empty; Just (_, t) -> t }
+tailMayEmpty t = case uncons t of { Nothing -> empty; Just (_, t') -> t' }
 
 -- | /O(1)/ Extract the last char of a text.
 lastMaybe :: Text -> Maybe Char
@@ -132,12 +131,12 @@ lastMaybe t = case unsnoc t of { Just (_, c) -> Just c; _ -> Nothing }
 -- NOTE: 'initMayEmpty' return empty text in the case of an empty text.
 initMayEmpty :: Text -> Text
 {-# INLINABLE initMayEmpty #-}
-initMayEmpty t = case unsnoc t of { Just (t, _) -> t; _ -> empty }
+initMayEmpty t = case unsnoc t of { Just (t', _) -> t'; _ -> empty }
 
 -- | /O(n)/ Return all initial segments of the given text, empty first.
 inits :: Text -> [Text]
 {-# INLINABLE inits #-}
-inits t = go t [t]
+inits t0 = go t0 [t0]
   where go t acc = case unsnoc t of Just (t', _) -> go t' (t':acc)
                                     Nothing      -> acc
 
@@ -151,7 +150,7 @@ tails t = t : case uncons t of Just (_, t') -> tails t'
 -- of @xs@ of length @n@, or @xs@ itself if @n > 'length' xs@.
 take :: Int -> Text -> Text
 {-# INLINABLE take #-}
-take n t@(Text (V.PrimVector ba s l))
+take n t@(Text (V.PrimVector ba s _))
     | n <= 0 = empty
     | otherwise = case charByteIndex t n of i -> Text (V.PrimVector ba s (i-s))
 
@@ -175,7 +174,7 @@ takeR n t@(Text (V.PrimVector ba s l))
 -- char, or @[]@ if @n > 'length' xs@.
 dropR :: Int -> Text -> Text
 {-# INLINABLE dropR #-}
-dropR n t@(Text (V.PrimVector ba s l))
+dropR n t@(Text (V.PrimVector ba s _))
     | n <= 0 = t
     | otherwise = case charByteIndexR t n of i -> Text (V.PrimVector ba s (i-s+1))
 
@@ -215,7 +214,7 @@ splitAt n t@(Text (V.PrimVector ba s l))
 -- satisfy @p@.
 takeWhile :: (Char -> Bool) -> Text -> Text
 {-# INLINE takeWhile #-}
-takeWhile f t@(Text (V.PrimVector arr s l)) =
+takeWhile f t@(Text (V.PrimVector arr s _)) =
     let !i = findIndex (not . f) t in Text (V.PrimVector arr s (i-s))
 
 -- | /O(n)/ Applied to a predicate @p@ and a text @t@,
@@ -237,7 +236,7 @@ dropWhile f t@(Text (V.PrimVector arr s l)) =
 -- returns the prefix (possibly empty) remaining before 'takeWhileR' @p vs@.
 dropWhileR :: (Char -> Bool) -> Text -> Text
 {-# INLINE dropWhileR #-}
-dropWhileR f t@(Text (V.PrimVector arr s l)) =
+dropWhileR f t@(Text (V.PrimVector arr s _)) =
     let !i = findIndexR (not . f) t in Text (V.PrimVector arr s (i-s+1))
 
 -- | /O(n)/ @dropAround f = dropWhile f . dropWhileR f@
@@ -338,10 +337,10 @@ groupBy f (Text (V.PrimVector arr s l))
     (# c0, s0 #) = decodeChar arr s
     end = s + l
     s' = go arr (s+s0)
-    go arr !i
+    go arr' !i
         | i >= end = i
-        | otherwise = let (# c1, s1 #) = decodeChar arr i
-                      in if f c0 c1 then go arr (i+s1) else i
+        | otherwise = let (# c1, s1 #) = decodeChar arr' i
+                      in if f c0 c1 then go arr' (i+s1) else i
 
 -- | /O(n)/ The 'stripPrefix' function takes two texts and returns 'Just'
 -- the remainder of the second iff the first is its prefix, and otherwise
@@ -490,15 +489,15 @@ padLeft n c t@(Text (V.PrimVector arr s l))
         let psiz = (n-tsiz)*csiz
             siz = psiz + l
         in Text (V.create siz (\ marr -> do
-            encodeChar marr 0 c
+            _ <- encodeChar marr 0 c
             go marr csiz psiz
             copyPrimArray marr (siz-l) arr s l))
   where
     tsiz = length t
     csiz = encodeCharLength c
-    go marr s psiz
-        | s >= psiz = return ()
-        | otherwise = copyChar' csiz marr s marr (s-csiz) >> go marr (s+csiz) psiz
+    go marr s' psiz
+        | s' >= psiz = return ()
+        | otherwise = copyChar' csiz marr s' marr (s'-csiz) >> go marr (s'+csiz) psiz
 
 -- | Add padding to the right so that the whole text's length is at least n.
 padRight :: Int -> Char -> Text -> Text
@@ -510,14 +509,14 @@ padRight n c t@(Text (V.PrimVector arr s l))
             siz = psiz + l
         in Text (V.create siz (\ marr -> do
             copyPrimArray marr 0 arr s l
-            encodeChar marr l c
+            _ <- encodeChar marr l c
             go marr (l+csiz) siz))
   where
     tsiz = length t
     csiz = encodeCharLength c
-    go marr s siz
-        | s >= siz = return ()
-        | otherwise = copyChar' csiz marr s marr (s-csiz) >> go marr (s+csiz) siz
+    go marr s' siz
+        | s' >= siz = return ()
+        | otherwise = copyChar' csiz marr s' marr (s'-csiz) >> go marr (s'+csiz) siz
 
 
 --------------------------------------------------------------------------------

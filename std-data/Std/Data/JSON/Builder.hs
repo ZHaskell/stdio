@@ -35,11 +35,7 @@ module Std.Data.JSON.Builder
 
 import           Control.Monad
 import           Control.Monad.ST.Unsafe  (unsafeIOToST)
-import           Data.Bits                (shiftL)
-import           Data.Functor
 import           Data.Primitive.PrimArray
-import           Data.Scientific          (Scientific)
-import           Data.Typeable
 import           Data.Word
 import           GHC.Prim                 (unsafeCoerce#)
 import qualified Std.Data.Builder              as B
@@ -47,7 +43,6 @@ import qualified Std.Data.Builder.Base         as B
 import qualified Std.Data.Text            as T
 import qualified Std.Data.Text.Base       as T
 import           Std.Data.Vector.Base     as V
-import           Std.Data.Vector.Extra    as V
 import           Std.Foreign.PrimArray
 import           Std.Data.JSON.Value      (Value(..))
 

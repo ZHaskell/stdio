@@ -13,7 +13,7 @@ Portability : non-portable
 
 This module implement some bit twiddling with ghc primitives.
 
-We currently didn't use all functions from this module though: the performance is not
+We currently didn't use functions from this module though: the performance is not
 catching up c version yet. But this module and relevant benchmarks are kept in hope
 that once we have fully SIMD support in GHC, we might optimize these functions further
 to compete with c.
@@ -168,7 +168,3 @@ memchrReverse# ba# c# s# siz# = beforeAlignedLoop# ba# c# s# (s# -# siz#)
 
 
 --------------------------------------------------------------------------------
-
--- HsInt hs_memchr(uint8_t *a, HsInt aoff, uint8_t b, HsInt n);
-foreign import ccall unsafe "hs_memchr" c_memchr ::
-    ByteArray# -> Int -> Word8 -> Int -> Int

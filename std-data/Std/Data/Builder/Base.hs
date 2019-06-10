@@ -195,9 +195,9 @@ charModifiedUTF8 chr = do
         k () (Buffer mba i'))
 
 packAddrModified :: Addr# -> Builder ()
-packAddrModified addr# = copy addr#
+packAddrModified addr0# = copy addr0#
   where
-    len = fromIntegral . unsafeDupablePerformIO $ V.c_strlen addr#
+    len = fromIntegral . unsafeDupablePerformIO $ V.c_strlen addr0#
     copy addr# = do
         ensureN len
         Builder (\ _  k (Buffer mba i) -> do
@@ -232,7 +232,7 @@ bytes bs@(V.PrimVector arr s l) = Builder (\ strategy k buffer@(Buffer buf offse
                         oneShotAction action 0 (\ buffer' -> action bs >> k () buffer') buffer
                     | otherwise -> action bs >> k () buffer)
   where
-    copy :: forall s a. AllocateStrategy s -> (() -> BuildStep s) -> BuildStep s
+    copy :: forall s. AllocateStrategy s -> (() -> BuildStep s) -> BuildStep s
     copy strategy k =
         runBuilder (ensureN l) strategy ( \ _ (Buffer buf offset) -> do
                 A.copyArr buf offset arr s l
@@ -250,26 +250,26 @@ ensureN !n = Builder $ \ strategy k buffer@(Buffer buf offset) -> do
     else handleBoundary strategy n k buffer
   where
     {-# NOINLINE handleBoundary #-} -- Don't inline this branchy code
-    handleBoundary DoubleBuffer n k buffer = doubleBuffer n (k ()) buffer
-    handleBoundary (InsertChunk chunkSiz) n k buffer = insertChunk chunkSiz n (k ()) buffer
-    handleBoundary (OneShotAction action) n k buffer = oneShotAction action n (k ()) buffer
+    handleBoundary DoubleBuffer n' k buffer = doubleBuffer n' (k ()) buffer
+    handleBoundary (InsertChunk chunkSiz) n' k buffer = insertChunk chunkSiz n' (k ()) buffer
+    handleBoundary (OneShotAction action) n' k buffer = oneShotAction action n' (k ()) buffer
 
 --------------------------------------------------------------------------------
 --
 -- Handle chunk boundary
 
 doubleBuffer :: Int -> BuildStep s -> BuildStep s
-doubleBuffer !wantSiz k buffer@(Buffer buf offset) = do
+doubleBuffer !wantSiz k (Buffer buf offset) = do
     !siz <- A.sizeofMutableArr buf
     let !siz' = max (offset + wantSiz `shiftL` 1)
                     (siz `shiftL` 1)
     buf' <- A.resizeMutableArr buf siz'   -- double the buffer
-    k (Buffer buf' offset)                 -- continue building
+    k (Buffer buf' offset)                -- continue building
 {-# INLINE doubleBuffer #-}
 
 insertChunk :: Int -> Int -> BuildStep s -> BuildStep s
 {-# INLINE insertChunk #-}
-insertChunk !chunkSiz !wantSiz k buffer@(Buffer buf offset) = do
+insertChunk !chunkSiz !wantSiz k (Buffer buf offset) = do
     !siz <- A.sizeofMutableArr buf
     case () of
         _
@@ -288,7 +288,7 @@ insertChunk !chunkSiz !wantSiz k buffer@(Buffer buf offset) = do
 
 oneShotAction :: (V.Bytes -> ST s ()) -> Int -> BuildStep s -> BuildStep s
 {-# INLINE oneShotAction #-}
-oneShotAction action !wantSiz k buffer@(Buffer buf offset) = do
+oneShotAction action !wantSiz k (Buffer buf offset) = do
     !siz <- A.sizeofMutableArr buf
     case () of
         _
@@ -453,9 +453,9 @@ stringUTF8 :: String -> Builder ()
 stringUTF8 = mapM_ charUTF8
 
 packASCIIAddr :: Addr# -> Builder ()
-packASCIIAddr addr# = copy addr#
+packASCIIAddr addr0# = copy addr0#
   where
-    len = fromIntegral . unsafeDupablePerformIO $ V.c_strlen addr#
+    len = fromIntegral . unsafeDupablePerformIO $ V.c_strlen addr0#
     copy addr# = do
         ensureN len
         Builder (\ _  k (Buffer mba i) -> do
@@ -463,10 +463,10 @@ packASCIIAddr addr# = copy addr#
            k () (Buffer mba (i + len)))
 
 packUTF8Addr :: Addr# -> Builder ()
-packUTF8Addr addr# = validateAndCopy addr#
+packUTF8Addr addr0# = validateAndCopy addr0#
   where
-    len = fromIntegral . unsafeDupablePerformIO $ V.c_strlen addr#
-    valid = unsafeDupablePerformIO $ T.c_utf8_validate_addr addr# len
+    len = fromIntegral . unsafeDupablePerformIO $ V.c_strlen addr0#
+    valid = unsafeDupablePerformIO $ T.c_utf8_validate_addr addr0# len
     validateAndCopy addr#
         | valid == 0 = mapM_ charUTF8 (unpackCString# addr#)
         | otherwise = do
@@ -614,4 +614,4 @@ intercalateList s f xs = go xs
   where
     go [] = pure ()
     go [x] = f x
-    go (x:xs) = f x >> s >> go xs
+    go (x:xs') = f x >> s >> go xs'

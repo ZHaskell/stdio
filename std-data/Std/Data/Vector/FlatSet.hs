@@ -42,19 +42,13 @@ import           Control.DeepSeq
 import           Control.Monad
 import           Control.Monad.ST
 import qualified Data.Primitive.SmallArray as A
-import qualified Data.Foldable             as Foldable
-import qualified Data.Traversable          as Traversable
 import qualified Data.Semigroup            as Semigroup
 import qualified Data.Monoid               as Monoid
 import qualified Std.Data.Vector.Base as V
 import qualified Std.Data.Vector.Sort as V
-import qualified Std.Data.Vector.Search as V
-import qualified Std.Data.Text as T
 import qualified Std.Data.TextBuilder      as T
-import           Data.Function              (on)
 import           Data.Bits                   (shiftR)
 import           Data.Data
-import           Data.Typeable
 import           Prelude hiding (elem, null)
 import           Test.QuickCheck.Arbitrary (Arbitrary(..), CoArbitrary(..))
 
@@ -101,27 +95,27 @@ map' :: forall v. Ord v => (v -> v) -> FlatSet v -> FlatSet v
 {-# INLINE map' #-}
 map' f (FlatSet vs) = packVector (V.map' f vs :: V.Vector v)
 
--- | /O(1)/ empty flat map.
+-- | /O(1)/ empty flat set.
 empty :: FlatSet v
 {-# INLINE empty #-}
 empty = FlatSet V.empty
 
--- | /O(N*logN)/ Pack list of key values, on key duplication prefer left one.
+-- | /O(N*logN)/ Pack list of values, on duplication prefer left one.
 pack :: Ord v => [v] -> FlatSet v
 {-# INLINE pack #-}
 pack vs = FlatSet (V.mergeDupAdjacentLeft (==) (V.mergeSort (V.pack vs)))
 
--- | /O(N*logN)/ Pack list of key values with suggested size, on key duplication prefer left one.
+-- | /O(N*logN)/ Pack list of values with suggested size, on duplication prefer left one.
 packN :: Ord v => Int -> [v] -> FlatSet v
 {-# INLINE packN #-}
 packN n vs = FlatSet (V.mergeDupAdjacentLeft (==) (V.mergeSort (V.packN n vs)))
 
--- | /O(N*logN)/ Pack list of key values, on key duplication prefer right one.
+-- | /O(N*logN)/ Pack list of values, on duplication prefer right one.
 packR :: Ord v => [v] -> FlatSet v
 {-# INLINE packR #-}
 packR vs = FlatSet (V.mergeDupAdjacentRight (==) (V.mergeSort (V.pack vs)))
 
--- | /O(N*logN)/ Pack list of key values with suggested size, on key duplication prefer right one.
+-- | /O(N*logN)/ Pack list of values with suggested size, on duplication prefer right one.
 packRN :: Ord v => Int -> [v] -> FlatSet v
 {-# INLINE packRN #-}
 packRN n vs = FlatSet (V.mergeDupAdjacentRight (==) (V.mergeSort (V.packN n vs)))
@@ -140,23 +134,23 @@ unpackR :: FlatSet v -> [v]
 {-# INLINE unpackR #-}
 unpackR = V.unpackR . sortedValues
 
--- | /O(N*logN)/ Pack vector of key values, on key duplication prefer left one.
+-- | /O(N*logN)/ Pack vector of values, on duplication prefer left one.
 packVector :: Ord v => V.Vector v -> FlatSet v
 {-# INLINE packVector #-}
 packVector vs = FlatSet (V.mergeDupAdjacentLeft (==) (V.mergeSort vs))
 
--- | /O(N*logN)/ Pack vector of key values, on key duplication prefer right one.
+-- | /O(N*logN)/ Pack vector of values, on duplication prefer right one.
 packVectorR :: Ord v => V.Vector v -> FlatSet v
 {-# INLINE packVectorR #-}
 packVectorR vs = FlatSet (V.mergeDupAdjacentRight (==) (V.mergeSort vs))
 
--- | /O(logN)/ Binary search on flat map.
+-- | /O(logN)/ Binary search on flat set.
 elem :: Ord v => v -> FlatSet v -> Bool
-{-# INLINABLE elem #-}
-elem _ (FlatSet (V.Vector arr s 0)) = False
+{-# INLINE elem #-}
 elem v (FlatSet vec) = case binarySearch vec v of Left _ -> False
                                                   _      -> True
--- | /O(N)/ Insert new key value into map, replace old one if key exists.
+
+-- | /O(N)/ Insert new value into set.
 insert :: Ord v => v -> FlatSet v -> FlatSet v
 {-# INLINE insert #-}
 insert v m@(FlatSet vec@(V.Vector arr s l)) =
@@ -165,14 +159,14 @@ insert v m@(FlatSet vec@(V.Vector arr s l)) =
             when (i>s) $ A.copySmallArray marr 0 arr s (i-s)
             A.writeSmallArray marr i v
             when (i<(s+l)) $ A.copySmallArray marr (i+1) arr i (s+l-i)))
-        Right i -> m
+        Right _ -> m
 
--- | /O(N)/ Delete a key value pair by key.
+-- | /O(N)/ Delete a value from set.
 delete :: Ord v => v -> FlatSet v -> FlatSet v
 {-# INLINE delete #-}
 delete v m@(FlatSet vec@(V.Vector arr s l)) =
     case binarySearch vec v of
-        Left i -> m
+        Left _ -> m
         Right i -> FlatSet $ V.create (l-1) (\ marr -> do
             when (i>s) $ A.copySmallArray marr 0 arr s (i-s)
             let !end = s+l
@@ -209,14 +203,14 @@ merge fmL@(FlatSet (V.Vector arrL sL lL)) fmR@(FlatSet (V.Vector arrR sR lR))
 
 --------------------------------------------------------------------------------
 
--- | Find the key's index in the vector slice, if key exists return 'Right',
+-- | Find the value's index in the vector slice, if value exists return 'Right',
 -- otherwise 'Left', i.e. the insert index
 --
 -- This function only works on ascending sorted vectors.
 binarySearch :: Ord v => V.Vector v -> v -> Either Int Int
 {-# INLINABLE binarySearch #-}
-binarySearch (V.Vector arr s 0) _   = Left 0
-binarySearch (V.Vector arr s l) !v' = go s (s+l-1)
+binarySearch (V.Vector _ _ 0) _   = Left 0
+binarySearch (V.Vector arr s0 l) !v' = go s0 (s0+l-1)
   where
     go !s !e
         | s == e =
