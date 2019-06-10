@@ -48,6 +48,8 @@ module Std.Data.CBytes
   , toBytes, fromBytes, fromText
   , fromCStringMaybe, fromCString, fromCStringN
   , withCBytes
+  -- * exception
+  , NullPointerException(..)
   ) where
 
 import           Control.DeepSeq
