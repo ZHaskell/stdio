@@ -81,7 +81,6 @@ import           Prelude                       hiding (concat, concatMap,
                                                 break, span, reverse,
                                                 words, lines, unwords, unlines)
 import qualified Data.List                     as List
-import           Data.Bits
 import           Control.Exception             (assert)
 
 --------------------------------------------------------------------------------
@@ -228,7 +227,7 @@ splitAt z (Vec arr s l) = let !v1 = fromArr arr s z'
 -- satisfy @p@.
 takeWhile :: Vec v a => (a -> Bool) -> v a -> v a
 {-# INLINE takeWhile #-}
-takeWhile f v@(Vec arr s l) =
+takeWhile f v@(Vec arr s _) =
     case findIndex (not . f) v of
         0  -> empty
         i  -> Vec arr s i
@@ -256,7 +255,7 @@ dropWhile f v@(Vec arr s l) =
 -- returns the prefix (possibly empty) remaining before 'takeWhileR' @p vs@.
 dropWhileR :: Vec v a => (a -> Bool) -> v a -> v a
 {-# INLINE dropWhileR #-}
-dropWhileR f v@(Vec arr s l) =
+dropWhileR f v@(Vec arr s _) =
     case findIndexR (not . f) v of
         -1 -> empty
         i  -> Vec arr s (i+1)
@@ -510,17 +509,7 @@ unwords = intercalateElem 32
 -- | /O(n)/ Joins lines with ascii @\n@.
 unlines :: [Bytes] -> Bytes
 {-# INLINE unlines #-}
-unlines [] = empty
-unlines vs = create (len vs 0) (copy 0 vs)
-  where
-    len []             !acc = acc
-    len (Vec _ _ l:vs) !acc = len vs (acc+l+1)
-    copy !i []               !marr = return ()
-    copy !i (Vec arr s l:vs) !marr = do
-        let !i' = i + l
-        copyArr marr i arr s l
-        writeArr marr i' 10
-        copy (i'+1) vs marr
+unlines = intercalateElem 10
 
 -- | Add padding to the left so that the whole vector's length is at least n.
 padLeft :: Vec v a => Int -> a -> v a -> v a
@@ -566,9 +555,8 @@ reverse (Vec arr s l) = create l (go s (l-1))
 --
 intersperse :: forall v a. Vec v a => a -> v a -> v a
 {-# INLINE intersperse #-}
-intersperse x   (Vec _ _ 0)  = empty
-intersperse x v@(Vec _ _ 1)  = v
-intersperse x   (Vec arr s l) = create (2*l-1) (go s 0)
+intersperse x v@(Vec arr s l) | l <= 1 = v
+                              | otherwise = create (2*l-1) (go s 0)
    where
     !end = s+l-1
     go :: Int         -- the reading index of orginal bytes
@@ -608,18 +596,18 @@ intercalateElem :: Vec v a => a -> [v a] -> v a
 {-# INLINE intercalateElem #-}
 intercalateElem _ [] = empty
 intercalateElem _ [v] = v
-intercalateElem w vs = create (len vs 0) (copy 0 vs)
+intercalateElem w vs = create (len vs 0) (go 0 vs)
   where
     len []             !acc = acc
     len [Vec _ _ l]    !acc = l + acc
-    len (Vec _ _ l:vs) !acc = len vs (acc+l+1)
-    copy !i []               !marr = return ()
-    copy !i (Vec arr s l:[]) !marr = copyArr marr i arr s l
-    copy !i (Vec arr s l:vs) !marr = do
+    len (Vec _ _ l:vs') !acc = len vs' (acc+l+1)
+    go !_ []               !_    = return ()
+    go !i (Vec arr s l:[]) !marr = copyArr marr i arr s l
+    go !i (Vec arr s l:vs') !marr = do
         let !i' = i + l
         copyArr marr i arr s l
         writeArr marr i' w
-        copy (i'+1) vs marr
+        go (i'+1) vs' marr
 
 -- | The 'transpose' function transposes the rows and columns of its
 -- vector argument.
@@ -734,9 +722,9 @@ scanr1' f (Vec arr s l)
 -- | @x' = rangeCut x min max@ limit @x'@ 's range to @min@ ~ @max@.
 rangeCut :: Int -> Int -> Int -> Int
 {-# INLINE rangeCut #-}
-rangeCut !r !min !max | r < min = min
-                      | r > max = max
-                      | otherwise = r
+rangeCut !r !min' !max' | r < min' = min'
+                        | r > max' = max'
+                        | otherwise = r
 
 isASCIISpace :: Word8 -> Bool
 {-# INLINE isASCIISpace #-}
@@ -829,14 +817,14 @@ unsafeLast (Vec arr s l) = assert (l > 0) (indexArr arr (s+l-1))
 -- Make sure index is in bound, otherwise segmentation fault await!
 unsafeIndex :: Vec v a => v a -> Int -> a
 {-# INLINE unsafeIndex #-}
-unsafeIndex (Vec arr s l) i = indexArr arr (s + i)
+unsafeIndex (Vec arr s _) i = indexArr arr (s + i)
 
 -- | /O(1)/ Index array element.
 --
 -- Make sure index is in bound, otherwise segmentation fault await!
 unsafeIndexM :: (Vec v a, Monad m) => v a -> Int -> m a
 {-# INLINE unsafeIndexM #-}
-unsafeIndexM (Vec arr s l) i = indexArrM arr (s + i)
+unsafeIndexM (Vec arr s _) i = indexArrM arr (s + i)
 
 -- | /O(1)/ 'take' @n@, applied to a vector @xs@, returns the prefix
 -- of @xs@ of length @n@.

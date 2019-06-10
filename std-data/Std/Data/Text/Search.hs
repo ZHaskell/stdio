@@ -30,7 +30,7 @@ module Std.Data.Text.Search (
 
 import           Control.Monad.ST
 import           Data.Word
-import           Prelude                 hiding (elem, notElem, filter, partition)
+import           Prelude                 hiding (elem, notElem, filter)
 import           Std.Data.Array
 import           Std.Data.Text.Base
 import           Std.Data.Text.UTF8Codec

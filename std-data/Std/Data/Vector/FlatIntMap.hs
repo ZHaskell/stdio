@@ -50,12 +50,10 @@ import qualified Data.Monoid               as Monoid
 import qualified Data.Primitive.SmallArray as A
 import qualified Std.Data.Vector.Base      as V
 import qualified Std.Data.Vector.Sort      as V
-import qualified Std.Data.Text             as T
 import qualified Std.Data.TextBuilder      as T
 import           Data.Function              (on)
 import           Data.Bits                   (shiftR)
 import           Data.Data
-import           Data.Typeable
 import           Prelude hiding (lookup, null)
 import           Test.QuickCheck.Arbitrary (Arbitrary(..), CoArbitrary(..))
 
@@ -103,9 +101,9 @@ instance Foldable.Foldable FlatIntMap where
     {-# INLINE foldr #-}
     foldr f = foldrWithKey (const f)
     {-# INLINE foldl' #-}
-    foldl' f = foldlWithKey' (\ a k v -> f a v)
+    foldl' f = foldlWithKey' (\ a _ v -> f a v)
     {-# INLINE foldl #-}
-    foldl f = foldlWithKey (\ a k v -> f a v)
+    foldl f = foldlWithKey (\ a _ v -> f a v)
     {-# INLINE toList #-}
     toList = fmap V.isnd . unpack
     {-# INLINE null #-}
@@ -187,8 +185,8 @@ packVectorR kvs = FlatIntMap (V.mergeDupAdjacentRight ((==) `on` V.ifst) (V.merg
 -- | /O(logN)/ Binary search on flat map.
 lookup :: Int -> FlatIntMap v -> Maybe v
 {-# INLINABLE lookup #-}
-lookup _  (FlatIntMap (V.Vector arr s 0)) = Nothing
-lookup k' (FlatIntMap (V.Vector arr s l)) = go s (s+l-1)
+lookup _ (FlatIntMap (V.Vector _ _ 0)) = Nothing
+lookup k' (FlatIntMap (V.Vector arr s0 l)) = go s0 (s0+l-1)
   where
     go !s !e
         | s == e =
@@ -222,7 +220,7 @@ delete :: Int -> FlatIntMap v -> FlatIntMap v
 {-# INLINE delete #-}
 delete k m@(FlatIntMap vec@(V.Vector arr s l)) =
     case binarySearch vec k of
-        Left i -> m
+        Left _  -> m
         Right i -> FlatIntMap $ V.create (l-1) (\ marr -> do
             when (i>s) $ A.copySmallArray marr 0 arr s (i-s)
             let !end = s+l
@@ -236,7 +234,7 @@ adjust' :: (v -> v) -> Int -> FlatIntMap v -> FlatIntMap v
 {-# INLINE adjust' #-}
 adjust' f k m@(FlatIntMap vec@(V.Vector arr s l)) =
     case binarySearch vec k of
-        Left i -> m
+        Left _  -> m
         Right i -> FlatIntMap $ V.create l (\ marr -> do
             A.copySmallArray marr 0 arr s l
             let !v' = f (V.isnd (A.indexSmallArray arr i))
@@ -261,8 +259,8 @@ merge fmL@(FlatIntMap (V.Vector arrL sL lL)) fmR@(FlatIntMap (V.Vector arrR sR l
             A.copySmallArray marr k arrL i (lL-i)
             return $! k+lL-i
         | otherwise = do
-            kvL@(V.IPair kL vL) <- arrL `A.indexSmallArrayM` i
-            kvR@(V.IPair kR vR) <- arrR `A.indexSmallArrayM` j
+            kvL@(V.IPair kL _) <- arrL `A.indexSmallArrayM` i
+            kvR@(V.IPair kR _) <- arrR `A.indexSmallArrayM` j
             case kL `compare` kR of LT -> do A.writeSmallArray marr k kvL
                                              go (i+1) j (k+1) marr
                                     EQ -> do A.writeSmallArray marr k kvR
@@ -306,7 +304,7 @@ mergeWithKey' f fmL@(FlatIntMap (V.Vector arrL sL lL)) fmR@(FlatIntMap (V.Vector
 -- During folding k is in descending order.
 foldrWithKey :: (Int -> v -> a -> a) -> a -> FlatIntMap v -> a
 {-# INLINE foldrWithKey #-}
-foldrWithKey f a (FlatIntMap vs) = foldr (\ (V.IPair k v) a -> f k v a) a vs
+foldrWithKey f a (FlatIntMap vs) = foldr (\ (V.IPair k v) a' -> f k v a') a vs
 
 -- | /O(n)/ Reduce this map by applying a binary operator to all
 -- elements, using the given starting value (typically the
@@ -351,19 +349,19 @@ traverseWithKey f (FlatIntMap vs) = FlatIntMap <$> traverse (\ (V.IPair k v) -> 
 -- This function only works on ascending sorted vectors.
 binarySearch :: V.Vector (V.IPair v) -> Int -> Either Int Int
 {-# INLINABLE binarySearch #-}
-binarySearch (V.Vector arr s 0) _   = Left 0
-binarySearch (V.Vector arr s l) !k' = go s (s+l-1)
+binarySearch (V.Vector _ _ 0) _   = Left 0
+binarySearch (V.Vector arr s0 l) !k' = go s0 (s0+l-1)
   where
     go !s !e
         | s == e =
-            let V.IPair k v  = arr `A.indexSmallArray` s
+            let V.IPair k _  = arr `A.indexSmallArray` s
             in case k' `compare` k of LT -> Left s
                                       GT -> let !s' = s+1 in Left s'
                                       _  -> Right s
         | s >  e = Left s
         | otherwise =
             let !mid = (s+e) `shiftR` 1
-                (V.IPair k v)  = arr `A.indexSmallArray` mid
+                (V.IPair k _)  = arr `A.indexSmallArray` mid
             in case k' `compare` k of LT -> go s (mid-1)
                                       GT -> go (mid+1) e
                                       _  -> Right mid

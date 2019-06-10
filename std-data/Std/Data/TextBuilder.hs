@@ -77,10 +77,9 @@ import           Data.Functor.Product
 import           Data.Functor.Sum
 import           Data.Int
 import           Data.List.NonEmpty           (NonEmpty (..))
-import qualified Data.List.NonEmpty           as NonEmpty
 import qualified Data.Monoid                  as Monoid
 import           Data.Proxy                   (Proxy (..))
-import           Data.Ratio                   (Ratio, (%), numerator, denominator)
+import           Data.Ratio                   (Ratio, numerator, denominator)
 import           Data.Tagged                  (Tagged (..))
 import           Data.Word
 import qualified Data.Semigroup               as Semigroup
@@ -90,10 +89,8 @@ import           GHC.Generics
 import           Data.Version
 import           Data.Primitive.Types
 import qualified Std.Data.Builder         as B
-import qualified Std.Data.Builder.Numeric as B
 import qualified Std.Data.Text.Base       as T
 import           Std.Data.Text.Base       (Text(..))
-import           Std.Data.Generics.Utils
 import qualified Std.Data.Vector.Base     as V
 import           Text.Read                (Read(..))
 import           Test.QuickCheck.Arbitrary (Arbitrary(..), CoArbitrary(..))

@@ -46,9 +46,8 @@ module Std.Data.Vector.Search (
 import           Control.Monad.ST
 import           Data.Bits
 import           GHC.Word
-import           Prelude                       hiding (filter, partition)
+import           Prelude                       hiding (filter)
 import           Std.Data.Array
-import           Std.Data.PrimArray.BitTwiddle (c_memchr, memchrReverse)
 import           Std.Data.Vector.Base
 
 --------------------------------------------------------------------------------
@@ -146,8 +145,8 @@ findR f (Vec arr s l) = go (s+l-1)
 -- | /O(n)/ Special 'findR' for 'Bytes' with handle roll bit twiddling.
 findByteR :: Word8 -> Bytes -> (Int, Maybe Word8)
 {-# INLINE findByteR #-}
-findByteR w (PrimVector ba s l) =
-    case memchrReverse ba w (s+l-1) l of
+findByteR w (PrimVector (PrimArray ba#) s l) =
+    case c_memrchr ba# s w l of
         -1 -> (-1, Nothing)
         r  -> (r, Just w)
 
@@ -156,9 +155,9 @@ findByteR w (PrimVector ba s l) =
 -- predicate.
 filter :: forall v a. Vec v a => (a -> Bool) -> v a -> v a
 {-# INLINE filter #-}
-filter f (Vec arr s l)
+filter g (Vec arr s l)
     | l == 0    = empty
-    | otherwise = createN l (go f 0 s)
+    | otherwise = createN l (go g 0 s)
   where
     !end = s + l
     go :: (a -> Bool) -> Int -> Int -> MArray v s a -> ST s Int
@@ -175,9 +174,9 @@ filter f (Vec arr s l)
 -- > partition p vs == (filter p vs, filter (not . p) vs)
 partition :: forall v a. Vec v a => (a -> Bool) -> v a -> (v a, v a)
 {-# INLINE partition #-}
-partition f (Vec arr s l)
+partition g (Vec arr s l)
     | l == 0    = (empty, empty)
-    | otherwise = createN2 l l (go f 0 0 s)
+    | otherwise = createN2 l l (go g 0 0 s)
   where
     !end = s + l
     go :: (a -> Bool) -> Int -> Int -> Int -> MArray v s a -> MArray v s a -> ST s (Int, Int)

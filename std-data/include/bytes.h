@@ -33,5 +33,6 @@
 #include <Rts.h>
 
 HsInt hs_memchr(uint8_t *a, HsInt aoff, uint8_t b, HsInt n);
+HsInt hs_memrchr(uint8_t *a, HsInt aoff, uint8_t c, HsInt n);
 HsInt hs_fnv_hash_addr(const unsigned char* str, HsInt len, HsInt salt);
 HsInt hs_fnv_hash(const unsigned char* str, HsInt offset, HsInt len, HsInt salt);

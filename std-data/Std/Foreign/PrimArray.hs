@@ -87,8 +87,6 @@ module Std.Foreign.PrimArray
 
 import           Control.Monad.Primitive
 import           Data.Primitive
-import           Data.Primitive.ByteArray
-import           Data.Primitive.PrimArray
 import           Data.Primitive.Ptr
 import           Data.Word
 import           Foreign.C.Types
@@ -253,7 +251,7 @@ withMutableByteArraySafe siz f = do
 -- Don't pass a forever loop to this function, see <https://ghc.haskell.org/trac/ghc/ticket/14346 #14346>.
 withPrimVectorSafe :: forall a b. (Prim a) => PrimVector a -> (Ptr a -> Int -> IO b) -> IO b
 {-# INLINABLE withPrimVectorSafe #-}
-withPrimVectorSafe v@(PrimVector arr s l) f
+withPrimVectorSafe (PrimVector arr s l) f
     | isPrimArrayPinned arr =
         withPrimArrayContents arr $ \ ptr ->
             let ptr' = ptr `plusPtr` (s * siz) in f ptr' l

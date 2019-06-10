@@ -482,7 +482,7 @@ instance UnalignedAccess (BE Int16) where
         in (# s1, BE (I16# (narrow16Int# (word2Int# x#))) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# =
-        let BE (W16# x#) = indexWord8ArrayAs ba# i#
+        let !(BE (W16# x#)) = indexWord8ArrayAs ba# i#
         in BE (I16# (narrow16Int# (word2Int# x#)))
 #endif
 
@@ -533,7 +533,7 @@ instance UnalignedAccess (BE Int32) where
         in (# s1, BE (I32# (narrow32Int# (word2Int# x#))) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# =
-        let BE (W32# x#) = indexWord8ArrayAs ba# i#
+        let !(BE (W32# x#)) = indexWord8ArrayAs ba# i#
         in BE (I32# (narrow32Int# (word2Int# x#)))
 #endif
 
@@ -584,7 +584,7 @@ instance UnalignedAccess (BE Int64) where
         in (# s1, BE (I64# (word2Int# x#)) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# =
-        let BE (W64# x#) = indexWord8ArrayAs ba# i#
+        let !(BE (W64# x#)) = indexWord8ArrayAs ba# i#
         in BE (I64# (word2Int# x#))
 #endif
 
@@ -699,7 +699,7 @@ instance UnalignedAccess (BE Float) where
         in (# s1, BE (F# (stgWord32ToFloat x#)) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# =
-        let BE (W32# x#) = indexWord8ArrayAs ba# i#
+        let !(BE (W32# x#)) = indexWord8ArrayAs ba# i#
         in BE (F# (stgWord32ToFloat x#))
 #endif
 
@@ -750,7 +750,7 @@ instance UnalignedAccess (BE Double) where
         in (# s1, BE (D# (stgWord64ToDouble x#)) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# =
-        let BE (W64# x#) = indexWord8ArrayAs ba# i#
+        let !(BE (W64# x#)) = indexWord8ArrayAs ba# i#
         in BE (D# (stgWord64ToDouble x#))
 #endif
 
@@ -801,7 +801,7 @@ instance UnalignedAccess (BE Char) where
         in (# s1, BE (C# (chr# x#)) #)
     {-# INLINE indexWord8ArrayAs #-}
     indexWord8ArrayAs ba# i# =
-        let BE (I32# x#) = indexWord8ArrayAs ba# i#
+        let !(BE (I32# x#)) = indexWord8ArrayAs ba# i#
         in BE (C# (chr# x#))
 #endif
 

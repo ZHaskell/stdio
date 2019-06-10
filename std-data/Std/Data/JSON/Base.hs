@@ -89,14 +89,11 @@ import           Data.Scientific              (Scientific, base10Exponent, toBou
 import qualified Data.Scientific              as Scientific
 import qualified Data.Semigroup               as Semigroup
 import           Data.Tagged                  (Tagged (..))
-import           Data.Typeable
 import           Data.Version                 (Version, parseVersion)
-import           Data.Word
 import           Data.Word
 import           GHC.Exts                     (Proxy#, proxy#)
 import           GHC.Generics
 import           GHC.Natural
-import           GHC.TypeNats
 import qualified Std.Data.Builder             as B
 import           Std.Data.Generics.Utils
 import           Std.Data.JSON.Value          (Value(..))
@@ -318,7 +315,7 @@ fromNull c _ v    = typeMismatch c "Null" v
 withBool :: T.Text -> (Bool -> Converter a) -> Value ->  Converter a
 {-# INLINE withBool #-}
 withBool _    f (Bool x)  = f x
-withBool name f v         = typeMismatch name "Bool" v
+withBool name _ v         = typeMismatch name "Bool" v
 
 -- | @'withScientific' name f value@ applies @f@ to the 'Scientific' number
 -- when @value@ is a 'Data.Aeson.Number' and fails using 'typeMismatch'
@@ -336,7 +333,7 @@ withBool name f v         = typeMismatch name "Bool" v
 withScientific :: T.Text -> (Scientific -> Converter a) -> Value ->  Converter a
 {-# INLINE withScientific #-}
 withScientific _    f (Number x)  = f x
-withScientific name f v           = typeMismatch name "Number" v
+withScientific name _ v           = typeMismatch name "Number" v
 
 -- | @'withRealFloat' try to convert floating number with following rules:
 --
@@ -347,7 +344,7 @@ withRealFloat :: RealFloat a => T.Text -> (a -> Converter r) -> Value -> Convert
 {-# INLINE withRealFloat #-}
 withRealFloat _    f (Number s) = f (Scientific.toRealFloat s)
 withRealFloat _    f Null       = f (0/0)
-withRealFloat name f v          = typeMismatch name "Number or Null" v
+withRealFloat name _ v          = typeMismatch name "Number or Null" v
 
 -- | @'withBoundedScientific' name f value@ applies @f@ to the 'Scientific' number
 -- when @value@ is a 'Number' with exponent less than or equal to 1024.
@@ -362,7 +359,7 @@ withBoundedScientific name f (Number x)
         TB.int e
         ", but it must not be greater than 1024"
   where e = base10Exponent x
-withBoundedScientific name f v = typeMismatch name "Number" v
+withBoundedScientific name _ v = typeMismatch name "Number" v
 
 -- | @'withBoundedScientific' name f value@ applies @f@ to the 'Scientific' number
 -- when @value@ is a 'Number' and value is within @minBound ~ maxBound@.
@@ -376,54 +373,54 @@ withBoundedIntegral name f (Number x) =
             TB.text name
             "failed, value is either floating or will cause over or underflow "
             TB.scientific x
-withBoundedIntegral name f v = typeMismatch name "Number" v
+withBoundedIntegral name _ v = typeMismatch name "Number" v
 
 withText :: T.Text -> (T.Text -> Converter a) -> Value -> Converter a
 {-# INLINE withText #-}
 withText _    f (String x)  = f x
-withText name f v           = typeMismatch name "String" v
+withText name _ v           = typeMismatch name "String" v
 
 withArray :: T.Text -> (V.Vector Value -> Converter a) -> Value -> Converter a
 {-# INLINE withArray #-}
 withArray _ f (Array arr)  = f arr
-withArray name f v         = typeMismatch name "Array" v
+withArray name _ v         = typeMismatch name "Array" v
 
 -- | Directly use 'Object' as key-values for further converting.
 withKeyValues :: T.Text -> (V.Vector (T.Text, Value) -> Converter a) -> Value -> Converter a
 {-# INLINE withKeyValues #-}
 withKeyValues _    f (Object kvs) = f kvs
-withKeyValues name f v            = typeMismatch name "Object" v
+withKeyValues name _ v            = typeMismatch name "Object" v
 
 -- | Take a 'Object' as an 'FM.FlatMap T.Text Value', on key duplication prefer first one.
 withFlatMap :: T.Text -> (FM.FlatMap T.Text Value -> Converter a) -> Value -> Converter a
 {-# INLINE withFlatMap #-}
 withFlatMap _    f (Object obj) = f (FM.packVector obj)
-withFlatMap name f v            = typeMismatch name "Object" v
+withFlatMap name _ v            = typeMismatch name "Object" v
 
 -- | Take a 'Object' as an 'FM.FlatMap T.Text Value', on key duplication prefer last one.
 withFlatMapR :: T.Text -> (FM.FlatMap T.Text Value -> Converter a) -> Value -> Converter a
 {-# INLINE withFlatMapR #-}
 withFlatMapR _    f (Object obj) = f (FM.packVectorR obj)
-withFlatMapR name f v            = typeMismatch name "Object" v
+withFlatMapR name _ v            = typeMismatch name "Object" v
 
 -- | Take a 'Object' as an 'HM.HashMap T.Text Value', on key duplication prefer first one.
 withHashMap :: T.Text -> (HM.HashMap T.Text Value -> Converter a) -> Value -> Converter a
 {-# INLINE withHashMap #-}
 withHashMap _    f (Object obj) = f (HM.fromList (V.unpackR obj))
-withHashMap name f v            = typeMismatch name "Object" v
+withHashMap name _ v            = typeMismatch name "Object" v
 
 -- | Take a 'Object' as an 'HM.HashMap T.Text Value', on key duplication prefer last one.
 withHashMapR :: T.Text -> (HM.HashMap T.Text Value -> Converter a) -> Value -> Converter a
 {-# INLINE withHashMapR #-}
 withHashMapR _    f (Object obj) = f (HM.fromList (V.unpack obj))
-withHashMapR name f v            = typeMismatch name "Object" v
+withHashMapR name _ v            = typeMismatch name "Object" v
 
 -- | Decode a nested JSON-encoded string.
 withEmbeddedJSON :: T.Text                  -- ^ data type name
                  -> (Value -> Converter a)     -- ^ a inner converter which will get the converted 'Value'.
                  -> Value -> Converter a       -- a converter take a JSON String
 {-# INLINE withEmbeddedJSON #-}
-withEmbeddedJSON name innerConverter (String txt) = Converter (\ kf k ->
+withEmbeddedJSON _ innerConverter (String txt) = Converter (\ kf k ->
         case decode' (T.getUTF8Bytes txt) of
             Right v -> runConverter (innerConverter v) (\ paths msg -> kf (Embedded:paths) msg) k
             Left (Left pErr) -> kf [] (T.intercalate ", " ("parsing embeded JSON failed ": pErr))
@@ -562,7 +559,7 @@ instance GToValue f => GToValue (S1 (MetaSel Nothing u ss ds) f) where
 
 instance ToValue a => GToValue (K1 i a) where
     {-# INLINE gToValue #-}
-    gToValue s (K1 x) = toValue x
+    gToValue _ (K1 x) = toValue x
 
 class GMergeFields f where
     gMergeFields :: Proxy# f -> A.SmallMutableArray s (Field f) -> ST s Value
@@ -645,10 +642,6 @@ class EncodeJSON a where
     default encodeJSON :: (Generic a, GEncodeJSON (Rep a)) => a -> B.Builder ()
     encodeJSON = gEncodeJSON defaultSettings . from
 
-encodeJSONText :: EncodeJSON a => a -> TB.TextBuilder ()
-{-# INLINE encodeJSONText #-}
-encodeJSONText = TB.unsafeFromBuilder . encodeJSON
-
 class GEncodeJSON f where
     gEncodeJSON :: Settings -> f a -> B.Builder ()
 
@@ -669,7 +662,7 @@ instance (GEncodeJSON a, GEncodeJSON b) => GEncodeJSON (a :*: b) where
 
 instance EncodeJSON a => GEncodeJSON (K1 i a) where
     {-# INLINE gEncodeJSON #-}
-    gEncodeJSON s (K1 x) = encodeJSON x
+    gEncodeJSON _ (K1 x) = encodeJSON x
 
 class GAddPunctuation (f :: * -> *) where
     gAddPunctuation :: Proxy# f -> B.Builder () -> B.Builder ()
@@ -792,7 +785,7 @@ instance (GFromValue f, Selector (MetaSel (Just l) u ss ds)) => GFromValue (S1 (
 
 instance FromValue a => GFromValue (K1 i a) where
     {-# INLINE gFromValue #-}
-    gFromValue s x = K1 <$> fromValue x
+    gFromValue _ x = K1 <$> fromValue x
 
 class GBuildLookup f where
     gBuildLookup :: Proxy# f -> Int -> T.Text -> Value -> Converter (LookupTable f)
@@ -936,9 +929,9 @@ instance EncodeJSON a => EncodeJSON (FM.FlatMap T.Text a) where
 
 instance (Ord a, FromValue a) => FromValue (FS.FlatSet a) where
     {-# INLINE fromValue #-}
-    fromValue = withArray "Std.Data.Vector.FlatSet.FlatSet" $ \ v ->
-        FS.packRN (V.length v) <$>
-            (zipWithM (\ k v -> fromValue v <?> Index k) [0..] (V.unpack v))
+    fromValue = withArray "Std.Data.Vector.FlatSet.FlatSet" $ \ vs ->
+        FS.packRN (V.length vs) <$>
+            (zipWithM (\ k v -> fromValue v <?> Index k) [0..] (V.unpack vs))
 instance ToValue a => ToValue (FS.FlatSet a) where
     {-# INLINE toValue #-}
     toValue = Array . V.map' toValue . FS.sortedValues
@@ -983,8 +976,8 @@ instance EncodeJSON a => EncodeJSON (FIM.FlatIntMap a) where
 
 instance FromValue FIS.FlatIntSet where
     {-# INLINE fromValue #-}
-    fromValue = withArray "Std.Data.Vector.FlatIntSet.FlatIntSet" $ \ v ->
-        FIS.packRN (V.length v) <$> zipWithM (\ k v -> fromValue v <?> Index k) [0..] (V.unpack v)
+    fromValue = withArray "Std.Data.Vector.FlatIntSet.FlatIntSet" $ \ vs ->
+        FIS.packRN (V.length vs) <$> zipWithM (\ k v -> fromValue v <?> Index k) [0..] (V.unpack vs)
 instance ToValue FIS.FlatIntSet where
     {-# INLINE toValue #-}
     toValue = toValue . FIS.sortedValues
@@ -1016,9 +1009,9 @@ instance (Prim a, EncodeJSON a) => EncodeJSON (V.PrimVector a) where
 
 instance (Eq a, Hashable a, FromValue a) => FromValue (HS.HashSet a) where
     {-# INLINE fromValue #-}
-    fromValue = withArray "Std.Data.Vector.FlatSet.FlatSet" $ \ v ->
+    fromValue = withArray "Std.Data.Vector.FlatSet.FlatSet" $ \ vs ->
         HS.fromList <$>
-            (zipWithM (\ k v -> fromValue v <?> Index k) [0..] (V.unpack v))
+            (zipWithM (\ k v -> fromValue v <?> Index k) [0..] (V.unpack vs))
 instance (ToValue a) => ToValue (HS.HashSet a) where
     {-# INLINE toValue #-}
     toValue = toValue . HS.toList
@@ -1028,8 +1021,8 @@ instance (EncodeJSON a) => EncodeJSON (HS.HashSet a) where
 
 instance FromValue a => FromValue [a] where
     {-# INLINE fromValue #-}
-    fromValue = withArray "[a]" $ \ v ->
-        zipWithM (\ k v -> fromValue v <?> Index k) [0..] (V.unpack v)
+    fromValue = withArray "[a]" $ \ vs ->
+        zipWithM (\ k v -> fromValue v <?> Index k) [0..] (V.unpack vs)
 instance ToValue a => ToValue [a] where
     {-# INLINE toValue #-}
     toValue = Array . V.pack . map toValue
@@ -1039,8 +1032,8 @@ instance EncodeJSON a => EncodeJSON [a] where
 
 instance FromValue a => FromValue (NonEmpty a) where
     {-# INLINE fromValue #-}
-    fromValue = withArray "NonEmpty" $ \ v -> do
-        l <- zipWithM (\ k v -> fromValue v <?> Index k) [0..] (V.unpack v)
+    fromValue = withArray "NonEmpty" $ \ vs -> do
+        l <- zipWithM (\ k v -> fromValue v <?> Index k) [0..] (V.unpack vs)
         case l of (x:xs) -> pure (x :| xs)
                   _      -> fail' "unexpected empty array"
 instance (ToValue a) => ToValue (NonEmpty a) where
@@ -1224,11 +1217,11 @@ instance EncodeJSON a => EncodeJSON (Maybe a) where
 instance (FromValue a, Integral a) => FromValue (Ratio a) where
     {-# INLINE fromValue #-}
     fromValue = withFlatMapR "Rational" $ \obj -> do
-        numerator <- obj .: "numerator"
-        denominator <- obj .: "denominator"
-        if denominator == 0
+        n <- obj .: "numerator"
+        d <- obj .: "denominator"
+        if d == 0
         then fail' "Ratio denominator was 0"
-        else pure (numerator % denominator)
+        else pure (n % d)
 instance (ToValue a, Integral a) => ToValue (Ratio a) where
     {-# INLINE toValue #-}
     toValue x = Object (V.pack [("numerator", n), ("denominator", d)])

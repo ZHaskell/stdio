@@ -4,7 +4,7 @@ synopsis:                   High performance data and text for Haskell.
 description:                This package provides a simple and high performance IO toolkit for Haskell, including
                             packed vectors, unicode texts, socket, file system, timers and more!
 license:                    BSD3
-license-file:               ../LICENSE
+license-file:               LICENSE
 author:                     Dong Han, Tao He
 maintainer:                 winterland1989@gmail.com
 copyright:                  (c) Dong Han, 2017-2019
@@ -15,9 +15,9 @@ cabal-version:              >=1.10
 homepage:                   https://github.com/haskell-stdio/stdio
 bug-reports:                https://github.com/haskell-stdio/stdio/issues
 
-extra-source-files:         ../ChangeLog.md
-                            ../README.md
-                            ../LICENSE
+extra-source-files:         ChangeLog.md
+                            README.md
+                            LICENSE
 
                             include/bytes.h
                             include/dtoa.h
@@ -84,7 +84,7 @@ library
                             Std.Data.Vector.FlatSet
                             Std.Data.PrimArray.Cast
                             Std.Data.PrimArray.QQ
-                            Std.Data.PrimArray.BitTwiddle
+                            -- Std.Data.PrimArray.BitTwiddle
                             Std.Data.PrimArray.UnalignedAccess
 
                             Std.Data.Text
@@ -173,7 +173,10 @@ library
     default-language:       Haskell2010
     build-tools:            hsc2hs, hspec-discover
     cc-options:             -march=native
-    ghc-options:            -Wall
+    ghc-options:            -Wall 
+                            -Wno-unticked-promoted-constructors
+                            -Wno-incomplete-patterns
+                            -- ploymorphic pattern synonym messed exhaustiveness checker
 
 test-suite std-data-test
     type:                   exitcode-stdio-1.0

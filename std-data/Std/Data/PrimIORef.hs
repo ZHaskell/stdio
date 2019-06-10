@@ -1,4 +1,6 @@
-{-# LANGUAGE MagicHash, UnboxedTuples #-}
+{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
+{-# LANGUAGE BangPatterns #-}
 
 {-|
 Module      :  Std.Data.PrimIORef
@@ -53,7 +55,6 @@ import Data.Primitive.Types
 import Data.Primitive.ByteArray
 import GHC.Prim
 import GHC.Types
-import GHC.ST
 import GHC.IO(stToIO)
 import Std.Data.PrimSTRef.Base
 
@@ -62,7 +63,7 @@ newtype PrimIORef a = PrimIORef (PrimSTRef RealWorld a)
 
 -- | Build a new 'PrimIORef'
 newPrimIORef :: Prim a => a -> IO (PrimIORef a)
-newPrimIORef init = PrimIORef `fmap` stToIO (newPrimSTRef init)
+newPrimIORef x = PrimIORef `fmap` stToIO (newPrimSTRef x)
 {-# INLINE newPrimIORef #-}
 
 -- | Read the value of an 'PrimIORef'
@@ -93,104 +94,104 @@ newCounter = newPrimIORef
 -- | Atomically add a 'Counter', return the value AFTER added.
 atomicAddCounter' :: Counter -> Int -> IO Int
 atomicAddCounter' (PrimIORef (PrimSTRef (MutableByteArray mba#))) (I# x#) = IO $ \ s1# ->
-    let (# s2#, res# #) = fetchAddIntArray# mba# 0# x# s1# in (# s2#, (I# (res# +# x#)) #)
+    let !(# s2#, res# #) = fetchAddIntArray# mba# 0# x# s1# in (# s2#, (I# (res# +# x#)) #)
 
 -- | Atomically add a 'Counter', return the value BEFORE added.
 atomicAddCounter :: Counter -> Int -> IO Int
 atomicAddCounter (PrimIORef (PrimSTRef (MutableByteArray mba#))) (I# x#) = IO $ \ s1# ->
-    let (# s2#, res# #) = fetchAddIntArray# mba# 0# x# s1# in (# s2#, (I# res#) #)
+    let !(# s2#, res# #) = fetchAddIntArray# mba# 0# x# s1# in (# s2#, (I# res#) #)
 
 -- | Atomically add a 'Counter'.
 atomicAddCounter_ :: Counter -> Int -> IO ()
 atomicAddCounter_ (PrimIORef (PrimSTRef (MutableByteArray mba#))) (I# x#) = IO $ \ s1# ->
-    let (# s2#, _ #) = fetchAddIntArray# mba# 0# x# s1# in (# s2#, () #)
+    let !(# s2#, _ #) = fetchAddIntArray# mba# 0# x# s1# in (# s2#, () #)
 {-# INLINE atomicAddCounter_ #-}
 
 
 -- | Atomically sub a 'Counter', return the value AFTER subbed.
 atomicSubCounter' :: Counter -> Int -> IO Int
 atomicSubCounter' (PrimIORef (PrimSTRef (MutableByteArray mba#))) (I# x#) = IO $ \ s1# ->
-    let (# s2#, res# #) = fetchSubIntArray# mba# 0# x# s1# in (# s2#, (I# (res# -# x#)) #)
+    let !(# s2#, res# #) = fetchSubIntArray# mba# 0# x# s1# in (# s2#, (I# (res# -# x#)) #)
 
 -- | Atomically sub a 'Counter', return the value BEFORE subbed.
 atomicSubCounter :: Counter -> Int -> IO Int
 atomicSubCounter (PrimIORef (PrimSTRef (MutableByteArray mba#))) (I# x#) = IO $ \ s1# ->
-    let (# s2#, res# #) = fetchSubIntArray# mba# 0# x# s1# in (# s2#, (I# res#) #)
+    let !(# s2#, res# #) = fetchSubIntArray# mba# 0# x# s1# in (# s2#, (I# res#) #)
 
 -- | Atomically sub a 'Counter'
 atomicSubCounter_ :: Counter -> Int -> IO ()
 atomicSubCounter_ (PrimIORef (PrimSTRef (MutableByteArray mba#))) (I# x#) = IO $ \ s1# ->
-    let (# s2#, _ #) = fetchSubIntArray# mba# 0# x# s1# in (# s2#, () #)
+    let !(# s2#, _ #) = fetchSubIntArray# mba# 0# x# s1# in (# s2#, () #)
 {-# INLINE atomicSubCounter_ #-}
 
 -- | Atomically and a 'Counter', return the value AFTER anded.
 atomicAndCounter' :: Counter -> Int -> IO Int
 atomicAndCounter' (PrimIORef (PrimSTRef (MutableByteArray mba#))) (I# x#) = IO $ \ s1# ->
-    let (# s2#, res# #) = fetchAndIntArray# mba# 0# x# s1# in (# s2#, (I# (res# `andI#` x#)) #)
+    let !(# s2#, res# #) = fetchAndIntArray# mba# 0# x# s1# in (# s2#, (I# (res# `andI#` x#)) #)
 {-# INLINE atomicAndCounter' #-}
 
 -- | Atomically and a 'Counter', return the value BEFORE anded.
 atomicAndCounter :: Counter -> Int -> IO Int
 atomicAndCounter (PrimIORef (PrimSTRef (MutableByteArray mba#))) (I# x#) = IO $ \ s1# ->
-    let (# s2#, res# #) = fetchAndIntArray# mba# 0# x# s1# in (# s2#, (I# res#) #)
+    let !(# s2#, res# #) = fetchAndIntArray# mba# 0# x# s1# in (# s2#, (I# res#) #)
 {-# INLINE atomicAndCounter #-}
 
 -- | Atomically and a 'Counter'
 atomicAndCounter_ :: Counter -> Int -> IO ()
 atomicAndCounter_ (PrimIORef (PrimSTRef (MutableByteArray mba#))) (I# x#) = IO $ \ s1# ->
-    let (# s2#, res# #) = fetchAndIntArray# mba# 0# x# s1# in (# s2#, () #)
+    let !(# s2#, _ #) = fetchAndIntArray# mba# 0# x# s1# in (# s2#, () #)
 {-# INLINE atomicAndCounter_ #-}
 
 -- | Atomically nand a 'Counter', return the value AFTER nanded.
 atomicNandCounter' :: Counter -> Int -> IO Int
 atomicNandCounter' (PrimIORef (PrimSTRef (MutableByteArray mba#))) (I# x#) = IO $ \ s1# ->
-    let (# s2#, res# #) = fetchNandIntArray# mba# 0# x# s1# in (# s2#, (I# (notI# (res# `andI#` x#))) #)
+    let !(# s2#, res# #) = fetchNandIntArray# mba# 0# x# s1# in (# s2#, (I# (notI# (res# `andI#` x#))) #)
 {-# INLINE atomicNandCounter' #-}
 
 -- | Atomically nand a 'Counter', return the value BEFORE nanded.
 atomicNandCounter :: Counter -> Int -> IO Int
 atomicNandCounter (PrimIORef (PrimSTRef (MutableByteArray mba#))) (I# x#) = IO $ \ s1# ->
-    let (# s2#, res# #) = fetchNandIntArray# mba# 0# x# s1# in (# s2#, (I# res#) #)
+    let !(# s2#, res# #) = fetchNandIntArray# mba# 0# x# s1# in (# s2#, (I# res#) #)
 {-# INLINE atomicNandCounter #-}
 
 -- | Atomically nand a 'Counter'
 atomicNandCounter_ :: Counter -> Int -> IO ()
 atomicNandCounter_ (PrimIORef (PrimSTRef (MutableByteArray mba#))) (I# x#) = IO $ \ s1# ->
-    let (# s2#, res# #) = fetchNandIntArray# mba# 0# x# s1# in (# s2#, () #)
+    let !(# s2#, _ #) = fetchNandIntArray# mba# 0# x# s1# in (# s2#, () #)
 {-# INLINE atomicNandCounter_ #-}
 
 -- | Atomically or a 'Counter', return the value AFTER ored.
 atomicOrCounter' :: Counter -> Int -> IO Int
 atomicOrCounter' (PrimIORef (PrimSTRef (MutableByteArray mba#))) (I# x#) = IO $ \ s1# ->
-    let (# s2#, res# #) = fetchOrIntArray# mba# 0# x# s1# in (# s2#, (I# (res# `orI#` x#)) #)
+    let !(# s2#, res# #) = fetchOrIntArray# mba# 0# x# s1# in (# s2#, (I# (res# `orI#` x#)) #)
 {-# INLINE atomicOrCounter' #-}
 
 -- | Atomically or a 'Counter', return the value BEFORE ored.
 atomicOrCounter :: Counter -> Int -> IO Int
 atomicOrCounter (PrimIORef (PrimSTRef (MutableByteArray mba#))) (I# x#) = IO $ \ s1# ->
-    let (# s2#, res# #) = fetchOrIntArray# mba# 0# x# s1# in (# s2#, (I# res#) #)
+    let !(# s2#, res# #) = fetchOrIntArray# mba# 0# x# s1# in (# s2#, (I# res#) #)
 {-# INLINE atomicOrCounter #-}
 
 -- | Atomically or a 'Counter'
 atomicOrCounter_ :: Counter -> Int -> IO ()
 atomicOrCounter_ (PrimIORef (PrimSTRef (MutableByteArray mba#))) (I# x#) = IO $ \ s1# ->
-    let (# s2#, res# #) = fetchOrIntArray# mba# 0# x# s1# in (# s2#, () #)
+    let !(# s2#, _ #) = fetchOrIntArray# mba# 0# x# s1# in (# s2#, () #)
 {-# INLINE atomicOrCounter_ #-}
 
 -- | Atomically xor a 'Counter', return the value AFTER xored.
 atomicXorCounter' :: Counter -> Int -> IO Int
 atomicXorCounter' (PrimIORef (PrimSTRef (MutableByteArray mba#))) (I# x#) = IO $ \ s1# ->
-    let (# s2#, res# #) = fetchXorIntArray# mba# 0# x# s1# in (# s2#, (I# (res# `xorI#` x#)) #)
+    let !(# s2#, res# #) = fetchXorIntArray# mba# 0# x# s1# in (# s2#, (I# (res# `xorI#` x#)) #)
 {-# INLINE atomicXorCounter' #-}
 
 -- | Atomically xor a 'Counter', return the value BEFORE xored.
 atomicXorCounter :: Counter -> Int -> IO Int
 atomicXorCounter (PrimIORef (PrimSTRef (MutableByteArray mba#))) (I# x#) = IO $ \ s1# ->
-    let (# s2#, res# #) = fetchXorIntArray# mba# 0# x# s1# in (# s2#, (I# res#) #)
+    let !(# s2#, res# #) = fetchXorIntArray# mba# 0# x# s1# in (# s2#, (I# res#) #)
 {-# INLINE atomicXorCounter #-}
 
 -- | Atomically xor a 'Counter'
 atomicXorCounter_ :: Counter -> Int -> IO ()
 atomicXorCounter_ (PrimIORef (PrimSTRef (MutableByteArray mba#))) (I# x#) = IO $ \ s1# ->
-    let (# s2#, res# #) = fetchXorIntArray# mba# 0# x# s1# in (# s2#, () #)
+    let !(# s2#, _ #) = fetchXorIntArray# mba# 0# x# s1# in (# s2#, () #)
 {-# INLINE atomicXorCounter_ #-}

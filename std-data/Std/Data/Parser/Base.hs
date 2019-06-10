@@ -59,8 +59,6 @@ import qualified Control.Monad.Fail                 as Fail
 import qualified Data.CaseInsensitive               as CI
 import qualified Data.Primitive.PrimArray           as A
 import           Data.Int
-import           Data.Typeable
-import qualified Data.List                          as List
 import           Data.Word
 import           GHC.Types
 import           Prelude                            hiding (take, takeWhile)
@@ -201,14 +199,14 @@ finishParsing r = case r of
 -- more bytes (take it as 'endOfInput').
 parseChunks :: Monad m => Parser a -> m V.Bytes -> V.Bytes -> m (V.Bytes, Either ParseError a)
 {-# INLINABLE parseChunks #-}
-parseChunks (Parser p) m inp = go m (p Failure Success inp)
+parseChunks (Parser p) m0 inp = go m0 (p Failure Success inp)
   where
     go m r = case r of
         Partial f -> do
-            inp <- m
-            if V.null inp
+            inp' <- m
+            if V.null inp'
             then go (pure V.empty) (f V.empty)
-            else go m (f inp)
+            else go m (f inp')
         Success a rest    -> pure (rest, Right a)
         Failure errs rest -> pure (rest, Left errs)
 
@@ -224,10 +222,10 @@ infixr 0 <?>
 runAndKeepTrack :: Parser a -> Parser (Result a, [V.Bytes])
 {-# INLINE runAndKeepTrack #-}
 runAndKeepTrack (Parser pa) = Parser $ \ _ k0 inp ->
-    let go !acc r k0 = case r of
-            Partial k      -> Partial (\ inp -> go (inp:acc) (k inp) k0)
-            Success _ inp' -> k0 (r, reverse acc) inp'
-            Failure _ inp' -> k0 (r, reverse acc) inp'
+    let go !acc r k = case r of
+            Partial k'      -> Partial (\ inp' -> go (inp':acc) (k' inp') k)
+            Success _ inp' -> k (r, reverse acc) inp'
+            Failure _ inp' -> k (r, reverse acc) inp'
         r0 = pa Failure Success inp
     in go [inp] r0 k0
 
@@ -242,7 +240,7 @@ match p = do
             Success r' inp'  -> let !consumed = V.dropR (V.length inp') (V.concat (reverse bss))
                                 in k (consumed , r') inp'
             Failure err inp' -> Failure err inp'
-            Partial k        -> error "Std.Data.Parser.Base.match: impossible")
+            Partial _        -> error "Std.Data.Parser.Base.match: impossible")
 
 -- | Ensure that there are at least @n@ bytes available. If not, the
 -- computation will escape with 'Partial'.
@@ -258,7 +256,7 @@ ensureN n0 err = Parser $ \ kf k inp -> do
     else Partial (ensureNPartial l inp kf k)
   where
     {-# INLINABLE ensureNPartial #-}
-    ensureNPartial l inp kf k =
+    ensureNPartial l0 inp0 kf k =
         let go acc !l = \ inp -> do
                 let l' = V.length inp
                 if l' == 0
@@ -270,7 +268,7 @@ ensureN n0 err = Parser $ \ kf k inp -> do
                     else
                         let !inp' = V.concat (reverse (inp:acc))
                         in k () inp'
-        in go [inp] l
+        in go [inp0] l0
 
 -- | Test whether all input has been consumed, i.e. there are no remaining
 -- undecoded bytes. Fail if not 'atEnd'.
@@ -361,7 +359,7 @@ scan :: s -> (s -> Word8 -> Maybe s) -> Parser (V.Bytes, s)
 {-# INLINE scan #-}
 scan s0 f = scanChunks s0 f'
   where
-    f' st (V.PrimVector arr off l) =
+    f' s0' (V.PrimVector arr off l) =
         let !end = off + l
             go !st !i
                 | i < end = do
@@ -373,7 +371,7 @@ scan s0 f = scanChunks s0 f'
                                 !len2 = end - off
                             in Right (V.PrimVector arr off len1, V.PrimVector arr i len2, st)
                 | otherwise = Left st
-        in go s0 off
+        in go s0' off
 
 -- | Similar to 'scan', but working on 'V.Bytes' chunks, The predicate
 -- consumes a 'V.Bytes' chunk and transforms a state argument,
@@ -383,14 +381,14 @@ scan s0 f = scanChunks s0 f'
 --
 scanChunks :: s -> (s -> V.Bytes -> Either s (V.Bytes, V.Bytes, s)) -> Parser (V.Bytes, s)
 {-# INLINE scanChunks #-}
-scanChunks s consume = Parser (\ _ k inp ->
-    case consume s inp of
+scanChunks s0 consume = Parser (\ _ k inp ->
+    case consume s0 inp of
         Right (want, rest, s') -> k (want, s') rest
         Left s' -> Partial (scanChunksPartial s' k inp))
   where
     -- we want to inline consume if possible
     {-# INLINABLE scanChunksPartial #-}
-    scanChunksPartial s' k inp =
+    scanChunksPartial s0' k inp0 =
         let go s acc = \ inp ->
                 if V.null inp
                 then k (V.concat (reverse acc), s) inp
@@ -400,7 +398,7 @@ scanChunks s consume = Parser (\ _ k inp ->
                             Partial (go s' acc')
                         Right (want,rest,s') ->
                             let !r = V.concat (reverse (want:acc)) in k (r, s') rest
-        in go s' [inp]
+        in go s0' [inp0]
 
 --------------------------------------------------------------------------------
 
@@ -592,8 +590,8 @@ takeTill p = Parser (\ _ k inp ->
                 if V.null inp
                 then let !r = V.concat (reverse acc) in k r inp
                 else
-                    let (want, rest) = V.break p inp
-                        acc' = want : acc
+                    let (want', rest) = V.break p inp
+                        acc' = want' : acc
                     in if V.null rest
                         then Partial (go acc')
                         else let !r = V.concat (reverse acc') in k r rest
@@ -617,8 +615,8 @@ takeWhile p = Parser (\ _ k inp ->
                 if V.null inp
                 then let !r = V.concat (reverse acc) in k r inp
                 else
-                    let (want, rest) = V.span p inp
-                        acc' = want : acc
+                    let (want', rest) = V.span p inp
+                        acc' = want' : acc
                     in if V.null rest
                         then Partial (go acc')
                         else let !r = V.concat (reverse acc') in k r rest

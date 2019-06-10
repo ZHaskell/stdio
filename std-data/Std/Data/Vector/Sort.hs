@@ -71,7 +71,6 @@ import           Prelude                hiding (splitAt)
 import           Std.Data.Array
 import           Std.Data.Vector.Base
 import           Std.Data.Vector.Extra
-import           Std.Data.PrimArray.Cast
 
 --------------------------------------------------------------------------------
 -- Comparison Sort
@@ -89,13 +88,13 @@ mergeSort = mergeSortBy compare
 
 mergeSortBy :: forall v a. Vec v a => (a -> a -> Ordering) -> v a -> v a
 {-# INLINE mergeSortBy #-}
-mergeSortBy cmp v@(Vec _ _ l)
-    | l <= mergeTileSize = insertSortBy cmp v
+mergeSortBy cmp vec@(Vec _ _ l)
+    | l <= mergeTileSize = insertSortBy cmp vec
     | otherwise = runST (do
         -- create two worker array
         w1 <- newArr l
         w2 <- newArr l
-        firstPass v 0 w1
+        firstPass vec 0 w1
         w <- mergePass w1 w2 mergeTileSize
         return $! fromArr w 0 l)
   where
@@ -123,18 +122,18 @@ mergeSortBy cmp v@(Vec _ _ l)
             mergeLoop src target blockSiz mergeEnd
 
     mergeBlock !src !target !leftEnd !rightEnd !i !j !k = do
-        l <- readArr src i
-        r <- readArr src j
-        case r `cmp` l of
+        lv <- readArr src i
+        rv <- readArr src j
+        case rv `cmp` lv of
             LT -> do
-                writeArr target k r
+                writeArr target k rv
                 let !j' = j + 1
                     !k' = k + 1
                 if j' >= rightEnd
                 then copyMutableArr target k' src i (leftEnd - i)
                 else mergeBlock src target leftEnd rightEnd i j' k'
             _ -> do
-                writeArr target k l
+                writeArr target k lv
                 let !i' = i + 1
                     !k' = k + 1
                 if i' >= leftEnd
@@ -157,9 +156,8 @@ insertSort = insertSortBy compare
 
 insertSortBy :: Vec v a => (a -> a -> Ordering) -> v a -> v a
 {-# INLINE insertSortBy #-}
-insertSortBy _ v@(Vec _ _ 0) = v
-insertSortBy _ v@(Vec arr s 1) = v
-insertSortBy cmp v@(Vec arr s l) = create l (insertSortToMArr cmp v 0)
+insertSortBy cmp v@(Vec _ _ l) | l <= 1 = v
+                               | otherwise = create l (insertSortToMArr cmp v 0)
 
 insertSortToMArr  :: Vec v a
                   => (a -> a -> Ordering)
@@ -292,9 +290,9 @@ instance Radix a => Radix (RadixDown a) where
 -- vectors (turning point around 2^(2*passes)).
 radixSort :: forall v a. (Vec v a, Radix a) => v a -> v a
 {-# INLINABLE radixSort #-}
-radixSort v@(Vec _ _ 0) = v
-radixSort v@(Vec arr s 1) = v
-radixSort (Vec arr s l) = runST (do
+radixSort v@(Vec arr s l)
+    | l <= 1 = v
+    | otherwise = runST (do
         bucket <- newArrWith buktSiz 0 :: ST s (MutablePrimArray s Int)
         w1 <- newArr l
         firstCountPass arr bucket s
@@ -312,48 +310,48 @@ radixSort (Vec arr s l) = runST (do
     !end = s + l
 
     {-# INLINABLE firstCountPass #-}
-    firstCountPass !arr !bucket !i
+    firstCountPass !arr' !bucket !i
         | i >= end  = return ()
-        | otherwise = case indexArr' arr i of
+        | otherwise = case indexArr' arr' i of
             (# x #) -> do
                 let !r = radixLSB x
                 c <- readArr bucket r
                 writeArr bucket r (c+1)
-                firstCountPass arr bucket (i+1)
+                firstCountPass arr' bucket (i+1)
 
     {-# INLINABLE accumBucket #-}
-    accumBucket !bucket !buktSiz !i !acc
-        | i >= buktSiz = return ()
+    accumBucket !bucket !bsiz !i !acc
+        | i >= bsiz = return ()
         | otherwise = do
             c <- readArr bucket i
             writeArr bucket i acc
-            accumBucket bucket buktSiz (i+1) (acc+c)
+            accumBucket bucket bsiz (i+1) (acc+c)
 
     {-# INLINABLE firstMovePass #-}
-    firstMovePass !arr !i !bucket !w
+    firstMovePass !arr' !i !bucket !w
         | i >= end  = return ()
-        | otherwise = case indexArr' arr i of
+        | otherwise = case indexArr' arr' i of
             (# x #) -> do
                 let !r = radixLSB x
                 c <- readArr bucket r
                 writeArr bucket r (c+1)
                 writeArr w c x
-                firstMovePass arr (i+1) bucket w
+                firstMovePass arr' (i+1) bucket w
 
     {-# INLINABLE radixLoop #-}
-    radixLoop !w1 !w2 !bucket !buktSiz !pass
+    radixLoop !w1 !w2 !bucket !bsiz !pass
         | pass >= passSiz-1 = do
-            setArr bucket 0 buktSiz 0   -- clear the counting bucket
+            setArr bucket 0 bsiz 0   -- clear the counting bucket
             lastCountPass w1 bucket 0
-            accumBucket bucket buktSiz 0 0
+            accumBucket bucket bsiz 0 0
             lastMovePass w1 bucket w2 0
             unsafeFreezeArr w2
         | otherwise = do
-            setArr bucket 0 buktSiz 0   -- clear the counting bucket
+            setArr bucket 0 bsiz 0   -- clear the counting bucket
             countPass w1 bucket pass 0
-            accumBucket bucket buktSiz 0 0
+            accumBucket bucket bsiz 0 0
             movePass w1 bucket pass w2 0
-            radixLoop w2 w1 bucket buktSiz (pass+1)
+            radixLoop w2 w1 bucket bsiz (pass+1)
 
     {-# INLINABLE countPass #-}
     countPass !marr !bucket !pass !i
@@ -487,15 +485,15 @@ mergeDupAdjacentBy eq merger v@(Vec arr s l)
         go arr marr s 1 x0
   where
     !end = s + l
-    go !arr !marr !i !j !x
+    go !arr' !marr !i !j !x
         | i >= end  = return j
         | otherwise = do
-            x' <- indexArrM arr i
+            x' <- indexArrM arr' i
             if x `eq` x'
             then do
                 let !x'' = merger x x'
                 writeArr marr (j-1) x''
-                go arr marr (i+1) j x''
+                go arr' marr (i+1) j x''
             else do
                 writeArr marr j x'
-                go arr marr (i+1) (j+1) x'
+                go arr' marr (i+1) (j+1) x'

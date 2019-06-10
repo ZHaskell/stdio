@@ -45,7 +45,6 @@ import           Control.Applicative
 import           Control.Monad
 import           Data.Bits
 import           Data.Int
-import qualified Data.Primitive.PrimArray  as A
 import qualified Data.Scientific          as Sci
 import           Data.Word
 import           Foreign.Ptr              (IntPtr)
@@ -128,7 +127,7 @@ decLoop :: Integral a
         -> V.Bytes
         -> a
 {-# INLINE decLoop #-}
-decLoop a bs@(V.PrimVector arr s l) = V.foldl' step a bs
+decLoop = V.foldl' step
   where step a w = a * 10 + fromIntegral (w - 48)
 
 -- | decode digits sequence within an array.
@@ -256,9 +255,9 @@ scientificallyInternal h = do
                 if ilen + flen <= WORD64_MAX_DIGITS_LEN
                 then fromIntegral (decLoop @Word64 (decLoop @Word64 0 intPart) fracPart)
                 else
-                    let int = decLoopIntegerFast intPart
-                        frac = decLoopIntegerFast fracPart
-                    in int * 10 ^ flen + frac
+                    let i = decLoopIntegerFast intPart
+                        f = decLoopIntegerFast fracPart
+                    in i * 10 ^ flen + f
         parseE base flen) <|> (parseE (decLoopIntegerFast intPart) 0)
 
     pure $! if sign /= MINUS then h sci else h (negate sci)
@@ -360,20 +359,20 @@ scientificallyInternal' h = do
                     if ilen + flen <= WORD64_MAX_DIGITS_LEN
                     then fromIntegral (decLoop @Word64 (decLoop @Word64 0 intPart) fracPart)
                     else
-                        let int = decLoopIntegerFast intPart
-                            frac = decLoopIntegerFast fracPart
-                        in int * 10 ^ flen + frac
+                        let i = decLoopIntegerFast intPart
+                            f = decLoopIntegerFast fracPart
+                        in i * 10 ^ flen + f
             parseE base flen
         _ -> parseE (decLoopIntegerFast intPart) 0
     pure $! if sign /= MINUS then h sci else h (negate sci)
   where
     {-# INLINE parseE #-}
-    parseE !c !exp = do
+    parseE !c !e = do
         me <- P.peekMaybe
-        exp' <- case me of
-            Just e | e == LITTLE_E || e == BIG_E -> P.skipWord8 *> int
+        e' <- case me of
+            Just ec | ec == LITTLE_E || ec == BIG_E -> P.skipWord8 *> int
             _ -> pure 0
-        pure $! Sci.scientific c (exp' - exp)
+        pure $! Sci.scientific c (e' - e)
 
 --------------------------------------------------------------------------------
 

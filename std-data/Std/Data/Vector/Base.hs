@@ -90,6 +90,8 @@ module Std.Data.Vector.Base (
   , castVector
   -- * C FFI
   , c_strcmp
+  , c_memchr
+  , c_memrchr
   , c_strlen
   , c_ascii_validate_addr
   , c_fnv_hash_addr
@@ -104,27 +106,22 @@ import           Data.Bits
 import           Data.Char                     (ord)
 import           Data.Data
 import qualified Data.Foldable                 as F
-import           Data.Functor.Identity
-import           Data.Hashable                 (Hashable(..), hashByteArrayWithSalt)
+import           Data.Hashable                 (Hashable(..))
 import           Data.Hashable.Lifted          (Hashable1(..), hashWithSalt1)
 import qualified Data.List                     as List
 import           Data.Maybe
 import           Data.Monoid                   (Monoid (..))
 import qualified Data.CaseInsensitive          as CI
 import           Data.Primitive
-import           Data.Primitive.PrimArray
-import           Data.Primitive.SmallArray
 import           Data.Primitive.Ptr
 import           Data.Semigroup                (Semigroup ((<>)))
 import           Data.String                   (IsString(..))
 import qualified Data.Traversable              as T
-import           Data.Typeable
 import           Foreign.C
 import           GHC.CString
 import           GHC.Exts                      (build)
 import           GHC.Stack
 import           GHC.Prim
-import           GHC.Ptr
 import           GHC.Types
 import           GHC.Word
 import           Prelude                       hiding (concat, concatMap,
@@ -136,7 +133,6 @@ import           Test.QuickCheck.Arbitrary (Arbitrary(..), CoArbitrary(..))
 import           System.IO.Unsafe              (unsafeDupablePerformIO)
 
 import           Std.Data.Array
-import           Std.Data.PrimArray.BitTwiddle (c_memchr)
 import           Std.Data.PrimArray.Cast
 
 -- | Typeclass for box and unboxed vectors, which are created by slicing arrays.
@@ -295,7 +291,7 @@ instance Hashable a => Hashable (Vector a) where
 
 instance Hashable1 Vector where
     {-# INLINE liftHashWithSalt #-}
-    liftHashWithSalt h salt (Vector arr s l) = hashWithSalt (go salt s) l
+    liftHashWithSalt h salt0 (Vector arr s l) = hashWithSalt (go salt0 s) l
       where
         !end = s + l
         go !salt !i
@@ -360,7 +356,7 @@ traverseWithIndex_ f (Vec arr s l) = go s
   where
     end = s + l
     go !i
-        | i >= l = pure ()
+        | i >= end = pure ()
         | otherwise = f (i-s) (indexArr arr i) *> go (i+1)
 
 --------------------------------------------------------------------------------
@@ -386,15 +382,15 @@ instance (Prim a, Eq a) => Eq (PrimVector a) where
 
 eqPrimVector :: forall a. Prim a => PrimVector a -> PrimVector a -> Bool
 {-# INLINE eqPrimVector #-}
-eqPrimVector (PrimVector (PrimArray baA#) (I# sA#) lA@(I# lA#))
-             (PrimVector (PrimArray baB#) (I# sB#) lB@(I# lB#))
+eqPrimVector (PrimVector (PrimArray baA#) (I# sA#) lA)
+             (PrimVector (PrimArray baB#) (I# sB#) lB)
     = -- we use memcmp for all primitive vector, ghc emit code to test
       -- pointer equality so we don't have to do it manually here
       lA == lB &&
         0 == I# (compareByteArrays# baA# (sA# *# siz#) baB# (sB# *# siz#) n#)
   where
-    siz@(I# siz#) = sizeOf (undefined :: a)
-    (I# n#) = min (lA*siz) (lB*siz)
+    !siz@(I# siz#) = sizeOf (undefined :: a)
+    !(I# n#) = min (lA*siz) (lB*siz)
 
 instance (Prim a, Ord a) => Ord (PrimVector a) where
     {-# INLINE compare #-}
@@ -420,9 +416,9 @@ comparePrimVector (PrimVector baA sA lA) (PrimVector baB sB lB)
 
 compareBytes :: PrimVector Word8 -> PrimVector Word8 -> Ordering
 {-# INLINE compareBytes #-}
-compareBytes (PrimVector (PrimArray baA#) (I# sA#) lA@(I# lA#))
-             (PrimVector (PrimArray baB#) (I# sB#) lB@(I# lB#)) =
-    let (I# n#) = min lA lB
+compareBytes (PrimVector (PrimArray baA#) (I# sA#) lA)
+             (PrimVector (PrimArray baB#) (I# sB#) lB) =
+    let !(I# n#) = min lA lB
         r = I# (compareByteArrays# baA# sA# baB# sB# n#)
     in case r `compare` 0 of
         EQ  -> lA `compare` lB
@@ -466,7 +462,7 @@ hashWithSaltPrimVector :: (Hashable a, Prim a) => Int -> PrimVector a -> Int
 {-# RULES
     "hashWithSaltPrimVector/Bytes" hashWithSaltPrimVector = hashWithSaltBytes
   #-}
-hashWithSaltPrimVector salt (PrimVector arr s l) = go salt s
+hashWithSaltPrimVector salt0 (PrimVector arr s l) = go salt0 s
   where
     -- we don't do a final hash with length to keep consistent with Bytes's instance
     !end = s + l
@@ -507,10 +503,10 @@ packASCII :: String -> Bytes
 packASCII = pack . fmap (fromIntegral . ord)
 
 packASCIIAddr :: Addr# -> Bytes
-packASCIIAddr addr# = copy addr#
+packASCIIAddr addr0# = go addr0#
   where
-    len = fromIntegral . unsafeDupablePerformIO $ c_strlen addr#
-    copy addr# = runST $ do
+    len = fromIntegral . unsafeDupablePerformIO $ c_strlen addr0#
+    go addr# = runST $ do
         marr <- newPrimArray len
         copyPtrToMutablePrimArray marr 0 (Ptr addr#) len
         arr <- unsafeFreezePrimArray marr
@@ -968,20 +964,20 @@ concat :: forall v a . Vec v a => [v a] -> v a
 concat [v] = v  -- shortcut common case in Parser
 concat vs = case pre 0 0 vs of
     (1, _) -> let Just v = List.find (not . null) vs in v -- there must be a not null vector
-    (_, l) -> create l (copy vs 0)
+    (_, l) -> create l (go vs 0)
   where
     -- pre scan to decide if we really need to copy and calculate total length
     -- we don't accumulate another result list, since it's rare to got empty
     pre :: Int -> Int -> [v a] -> (Int, Int)
     pre !nacc !lacc [] = (nacc, lacc)
-    pre !nacc !lacc (v@(Vec _ _ l):vs)
-        | l <= 0    = pre nacc lacc vs
-        | otherwise = pre (nacc+1) (l+lacc) vs
+    pre !nacc !lacc (Vec _ _ l:vs')
+        | l <= 0    = pre nacc lacc vs'
+        | otherwise = pre (nacc+1) (l+lacc) vs'
 
-    copy :: [v a] -> Int -> MArray v s a -> ST s ()
-    copy [] !_ !_                   = return ()
-    copy (Vec ba s l:vs) !i !marr = do when (l /= 0) (copyArr marr i ba s l)
-                                       copy vs (i+l) marr
+    go :: [v a] -> Int -> MArray v s a -> ST s ()
+    go [] !_ !_                  = return ()
+    go (Vec ba s l:vs') !i !marr = do when (l /= 0) (copyArr marr i ba s l)
+                                      go vs' (i+l) marr
 
 -- | Map a function over a vector and concatenate the results
 concatMap :: Vec v a => (a -> v a) -> v a -> v a
@@ -1253,7 +1249,7 @@ instance NFData a => NFData (IPair a) where
 -- | Unlike 'Functor' instance, this mapping evaluate value inside 'IPair' strictly.
 mapIPair' :: (a -> b) -> IPair a -> IPair b
 {-# INLINE mapIPair' #-}
-mapIPair' f (IPair i v) = let !v' = f v in IPair i (f v)
+mapIPair' f (IPair i v) = let !v' = f v in IPair i v'
 
 iPairToTuple :: IPair a -> (Int, a)
 {-# INLINE iPairToTuple #-}
@@ -1316,3 +1312,11 @@ foreign import ccall unsafe "bytes.h hs_fnv_hash_addr"
 
 foreign import ccall unsafe "bytes.h hs_fnv_hash"
     c_fnv_hash_ba :: ByteArray# -> Int -> Int -> Int -> IO Int
+
+-- HsInt hs_memchr(uint8_t *a, HsInt aoff, uint8_t b, HsInt n);
+foreign import ccall unsafe "hs_memchr" c_memchr ::
+    ByteArray# -> Int -> Word8 -> Int -> Int
+
+-- HsInt hs_memrchr(uint8_t *a, HsInt aoff, uint8_t b, HsInt n);
+foreign import ccall unsafe "hs_memrchr" c_memrchr ::
+    ByteArray# -> Int -> Word8 -> Int -> Int

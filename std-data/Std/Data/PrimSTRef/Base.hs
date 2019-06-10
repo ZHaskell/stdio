@@ -24,7 +24,6 @@ module Std.Data.PrimSTRef.Base
 
 import Data.Primitive.Types
 import Data.Primitive.ByteArray
-import GHC.Prim
 import GHC.ST
 import GHC.Types
 
@@ -35,9 +34,9 @@ newtype PrimSTRef s a = PrimSTRef (MutableByteArray s)
 -- | Build a new 'PrimSTRef'
 --
 newPrimSTRef :: Prim a => a -> ST s (PrimSTRef s a)
-newPrimSTRef init = do
-     mba <- newByteArray (I# (sizeOf# init))
-     writeByteArray mba 0 init
+newPrimSTRef x = do
+     mba <- newByteArray (I# (sizeOf# x))
+     writeByteArray mba 0 x
      return (PrimSTRef mba)
 {-# INLINE newPrimSTRef #-}
 

@@ -2,6 +2,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE UnliftedFFITypes #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE BangPatterns #-}
 {-|
 Module      : Std.Data.CBytes
@@ -50,18 +51,18 @@ module Std.Data.CBytes
   ) where
 
 import           Control.DeepSeq
-import           Control.Exception (throwIO)
+import           Control.Exception (Exception, throwIO)
 import           Control.Monad
 import           Control.Monad.Primitive
 import           Control.Monad.ST
 import           Data.Bits
 import           Data.Foldable           (foldlM)
-import           Data.Hashable           (Hashable(..),
-                                            hashByteArrayWithSalt, hashPtrWithSalt)
+import           Data.Hashable           (Hashable(..))
 import qualified Data.List               as List
 import           Data.Monoid             (Monoid (..))
 import           Data.Semigroup          (Semigroup (..))
 import           Data.String             (IsString (..))
+import           Data.Typeable
 import           Data.Primitive.PrimArray
 import           Data.Word
 import           Foreign.C
@@ -176,8 +177,8 @@ append strA strB
                 copyPtrToMutablePrimArray mpa 0    (castPtr pa) lenA
                 copyPtrToMutablePrimArray mpa lenA (castPtr pb) lenB
                 writePrimArray mpa (lenA + lenB) 0     -- the \NUL terminator
-                pa <- unsafeFreezePrimArray mpa
-                return (CBytesOnHeap pa)
+                pa' <- unsafeFreezePrimArray mpa
+                return (CBytesOnHeap pa')
   where
     lenA = length strA
     lenB = length strB
@@ -188,12 +189,12 @@ empty = CBytesLiteral (Ptr "\0"#)
 
 concat :: [CBytes] -> CBytes
 {-# INLINABLE concat #-}
-concat bs = case pre 0 0 bs of
+concat bss = case pre 0 0 bss of
     (0, _) -> empty
-    (1, _) -> let Just b = List.find (not . null) bs in b -- there must be a not empty CBytes
+    (1, _) -> let Just b = List.find (not . null) bss in b -- there must be a not empty CBytes
     (_, l) -> runST $ do
         buf <- newPinnedPrimArray (l+1)
-        copy bs 0 buf
+        copy bss 0 buf
         writePrimArray buf l 0 -- the \NUL terminator
         CBytesOnHeap <$> unsafeFreezePrimArray buf
   where
@@ -328,18 +329,16 @@ fromCStringMaybe cstring =
         return (Just (CBytesOnHeap pa))
 
 
--- | Same with 'fromCStringMaybe', but throw 'InvalidArgument' when meet a null pointer.
+-- | Same with 'fromCStringMaybe', but throw 'NullPointerException' when meet a null pointer.
 --
 fromCString :: HasCallStack
             => CString
             -> IO CBytes
 {-# INLINABLE fromCString #-}
 fromCString cstring = do
-    -- FIXME
-    -- if cstring == nullPtr
-    -- then throwIO (InvalidArgument
-    --     (IOEInfo "" "unexpected null pointer" callStack))
-    -- else do
+    if cstring == nullPtr
+    then throwIO (NullPointerException callStack)
+    else do
         len <- fromIntegral <$> c_strlen cstring
         mpa <- newPinnedPrimArray (len+1)
         copyPtrToMutablePrimArray mpa 0 (castPtr cstring) len
@@ -355,16 +354,17 @@ fromCStringN :: HasCallStack
             -> IO CBytes
 {-# INLINABLE fromCStringN #-}
 fromCStringN cstring len = do
-    -- FIXME
-    -- if cstring == nullPtr
-    -- then throwIO (InvalidArgument
-    --     (IOEInfo "" "unexpected null pointer" callStack))
-    -- else do
+    if cstring == nullPtr
+    then throwIO (NullPointerException callStack)
+    else do
         mpa <- newPinnedPrimArray (len+1)
         copyPtrToMutablePrimArray mpa 0 (castPtr cstring) len
         writePrimArray mpa len 0     -- the \NUL terminator
         pa <- unsafeFreezePrimArray mpa
         return (CBytesOnHeap pa)
+
+data NullPointerException = NullPointerException CallStack deriving (Show, Typeable)
+instance Exception NullPointerException
 
 -- | Pass 'CBytes' to foreign function as a @const char*@.
 --
