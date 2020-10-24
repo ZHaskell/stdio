@@ -1,6 +1,8 @@
 Haskell stdio: haskell standard input and output
 ================================================
 
+**This project is moved to [project Z](https://github.com/haskell-Z/Z) and split into several packages**.
+
 [![Linux Build Status](https://img.shields.io/travis/haskell-stdio/stdio/master.svg?label=Linux%20build)](https://travis-ci.org/haskell-stdio/stdio)
 [![Windows Build Status](https://img.shields.io/appveyor/ci/winterland1989/stdio-7usux/master.svg?label=Windows%20build)](https://ci.appveyor.com/project/winterland1989/stdio-7usux/branch/master)
 
